@@ -11,7 +11,7 @@ from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-# from app.core.database import Base
+from app.core.database import Base
 
 class UserRole(Base):
     """Representa la asignación de un rol a un usuario.

@@ -11,7 +11,7 @@ from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-# from app.core.database import Base
+from app.core.database import Base
 
 class User(Base):
     """Representa un usuario del sistema.
