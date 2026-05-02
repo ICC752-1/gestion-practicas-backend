@@ -1,7 +1,7 @@
-"""SQLAlchemy model for authorization roles.
+"""Modelo ORM de roles.
 
-This module defines the `Role` ORM entity used by the authentication/authorization
-module.
+Este módulo define la entidad `Role` utilizada por el sistema de autenticación y
+autorización.
 """
 
 from datetime import datetime, timezone
