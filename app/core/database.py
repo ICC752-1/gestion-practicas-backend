@@ -3,12 +3,12 @@
 Este módulo centraliza la configuración mínima de SQLAlchemy para la aplicación:
 
 - `Base`: clase base declarativa para modelos ORM.
-- `engine`: motor de conexión creado a partir de `config.DATABASE_URL`.
-- `SessionLocal`: factoría de sesiones para crear `Session` vinculadas al motor.
+- `engine`: motor asíncrono creado a partir de `config.DATABASE_URL`.
+- `SessionLocal`: factoría de sesiones para crear `AsyncSession` vinculadas al motor.
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import config
 
@@ -22,10 +22,10 @@ class Base(DeclarativeBase):
 
     pass
 
-engine = create_engine(config.DATABASE_URL)
+engine = create_async_engine(config.DATABASE_URL)
 
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
+SessionLocal = async_sessionmaker(
     bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
