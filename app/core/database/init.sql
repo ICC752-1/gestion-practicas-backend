@@ -132,7 +132,23 @@ CREATE OR REPLACE FUNCTION fn_audit_business_logic()
 RETURNS TRIGGER AS $$
 DECLARE
     current_user_id INTEGER;
+    entity_enum "enumEntity";
 BEGIN
+    entity_enum := CASE lower(TG_TABLE_NAME)
+        WHEN 'users' THEN 'Usuario'::"enumEntity"
+        WHEN 'internship' THEN 'Practica'::"enumEntity"
+        WHEN 'document' THEN 'Documento'::"enumEntity"
+        WHEN 'presentation' THEN 'Presentacion'::"enumEntity"
+        WHEN 'roles' THEN 'Rol'::"enumEntity"
+        WHEN 'currentstate' THEN 'Estado'::"enumEntity"
+        ELSE NULL
+    END;
+
+    IF entity_enum IS NULL THEN
+        RAISE EXCEPTION 'No enumEntity mapping for table %', TG_TABLE_NAME
+            USING ERRCODE = '22023';
+    END IF;
+
     BEGIN
         current_user_id := current_setting('app.current_user_id')::INTEGER;
     EXCEPTION WHEN OTHERS THEN
@@ -141,15 +157,15 @@ BEGIN
 
     IF (TG_OP = 'INSERT') THEN
         INSERT INTO LogAction (action, entity, description, new_value, entity_id, user_id)
-        VALUES ('INSERT', TG_TABLE_NAME::"enumEntity", 'Creacion de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('INSERT', entity_enum, 'Creacion de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'UPDATE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, new_value, entity_id, user_id)
-        VALUES ('UPDATE', TG_TABLE_NAME::"enumEntity", 'Actualizacion de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('UPDATE', entity_enum, 'Actualizacion de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'DELETE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, entity_id, user_id)
-        VALUES ('DELETE', TG_TABLE_NAME::"enumEntity", 'Eliminacion de registro', to_jsonb(OLD), OLD.id, current_user_id);
+        VALUES ('DELETE', entity_enum, 'Eliminacion de registro', to_jsonb(OLD), OLD.id, current_user_id);
         RETURN OLD;
     END IF;
 
