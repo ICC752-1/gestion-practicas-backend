@@ -11,10 +11,11 @@ CREATE TYPE "enumCategory" AS ENUM ('Academico', 'Administrativo');
 
 -- 2. Creacion de Tablas
 
-CREATE TABLE Rol (
+CREATE TABLE Roles (
     id SERIAL PRIMARY KEY,
-    role_name "enumRole" NOT NULL,
-    description TEXT NOT NULL
+    name "enumRole" NOT NULL,
+    description TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE CurrentState (
@@ -23,10 +24,12 @@ CREATE TABLE CurrentState (
     description TEXT NOT NULL
 );
 
-CREATE TABLE "User" (
+CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    first_name VARCHAR(255) NOT NULL,
+    last_name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
     rut VARCHAR(100) UNIQUE NOT NULL,
     degree VARCHAR(255),
     cod_degree VARCHAR(100),
@@ -36,7 +39,17 @@ CREATE TABLE "User" (
     position VARCHAR(100),
     departament VARCHAR(100),
     sup_phone VARCHAR(100),
-    id_rol INTEGER NOT NULL REFERENCES Rol(id) 
+
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_roles (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id),
+    role_id INTEGER NOT NULL REFERENCES Roles(id),
+    assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE Internship (
@@ -58,7 +71,7 @@ CREATE TABLE Internship (
     amount INTEGER, 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id), 
-    user_id INTEGER REFERENCES "User"(id) 
+    user_id INTEGER REFERENCES Users(id) 
 );
 
 CREATE TABLE DocumentType (
@@ -78,10 +91,10 @@ CREATE TABLE Document (
     update_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     internship_id INTEGER REFERENCES Internship(id),
     type_id INTEGER REFERENCES DocumentType(id),
-    user_id INTEGER REFERENCES "User"(id)
+    user_id INTEGER REFERENCES Users(id)
 );
 
-CREATE TABLE "Presentation" (
+CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,
     date DATE NOT NULL,
     modality "enumModality" NOT NULL,
@@ -89,7 +102,7 @@ CREATE TABLE "Presentation" (
     result "enumResult",
     comments TEXT,
     internship_id INTEGER REFERENCES Internship(id),
-    user_id INTEGER REFERENCES "User"(id) 
+    user_id INTEGER REFERENCES Users(id) 
 );
 
 CREATE TABLE LogAction (
@@ -101,10 +114,19 @@ CREATE TABLE LogAction (
     old_value JSONB,       
     new_value JSONB,                    
     entity_id INTEGER NOT NULL,         
-    user_id INTEGER REFERENCES "User"(id) 
+    user_id INTEGER REFERENCES Users(id) 
 );
+-- 3. Inserción de datos iniciales mínimos para testear autenticación y autorización
+INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en practicas');
 
--- 2. Funcion del Trigger para automatizar la auditoría
+INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone)
+VALUES ('Juan', 'Pérez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingeniería Civil Informática', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432');
+-- Nota: La contraseña hash corresponde a "my_secure_password"
+
+INSERT INTO user_roles(user_id, role_id) VALUES (1, 1);
+
+
+-- 4. Funcion del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -134,7 +156,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
-CREATE TRIGGER tr_audit_user AFTER INSERT OR UPDATE OR DELETE ON "User" FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_user AFTER INSERT OR UPDATE OR DELETE ON Users FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_internship AFTER INSERT OR UPDATE OR DELETE ON Internship FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_document AFTER INSERT OR UPDATE OR DELETE ON Document FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
-CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON "Presentation" FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Presentation FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
