@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models.user_model import User
 from app.modules.auth.repositories.user_repository import UserRepository
-from app.core.database import get_db
+from app.core.database.database import get_db
 from app.modules.auth.services.token_service import TokenService
 
 

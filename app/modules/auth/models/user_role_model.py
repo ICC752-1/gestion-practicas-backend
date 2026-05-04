@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-from app.core.database import Base
+from app.core.database.database import Base
 
 class UserRole(Base):
     """Representa la asignación de un rol a un usuario.

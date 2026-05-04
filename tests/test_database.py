@@ -1,4 +1,4 @@
-from app.core.database import engine, get_db
+from app.core.database.database import engine, get_db
 from sqlalchemy import text
 
 

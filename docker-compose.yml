@@ -9,5 +9,5 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./app/core/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     # OJO: No se define "volumes" al final para que los datos mueran con el contenedor ya seran volatiles por el momento

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
-from app.core.database import Base
+from app.core.database.database import Base
 
 class User(Base):
     """Representa un usuario del sistema.
