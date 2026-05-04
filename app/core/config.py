@@ -1,17 +1,18 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings
+
 
 class Config(BaseSettings):
     """Centraliza las variables de entorno de la aplicacion y sus
     valores por defecto; aca se define y gestiona esa configuracion."""
 
-    #Base de datos
+    # Base de datos
     POSTGRES_HOST: str = ""
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = ""
     POSTGRES_USER: str = ""
     POSTGRES_PASSWORD: str = ""
 
-    #JWT
+    # JWT
     JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
 
@@ -24,10 +25,6 @@ class Config(BaseSettings):
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
-   
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
-        )
+
 
 config = Config()
