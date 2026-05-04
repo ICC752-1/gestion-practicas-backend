@@ -8,6 +8,7 @@ dependencies = [
     "chardet>=7.4.3",
     "fastapi>=0.136.1",
     "pwdlib>=0.3.0",
+    "asyncpg>=0.30.0",
     "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
@@ -19,5 +20,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.2.0",
     "ruff>=0.15.12",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
