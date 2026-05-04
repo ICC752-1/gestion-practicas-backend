@@ -5,10 +5,8 @@ autorización.
 """
 
 from datetime import datetime, timezone
-from uuid import uuid4, UUID
 
-from sqlalchemy import Boolean, DateTime, String
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database import Base
@@ -21,7 +19,7 @@ class User(Base):
     `UserRole`).
 
     Attributes:
-        id: Identificador UUID del usuario (clave primaria).
+        id: Identificador entero del usuario (clave primaria).
         email: Correo electrónico único del usuario.
         password_hash: Hash de la contraseña del usuario.
         is_active: Indica si la cuenta está activa.
@@ -32,7 +30,7 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 

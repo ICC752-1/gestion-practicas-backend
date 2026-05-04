@@ -5,10 +5,8 @@ autorización.
 """
 
 from datetime import datetime, timezone
-from uuid import uuid4, UUID
 
-from sqlalchemy import DateTime, String
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,7 +18,7 @@ class Role(Base):
     usuarios (normalmente mediante una tabla de asociación, p. ej. `UserRole`).
 
     Attributes:
-        id: Identificador UUID del rol (clave primaria).
+        id: Identificador entero del rol (clave primaria).
         name: Nombre único del rol.
         description: Descripción legible del rol.
         created_at: Marca temporal (UTC) de creación/última actualización.
@@ -29,7 +27,7 @@ class Role(Base):
 
     __tablename__ = "roles"
 
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     description: Mapped[str] = mapped_column(String(255), nullable=False)
 
