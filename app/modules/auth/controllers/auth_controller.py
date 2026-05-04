@@ -4,6 +4,8 @@ Este módulo define las rutas HTTP relacionadas con autenticación y obtención 
 información del usuario autenticado.
 """
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +27,10 @@ from app.modules.auth.services.token_service import TokenService
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/login", response_model=TokenResponse)
-async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    credentials: LoginRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
     """Inicia sesión y devuelve tokens de acceso y refresco.
 
     Valida las credenciales y, si son correctas, emite un `TokenResponse`.
@@ -59,7 +64,9 @@ async def login(credentials: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
 
 @router.get("/me", response_model=CurrentUserResponse)
-async def get_me(current_user: User = Depends(get_current_user)) -> CurrentUserResponse:
+async def get_me(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> CurrentUserResponse:
     """Devuelve información del usuario autenticado.
 
     Args:

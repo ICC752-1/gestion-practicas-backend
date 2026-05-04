@@ -5,6 +5,7 @@ verifica si el usuario autenticado posee al menos uno de los roles permitidos.
 """
 
 from collections.abc import Awaitable, Callable
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
@@ -29,7 +30,9 @@ def require_roles(allowed_roles: list[str]) -> Callable[..., Awaitable[User]]:
         HTTPException: Con código 403 si el usuario no posee roles suficientes.
     """
     
-    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
+    async def role_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
         """Verifica roles del usuario autenticado.
 
         Args:

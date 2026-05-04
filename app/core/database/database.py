@@ -42,7 +42,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
     Uso en un router:
         @router.get("/ejemplo")
-        def mi_endpoint(db: AsyncSession = Depends(get_db)):
+        def mi_endpoint(db: Annotated[AsyncSession, Depends(get_db)]):
             ...
     """
 
