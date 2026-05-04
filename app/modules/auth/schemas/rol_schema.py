@@ -5,7 +5,6 @@ actualización, consulta y asignación de roles.
 """
 
 from datetime import datetime
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,7 +51,7 @@ class RoleResponse(BaseModel):
     a partir de instancias ORM.
 
     Attributes:
-        id: Identificador UUID del rol.
+        id: Identificador entero del rol.
         name: Nombre del rol.
         description: Descripción del rol (opcional).
         created_at: Marca temporal de creación/última actualización del rol.
@@ -60,7 +59,7 @@ class RoleResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: int
     name: str
     description: str | None
     created_at: datetime
@@ -70,10 +69,10 @@ class AssignRoleRequest(BaseModel):
     """Payload de solicitud para asignar un rol a un usuario.
 
     Attributes:
-        role_id: Identificador UUID del rol a asignar.
+        role_id: Identificador entero del rol a asignar.
     """
 
-    role_id: UUID
+    role_id: int
 
 
 class UserRoleResponse(BaseModel):
@@ -83,11 +82,11 @@ class UserRoleResponse(BaseModel):
     a partir de instancias ORM.
 
     Attributes:
-        id: Identificador UUID del rol.
+        id: Identificador entero del rol.
         name: Nombre del rol.
     """
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: int
     name: str

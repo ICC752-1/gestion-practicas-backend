@@ -5,7 +5,6 @@ salida (respuestas) relacionados con usuarios y su información de sesión.
 """
 
 from datetime import datetime
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -76,7 +75,7 @@ class UserResponse(BaseModel):
     a partir de instancias ORM.
 
     Attributes:
-        id: Identificador UUID del usuario.
+        id: Identificador entero del usuario.
         email: Correo electrónico del usuario.
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
@@ -87,7 +86,7 @@ class UserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: int
     email: EmailStr
     first_name: str
     last_name: str
@@ -103,7 +102,7 @@ class CurrentUserResponse(BaseModel):
     cliente o en capas superiores.
 
     Attributes:
-        id: Identificador UUID del usuario.
+        id: Identificador entero del usuario.
         email: Correo electrónico del usuario.
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
@@ -112,7 +111,7 @@ class CurrentUserResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    id: int
     email: EmailStr
     first_name: str
     last_name: str

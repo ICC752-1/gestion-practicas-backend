@@ -5,8 +5,6 @@ operaciones de persistencia relacionadas con la entidad `User` usando una sesió
 asíncrona de SQLAlchemy.
 """
 
-from uuid import UUID
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -50,14 +48,14 @@ class UserRepository:
         
         return result.scalar_one_or_none()
     
-    async def get_user_by_id(self, user_id:UUID) -> User | None:
+    async def get_user_by_id(self, user_id: int) -> User | None:
         """Obtiene un usuario por su identificador.
 
         La consulta incluye carga ansiosa de roles asociados (`User.roles`) y de
         la relación hacia `Role` a través de `UserRole`.
 
         Args:
-            user_id: Identificador UUID del usuario.
+            user_id: Identificador entero del usuario.
 
         Returns:
             La entidad `User` si existe; `None` si no se encuentra.
