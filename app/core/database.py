@@ -10,7 +10,7 @@ Este módulo centraliza la configuración mínima de SQLAlchemy para la aplicaci
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from typing import Generator
+from collections.abc import AsyncGenerator
 
 from app.core.config import config
 
@@ -23,13 +23,7 @@ class Base(DeclarativeBase):
 
     pass
 
-# 1. Comenta la línea original (ponle un # al principio)
-# SQLALCHEMY_DATABASE_URL = config.DATABASE_URL 
-
-# 2. Escribe esta línea justo debajo con la clave manual
-SQLALCHEMY_DATABASE_URL = "postgresql+psycopg://internship_user:your_secure_password@localhost:5432/internship"
-
-engine = create_async_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_async_engine(config.DATABASE_URL)
 
 SessionLocal = async_sessionmaker(
     bind=engine,
@@ -37,7 +31,7 @@ SessionLocal = async_sessionmaker(
     expire_on_commit=False,
 )
 
-def get_db() -> Generator[AsyncSession, None, None]:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Generador de sesiones de base de datos para inyeccion de dependencias.
 
@@ -50,9 +44,5 @@ def get_db() -> Generator[AsyncSession, None, None]:
             ...
 
     """
-    db = SessionLocal()
-    try:
-        yield db
-
-    finally:
-        db.close()
+    async with SessionLocal() as session:
+        yield session
