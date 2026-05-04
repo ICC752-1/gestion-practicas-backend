@@ -7,9 +7,11 @@ autorización.
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database.database import Base
+
 
 class Role(Base):
     """Representa un rol de autorización del sistema.
@@ -28,9 +30,24 @@ class Role(Base):
     __tablename__ = "roles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(
+        PGEnum(
+            "Estudiante",
+            "Supervisor de practica",
+            "Encargado de practica",
+            "Director de carrera",
+            "Secretaria de Carrera",
+            name="enumRole",
+            create_type=False,
+        ),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
     description: Mapped[str] = mapped_column(String(255), nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    users = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
+    users = relationship(
+        "UserRole", back_populates="role", cascade="all, delete-orphan"
+    )

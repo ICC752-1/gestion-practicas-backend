@@ -11,6 +11,7 @@ from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database.database import Base
 
+
 class UserRole(Base):
     """Representa la asignación de un rol a un usuario.
 
@@ -31,19 +32,17 @@ class UserRole(Base):
 
     __tablename__ = "user_roles"
 
-    __table_args__ = (
-        UniqueConstraint(
-            "user_id",
-            "role_id",
-            name="uq_user_role"
-        ),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "role_id", name="uq_user_role"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    role_id: Mapped[int] = mapped_column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+    )
 
     assigned_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    user = relationship("User",back_populates="roles")
-    role = relationship("Role",back_populates="users")
+    user = relationship("User", back_populates="roles")
+    role = relationship("Role", back_populates="users")
