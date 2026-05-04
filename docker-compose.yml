@@ -1,4 +1,19 @@
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: internship_backend
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    restart: unless-stopped
+
   db:
     image: postgres:15
     container_name: internship_db
@@ -11,3 +26,4 @@ services:
     volumes:
       - ./app/core/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     # OJO: No se define "volumes" al final para que los datos mueran con el contenedor ya seran volatiles por el momento
+    restart: unless-stopped
