@@ -1,7 +1,7 @@
--- 1. Creación de Enumeraciones (Enums)
+-- 1. Creacion de Enumeraciones (Enums)
 CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Practica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
+CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Practica', 'Documento', 'Presentacion', 'Estado', 'Rol', 'Configuracion');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
 CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Hibrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
@@ -9,7 +9,7 @@ CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
 CREATE TYPE "enumCategory" AS ENUM ('Academico', 'Administrativo');
 
--- 2. Creación de Tablas
+-- 2. Creacion de Tablas
 
 CREATE TABLE Rol (
     id SERIAL PRIMARY KEY,
@@ -104,7 +104,7 @@ CREATE TABLE LogAction (
     user_id INTEGER REFERENCES "User"(id) 
 );
 
--- 2. Función del Trigger para automatizar la auditoría
+-- 2. Funcion del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -118,15 +118,15 @@ BEGIN
 
     IF (TG_OP = 'INSERT') THEN
         INSERT INTO LogAction (action, entity, description, new_value, entity_id, user_id)
-        VALUES ('INSERT', TG_TABLE_NAME::"enumEntity", 'Creación de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('INSERT', TG_TABLE_NAME::"enumEntity", 'Creacion de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'UPDATE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, new_value, entity_id, user_id)
-        VALUES ('UPDATE', TG_TABLE_NAME::"enumEntity", 'Actualización de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('UPDATE', TG_TABLE_NAME::"enumEntity", 'Actualizacion de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'DELETE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, entity_id, user_id)
-        VALUES ('DELETE', TG_TABLE_NAME::"enumEntity", 'Eliminación de registro', to_jsonb(OLD), OLD.id, current_user_id);
+        VALUES ('DELETE', TG_TABLE_NAME::"enumEntity", 'Eliminacion de registro', to_jsonb(OLD), OLD.id, current_user_id);
         RETURN OLD;
     END IF;
     RETURN NULL;
