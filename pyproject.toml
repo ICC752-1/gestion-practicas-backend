@@ -5,8 +5,10 @@ description = "Repositorio backend para Sistema Gestor de Prácticas UFRO-DCI"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "chardet>=7.4.3",
     "fastapi>=0.136.1",
     "pwdlib>=0.3.0",
+    "psycopg2-binary>=2.9.12",
     "pydantic>=2.13.3",
     "pydantic-settings>=2.14.0",
     "pyjwt>=2.12.1",
