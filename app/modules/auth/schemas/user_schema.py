@@ -20,6 +20,8 @@ class UserCreateRequest(BaseModel):
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
         last_name: Apellido(s) del usuario.
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
+        rut: Identificador RUT del usuario.
+            Restricciones: longitud máxima 100 caracteres.
     """
 
     email: EmailStr
@@ -35,6 +37,11 @@ class UserCreateRequest(BaseModel):
     )
 
     last_name: str = Field(
+        min_length=1,
+        max_length=100,
+    )
+
+    rut: str = Field(
         min_length=1,
         max_length=100,
     )
@@ -116,4 +123,3 @@ class CurrentUserResponse(BaseModel):
     first_name: str
     last_name: str
     roles: list[str]
-    
