@@ -1,0 +1,1 @@
+"""Internship Pydantic schemas."""

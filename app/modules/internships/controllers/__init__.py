@@ -1,0 +1,1 @@
+"""Internship HTTP controllers."""
