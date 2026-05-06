@@ -4,6 +4,7 @@ Este módulo define las rutas HTTP relacionadas con autenticación y obtención 
 información del usuario autenticado.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -25,6 +26,7 @@ from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.token_service import TokenService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+logger = logging.getLogger(__name__)
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
@@ -55,8 +57,9 @@ async def login(
     )
 
     try:
+        logger.info("Login request received")
         return await auth_service.login(email=credentials.email, password=credentials.password)
-    
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
