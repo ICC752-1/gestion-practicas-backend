@@ -4,6 +4,7 @@ Este módulo define dependencias de FastAPI para extraer el usuario autenticado
 desde un token OAuth2 (Bearer) y validar su estado.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -17,6 +18,7 @@ from app.modules.auth.services.token_service import TokenService
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+logger = logging.getLogger(__name__)
 
 async def get_current_user(
     token: Annotated[str, Depends(oauth2_scheme)],
@@ -48,7 +50,19 @@ async def get_current_user(
     try:
         payload = token_service.decode_token(token)
 
+    except ValueError as exc:
+        if str(exc) == "Token ha expirado":
+            logger.warning("JWT token expired")
+        else:
+            logger.warning("Invalid JWT token")
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
     except Exception:
+        logger.error("Unexpected error while decoding JWT token", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
@@ -57,6 +71,7 @@ async def get_current_user(
     user_id = payload.get("sub")
 
     if not user_id:
+        logger.warning("JWT token payload is missing subject")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload"
@@ -65,6 +80,7 @@ async def get_current_user(
     try:
         user_id_int = int(user_id)
     except (TypeError, ValueError):
+        logger.warning("JWT token subject is invalid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload"
@@ -74,12 +90,14 @@ async def get_current_user(
     user = await user_repository.get_user_by_id(user_id_int)
 
     if not user:
+        logger.warning("User from JWT token was not found")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
-    
+
     if not user.is_active:
+        logger.warning("Inactive user attempted to access a protected endpoint")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Inactive user"

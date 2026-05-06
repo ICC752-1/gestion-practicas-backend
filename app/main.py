@@ -1,10 +1,30 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+
+from app.core.logging.logging import setup_logging
 from app.modules.auth.controllers.auth_controller import router as auth_router
 from app.modules.internships.controllers.internship_controller import (
     router as internships_router,
 )
 
-app = FastAPI()
+import logging
+
+
+setup_logging()
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    logger.info("Application startup completed")
+    yield
+    logger.info("Application shutdown completed")
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
 app.include_router(internships_router)
