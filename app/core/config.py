@@ -19,6 +19,14 @@ class Config(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Logging
+    LOG_DIR: str = "logs"
+    LOG_FILE_NAME: str = "gestion_practicas.jsonl"
+    LOG_ERROR_FILE_NAME: str = "gestion_practicas_errors.jsonl"
+    LOG_LEVEL: str = "INFO"
+    LOG_MAX_BYTES: int = 10485760
+    LOG_BACKUP_COUNT: int = 5
+
     @property
     def DATABASE_URL(self) -> str:
         return (

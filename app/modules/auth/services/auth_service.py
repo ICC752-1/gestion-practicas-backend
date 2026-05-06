@@ -4,10 +4,15 @@ Este módulo define `AuthService`, encargado de autenticar usuarios y emitir
 tokens de acceso/refresh a partir de credenciales válidas.
 """
 
+import logging
+
 from app.modules.auth.schemas.token_schema import TokenResponse
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.token_service import TokenService
+
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -53,13 +58,15 @@ class AuthService:
         user = await self.user_repository.get_user_by_email(email)
 
         if not user:
+            logger.warning("Login attempt failed: user not found")
             return None
-        
+
         is_valid_password = self.password_service.verify_password(password, user.password_hash)
 
         if not is_valid_password:
+            logger.warning("Login attempt failed: invalid credentials")
             return None
-        
+
         return user
 
     async def login(self, email:str, password:str) -> TokenResponse:
@@ -83,11 +90,12 @@ class AuthService:
 
         if not user:
             raise ValueError("Invalid credentials")
-        
+
         roles = [user_role.role.name for user_role in user.roles]
-        
-        
+
         access_token = self.token_service.create_access_token(subject=str(user.id), email=user.email, roles=roles)
         refresh_token = self.token_service.create_refresh_token(subject=str(user.id))
+
+        logger.info("User authenticated successfully")
 
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
