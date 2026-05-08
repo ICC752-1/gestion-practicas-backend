@@ -40,3 +40,59 @@ def test_internship_create_request_rejects_end_date_before_start_date() -> None:
 
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
+
+
+@pytest.mark.parametrize("invalid_modality", ["Online", "Híbrido", ""])
+def test_internship_create_request_rejects_invalid_modality(
+    invalid_modality: str,
+) -> None:
+    payload = _valid_payload()
+    payload["modality"] = invalid_modality
+
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)
+
+
+def test_internship_create_request_rejects_negative_amount() -> None:
+    payload = _valid_payload()
+    payload["amount"] = -1
+
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)
+
+
+def test_internship_create_request_allows_optional_fields_to_be_omitted() -> None:
+    payload = _valid_payload()
+    payload.pop("org_phone")
+    payload.pop("web")
+    payload.pop("amount")
+
+    internship = InternshipCreateRequest(**payload)
+
+    assert internship.org_phone is None
+    assert internship.web is None
+    assert internship.amount is None
+
+
+@pytest.mark.parametrize(
+    "required_field",
+    [
+        "org_name",
+        "sector",
+        "address",
+        "city",
+        "schedule",
+        "days",
+        "internship_address",
+        "act_description",
+        "ben_description",
+    ],
+)
+def test_internship_create_request_rejects_blank_required_text(
+    required_field: str,
+) -> None:
+    payload = _valid_payload()
+    payload[required_field] = ""
+
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)
