@@ -78,7 +78,7 @@ La integración de cambios se realizará exclusivamente mediante **Pull Requests
 2. Implementar cambios.  
 3. Realizar commits siguiendo la convención establecida.  
 4. Publicar la rama en el repositorio remoto.  
-5. Crear Pull Request hacia `develop`.
+5. Crear Pull Request hacia `develop` desde la plataforma remota (GitHub).
 
 ### 3.2 Normativas
 
@@ -144,7 +144,56 @@ Interpretación:
 * Rutas de API: minúsculas, plurales y en inglés cuando representen recursos. Ejemplo: `/internships`, `/documents/types`.
 * Tablas y modelos ORM: nombres en inglés, alineados con el esquema relacional vigente cuando sea posible.
 
-### 5.3 Buenas prácticas
+### 5.3 Docstrings en Python
+
+Los módulos, clases, funciones públicas, métodos de repositorios, servicios,
+schemas y endpoints deben documentarse con **docstrings** cuando formen parte
+del contrato del backend o contengan lógica relevante.
+
+Lineamientos:
+
+* Idioma: redactar docstrings en **español**, manteniendo nombres técnicos,
+  clases, funciones y campos en inglés.
+* Ubicación: declarar docstring al inicio de cada módulo, clase y función
+  pública.
+* Estilo: usar formato tipo Google con secciones `Args`, `Returns`, `Raises`
+  y `Attributes` cuando correspondan.
+* Módulos: explicar brevemente qué define el archivo y qué responsabilidad
+  cumple dentro de la capa.
+* Clases ORM y schemas: incluir `Attributes` para campos relevantes.
+* Endpoints y servicios: describir propósito, argumentos, retorno y errores
+  esperados.
+* Repositorios: indicar qué consulta o persistencia encapsula cada método.
+* Funciones privadas: documentarlas solo si contienen reglas de negocio,
+  validaciones o decisiones que no sean obvias por su nombre.
+
+Ejemplo recomendado:
+
+```python
+async def get_internship(
+    internship_id: int,
+    current_user: User,
+) -> InternshipResponse:
+    """Obtiene el detalle de una practica por identificador.
+
+    Args:
+        internship_id: Identificador entero de la practica solicitada.
+        current_user: Usuario autenticado que intenta acceder al recurso.
+
+    Returns:
+        `InternshipResponse` con el detalle de la practica.
+
+    Raises:
+        HTTPException: Con codigo 404 si la practica no existe.
+        HTTPException: Con codigo 403 si el usuario no tiene permisos.
+    """
+```
+
+Evitar docstrings que repitan literalmente el nombre de la función sin aportar
+contexto. Si el código es trivial y privado, preferir un nombre claro antes que
+documentación redundante.
+
+### 5.4 Buenas prácticas
 
 * Desarrollar funciones pequeñas y cohesivas.  
 * Utilizar nombres descriptivos.  
