@@ -1,4 +1,10 @@
-"""HTTP controller for internship endpoints."""
+"""Controlador HTTP para endpoints de practicas.
+
+Este modulo define las rutas relacionadas con la creacion y consulta de
+practicas profesionales. El controlador coordina dependencias de autenticacion,
+sesion de base de datos y servicios de dominio, manteniendo la logica de negocio
+principal en `InternshipService`.
+"""
 
 from typing import Annotated
 
@@ -30,14 +36,48 @@ PRIVILEGED_READ_ROLES = {
 
 
 def _has_any_role(user: User, role_names: set[str]) -> bool:
+    """Verifica si un usuario posee al menos uno de los roles indicados.
+
+    Args:
+        user: Usuario autenticado con sus roles cargados.
+        role_names: Conjunto de nombres de roles permitidos.
+
+    Returns:
+        `True` si el usuario posee al menos uno de los roles; `False` en caso
+        contrario.
+    """
+
     return any(user_role.role.name in role_names for user_role in user.roles)
 
 
 def _can_read_internship(user: User, internship: Internship) -> bool:
+    """Determina si un usuario puede consultar una practica.
+
+    La lectura esta permitida cuando el usuario es propietario de la practica o
+    cuando posee un rol privilegiado de revision.
+
+    Args:
+        user: Usuario autenticado que intenta acceder al recurso.
+        internship: Practica solicitada.
+
+    Returns:
+        `True` si el usuario puede leer la practica; `False` si no tiene
+        permisos suficientes.
+    """
+
     return internship.user_id == user.id or _has_any_role(user, PRIVILEGED_READ_ROLES)
 
 
 def _build_service(db: AsyncSession) -> InternshipService:
+    """Construye el servicio de practicas para un request.
+
+    Args:
+        db: Sesion asincrona de SQLAlchemy inyectada por FastAPI.
+
+    Returns:
+        Instancia de `InternshipService` configurada con su repositorio.
+    """
+
     return InternshipService(
         internship_repository=InternshipRepository(db),
     )
@@ -53,6 +93,20 @@ async def create_internship(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
 ) -> InternshipResponse:
+    """Crea una practica asociada al estudiante autenticado.
+
+    Solo usuarios con rol `Estudiante` pueden crear practicas. La practica queda
+    asociada al identificador del usuario autenticado.
+
+    Args:
+        internship_data: Payload con los datos base de la practica.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado validado por `require_roles`.
+
+    Returns:
+        `InternshipResponse` con la practica persistida.
+    """
+
     service = _build_service(db)
     internship = await service.create_internship(
         internship_data=internship_data,
@@ -67,6 +121,16 @@ async def list_my_internships(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[InternshipResponse]:
+    """Lista las practicas asociadas al usuario autenticado.
+
+    Args:
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado obtenido desde el token Bearer.
+
+    Returns:
+        Lista de practicas cuyo `user_id` corresponde al usuario autenticado.
+    """
+
     service = _build_service(db)
     internships = await service.list_user_internships(user_id=current_user.id)
 
@@ -82,6 +146,25 @@ async def get_internship(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> InternshipResponse:
+    """Obtiene el detalle de una practica por identificador.
+
+    La consulta exige que la practica exista y que el usuario sea propietario o
+    tenga un rol privilegiado de lectura.
+
+    Args:
+        internship_id: Identificador entero de la practica solicitada.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado obtenido desde el token Bearer.
+
+    Returns:
+        `InternshipResponse` con el detalle de la practica.
+
+    Raises:
+        HTTPException: Con codigo 404 si la practica no existe.
+        HTTPException: Con codigo 403 si el usuario no tiene permisos de
+            lectura sobre la practica.
+    """
+
     service = _build_service(db)
     internship = await service.get_internship(internship_id=internship_id)
 

@@ -1,1 +1,1 @@
-"""Internship Pydantic schemas."""
+"""Schemas Pydantic del modulo de practicas."""

@@ -1,1 +1,1 @@
-"""Internships domain module."""
+"""Modulo de dominio para gestion de practicas."""

@@ -1,1 +1,1 @@
-"""Internship services."""
+"""Servicios del modulo de practicas."""

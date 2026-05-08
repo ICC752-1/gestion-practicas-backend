@@ -1,1 +1,1 @@
-"""Internship repositories."""
+"""Repositorios del modulo de practicas."""

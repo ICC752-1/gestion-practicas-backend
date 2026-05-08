@@ -1,4 +1,8 @@
-"""ORM model for student internships."""
+"""Modelo ORM de practicas.
+
+Este modulo define la entidad `Internship`, utilizada para representar la
+informacion base de una practica profesional asociada a un estudiante.
+"""
 
 from datetime import date, datetime, timezone
 
@@ -10,7 +14,31 @@ from app.core.database.database import Base
 
 
 class Internship(Base):
-    """Represents an internship request/record associated with a student."""
+    """Representa una practica profesional registrada en el sistema.
+
+    Attributes:
+        id: Identificador entero de la practica.
+        org_name: Nombre de la organizacion donde se realiza la practica.
+        sector: Sector o rubro de la organizacion.
+        address: Direccion principal de la organizacion.
+        city: Ciudad donde se ubica la organizacion.
+        org_phone: Telefono de contacto de la organizacion, si existe.
+        web: Sitio web de la organizacion, si existe.
+        start_date: Fecha de inicio de la practica.
+        end_date: Fecha de termino de la practica.
+        schedule: Horario definido para la practica.
+        days: Dias en que se realizara la practica.
+        modality: Modalidad de la practica segun `enumModality`.
+        internship_address: Direccion especifica donde se ejecutara la practica.
+        act_description: Descripcion de actividades a realizar.
+        ben_description: Descripcion del beneficio o aporte esperado.
+        amount: Monto asociado a la practica, si corresponde.
+        upload_date: Fecha y hora de registro.
+        status_id: Identificador del estado actual, si existe.
+        user_id: Identificador del estudiante propietario.
+        status: Relacion ORM hacia `CurrentState`.
+        student: Relacion ORM hacia `User`.
+    """
 
     __tablename__ = "internship"
 
