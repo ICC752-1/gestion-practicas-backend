@@ -89,3 +89,4 @@ docker exec -it internship_db psql -U <usuario> -d internship_db
 ### Endpoints disponibles
 - `POST /auth/login`
 - `GET /auth/me`
+- `POST /auth/logout`
