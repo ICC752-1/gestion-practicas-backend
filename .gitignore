@@ -1,7 +1,10 @@
 # .gitignore
 .env
+.env.prod
+.env.dev
 __pycache__/
 .venv/
 *.pyc
 .python-version
 .ruff_cache/
+logs/
