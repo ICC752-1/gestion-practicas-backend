@@ -7,7 +7,7 @@ información del usuario autenticado.
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies.auth_dependency import get_current_user
@@ -15,7 +15,7 @@ from app.core.database.database import get_db
 
 from app.modules.auth.repositories.user_repository import UserRepository
 
-from app.modules.auth.schemas.auth_schema import LoginRequest
+from app.modules.auth.schemas.auth_schema import LoginRequest, LogoutRequest
 from app.modules.auth.schemas.token_schema import TokenResponse
 from app.modules.auth.schemas.user_schema import CurrentUserResponse
 
@@ -86,3 +86,47 @@ async def get_me(
         last_name=current_user.last_name,
         roles=[user_role.role.name for user_role in current_user.roles]
     )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    current_user: Annotated[User, Depends(get_current_user)],
+    payload: LogoutRequest | None = None,
+) -> Response:
+    """Cierra sesión (logout) para el dispositivo actual.
+
+    En esta implementación los JWT no se persisten en el backend, por lo que no
+    existe una revocación real del token. El cierre de sesión efectivo ocurre
+    en el frontend al eliminar los tokens almacenados.
+
+    Si el frontend envía un `refresh_token`, se valida su firma/expiración y que
+    pertenezca al usuario autenticado (solo como verificación/auditoría).
+
+    Args:
+        current_user: Usuario autenticado (access token válido).
+        payload: Opcional. Incluye `refresh_token` para validación.
+
+    Returns:
+        Respuesta vacía con código 204.
+    """
+
+    if payload is not None:
+        token_service = TokenService()
+
+        try:
+            refresh_payload = token_service.decode_token(payload.refresh_token)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid refresh token",
+            )
+
+        refresh_sub = refresh_payload.get("sub")
+        if refresh_sub is None or str(refresh_sub) != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Refresh token does not match current user",
+            )
+
+    logger.info("Logout request received", extra={"user_id": current_user.id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
