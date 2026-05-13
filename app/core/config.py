@@ -27,6 +27,16 @@ class Config(BaseSettings):
     LOG_MAX_BYTES: int = 10485760
     LOG_BACKUP_COUNT: int = 5
 
+    # correo electronico
+
+    mail_username: str
+    mail_password: str
+    mail_from: str
+    mail_port: int
+    mail_server: str
+    mail_starttls: bool
+    mail_ssl_tls: bool
+
     @property
     def DATABASE_URL(self) -> str:
         return (
@@ -37,7 +47,8 @@ class Config(BaseSettings):
     # no quites esto jesús weko porque desconfigura las variables de entorno
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_file_encoding="utf-8"
+        env_file_encoding="utf-8",
+        extra="ignore"
         )
 
 config = Config()
