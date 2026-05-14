@@ -4,6 +4,7 @@ Este modulo define rutas administrativas para consultar roles y asignarlos a
 usuarios.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +29,7 @@ ADMIN_ROLES = [
 ]
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
+logger = logging.getLogger(__name__)
 
 
 def _build_service(db: AsyncSession) -> RoleService:
@@ -40,10 +42,19 @@ def _build_service(db: AsyncSession) -> RoleService:
 @router.get("", response_model=list[RoleResponse])
 async def list_roles(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> list[RoleResponse]:
+    logger.info(
+        "List roles request received",
+        extra={"actor_id": current_user.id},
+    )
     service = _build_service(db)
     roles = await service.list_roles()
+
+    logger.info(
+        "List roles completed",
+        extra={"actor_id": current_user.id, "count": len(roles)},
+    )
 
     return [RoleResponse.model_validate(role) for role in roles]
 
@@ -52,12 +63,20 @@ async def list_roles(
 async def get_role(
     role_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> RoleResponse:
+    logger.info(
+        "Get role request received",
+        extra={"actor_id": current_user.id, "role_id": role_id},
+    )
     role_repository = RoleRepository(db)
     role = await role_repository.get_role_by_id(role_id)
 
     if not role:
+        logger.warning(
+            "Get role failed: role not found",
+            extra={"actor_id": current_user.id, "role_id": role_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role not found",
@@ -71,12 +90,20 @@ async def update_role(
     role_id: int,
     payload: RoleUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> RoleResponse:
+    logger.info(
+        "Update role request received",
+        extra={"actor_id": current_user.id, "role_id": role_id},
+    )
     role_repository = RoleRepository(db)
     role = await role_repository.get_role_by_id(role_id)
 
     if not role:
+        logger.warning(
+            "Update role failed: role not found",
+            extra={"actor_id": current_user.id, "role_id": role_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role not found",
@@ -84,5 +111,10 @@ async def update_role(
 
     service = _build_service(db)
     role = await service.update_role(role, payload)
+
+    logger.info(
+        "Role updated",
+        extra={"actor_id": current_user.id, "role_id": role_id},
+    )
 
     return RoleResponse.model_validate(role)

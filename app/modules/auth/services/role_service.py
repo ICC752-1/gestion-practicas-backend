@@ -4,12 +4,17 @@ Este modulo define `RoleService`, encargado de coordinar casos de uso
 relacionados con roles y asignaciones usuario-rol.
 """
 
+import logging
+
 from app.modules.auth.models.role_model import Role
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 from app.modules.auth.schemas.rol_schema import RoleUpdateRequest
+
+
+logger = logging.getLogger(__name__)
 
 
 class RoleService:
@@ -59,8 +64,14 @@ class RoleService:
 
         for field_name, value in update_data.items():
             setattr(role, field_name, value)
+        role = await self.role_repository.update_role(role)
 
-        return await self.role_repository.update_role(role)
+        logger.info(
+            "Role updated",
+            extra={"role_id": role.id},
+        )
+
+        return role
 
     async def list_roles_for_user(self, user_id: int) -> list[UserRole]:
         """Lista roles asociados a un usuario.
@@ -86,7 +97,14 @@ class RoleService:
         """
 
         user_role = UserRole(user_id=user.id, role_id=role.id)
-        return await self.user_role_repository.assign_role(user_role)
+        user_role = await self.user_role_repository.assign_role(user_role)
+
+        logger.info(
+            "Role assigned to user",
+            extra={"user_id": user.id, "role_id": role.id},
+        )
+
+        return user_role
 
     async def remove_role(self, user_role: UserRole) -> None:
         """Elimina una asignacion de rol.
@@ -96,3 +114,8 @@ class RoleService:
         """
 
         await self.user_role_repository.remove_role(user_role)
+
+        logger.info(
+            "Role removed from user",
+            extra={"user_id": user_role.user_id, "role_id": user_role.role_id},
+        )

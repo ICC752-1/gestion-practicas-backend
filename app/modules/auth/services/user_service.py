@@ -5,11 +5,16 @@ relacionados con usuarios y delegar operaciones de persistencia a los
 repositorios correspondientes.
 """
 
+import logging
+
 from app.modules.auth.models.user_model import User
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.utils.normalization import normalize_phone, normalize_rut
 from app.modules.auth.schemas.user_schema import UserCreateRequest, UserUpdateRequest
+
+
+logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -64,8 +69,14 @@ class UserService:
             is_active=True,
             is_verified=False,
         )
+        user = await self.user_repository.create_user(user)
 
-        return await self.user_repository.create_user(user)
+        logger.info(
+            "User created",
+            extra={"user_id": user.id},
+        )
+
+        return user
 
     async def list_users(
         self,
@@ -100,6 +111,8 @@ class UserService:
 
         update_data = payload.model_dump(exclude_unset=True, exclude_none=True)
 
+        updated_fields = list(update_data.keys())
+
         if "rut" in update_data:
             update_data["rut"] = normalize_rut(update_data["rut"])
 
@@ -111,5 +124,11 @@ class UserService:
 
         for field_name, value in update_data.items():
             setattr(user, field_name, value)
+        user = await self.user_repository.update_user(user)
 
-        return await self.user_repository.update_user(user)
+        logger.info(
+            "User updated",
+            extra={"user_id": user.id, "fields": updated_fields},
+        )
+
+        return user

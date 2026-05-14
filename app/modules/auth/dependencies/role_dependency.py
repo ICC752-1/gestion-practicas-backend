@@ -5,12 +5,15 @@ verifica si el usuario autenticado posee al menos uno de los roles permitidos.
 """
 
 from collections.abc import Awaitable, Callable
+import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.models.user_model import User
+
+logger = logging.getLogger(__name__)
 
 
 def require_roles(allowed_roles: list[str]) -> Callable[..., Awaitable[User]]:
@@ -50,6 +53,14 @@ def require_roles(allowed_roles: list[str]) -> Callable[..., Awaitable[User]]:
         has_permission = any(role in allowed_roles for role in user_roles)
 
         if not has_permission:
+            logger.warning(
+                "Insufficient role permissions",
+                extra={
+                    "user_id": current_user.id,
+                    "allowed_roles": allowed_roles,
+                    "user_roles": user_roles,
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions"

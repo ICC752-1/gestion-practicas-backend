@@ -4,6 +4,7 @@ Este modulo define las rutas administrativas relacionadas con creacion,
 consulta y actualizacion de usuarios.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -33,6 +34,7 @@ ADMIN_ROLES = [
 ]
 
 router = APIRouter(prefix="/users", tags=["Users"])
+logger = logging.getLogger(__name__)
 
 
 def _build_service(db: AsyncSession) -> UserService:
@@ -53,12 +55,17 @@ def _build_role_service(db: AsyncSession) -> RoleService:
 async def create_user(
     payload: UserCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    logger.info("Create user request received", extra={"actor_id": current_user.id})
     user_repository = UserRepository(db)
 
     existing_email = await user_repository.get_user_by_email(payload.email)
     if existing_email:
+        logger.warning(
+            "Create user failed: email already exists",
+            extra={"actor_id": current_user.id},
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already exists",
@@ -66,6 +73,10 @@ async def create_user(
 
     existing_rut = await user_repository.get_user_by_rut(payload.rut)
     if existing_rut:
+        logger.warning(
+            "Create user failed: RUT already exists",
+            extra={"actor_id": current_user.id},
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="RUT already exists",
@@ -74,18 +85,36 @@ async def create_user(
     service = _build_service(db)
     user = await service.create_user(payload)
 
+    logger.info(
+        "User created",
+        extra={"actor_id": current_user.id, "user_id": user.id},
+    )
+
     return UserResponse.model_validate(user)
 
 
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
     is_active: bool | None = Query(default=None),
     email: str | None = Query(default=None),
 ) -> list[UserResponse]:
+    logger.info(
+        "List users request received",
+        extra={
+            "actor_id": current_user.id,
+            "is_active_filter": is_active,
+            "has_email_filter": bool(email),
+        },
+    )
     service = _build_service(db)
     users = await service.list_users(is_active=is_active, email=email)
+
+    logger.info(
+        "List users completed",
+        extra={"actor_id": current_user.id, "count": len(users)},
+    )
 
     return [UserResponse.model_validate(user) for user in users]
 
@@ -94,12 +123,20 @@ async def list_users(
 async def get_user(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    logger.info(
+        "Get user request received",
+        extra={"actor_id": current_user.id, "user_id": user_id},
+    )
     user_repository = UserRepository(db)
     user = await user_repository.get_user_by_id(user_id)
 
     if not user:
+        logger.warning(
+            "Get user failed: user not found",
+            extra={"actor_id": current_user.id, "user_id": user_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
@@ -113,12 +150,20 @@ async def update_user(
     user_id: int,
     payload: UserUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    logger.info(
+        "Update user request received",
+        extra={"actor_id": current_user.id, "user_id": user_id},
+    )
     user_repository = UserRepository(db)
     user = await user_repository.get_user_by_id(user_id)
 
     if not user:
+        logger.warning(
+            "Update user failed: user not found",
+            extra={"actor_id": current_user.id, "user_id": user_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
@@ -127,6 +172,11 @@ async def update_user(
     service = _build_service(db)
     user = await service.update_user(user, payload)
 
+    logger.info(
+        "User updated",
+        extra={"actor_id": current_user.id, "user_id": user_id},
+    )
+
     return UserResponse.model_validate(user)
 
 
@@ -134,16 +184,29 @@ async def update_user(
 async def list_user_roles(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> list[UserRoleResponse]:
+    logger.info(
+        "List user roles request received",
+        extra={"actor_id": current_user.id, "user_id": user_id},
+    )
     user_repository = UserRepository(db)
     user = await user_repository.get_user_by_id(user_id)
 
     if not user:
+        logger.warning(
+            "List user roles failed: user not found",
+            extra={"actor_id": current_user.id, "user_id": user_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
+
+    logger.info(
+        "List user roles completed",
+        extra={"actor_id": current_user.id, "user_id": user_id, "count": len(user.roles)},
+    )
 
     return [
         UserRoleResponse.model_validate(user_role.role)
@@ -160,14 +223,22 @@ async def assign_user_role(
     user_id: int,
     payload: AssignRoleRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserRoleResponse:
+    logger.info(
+        "Assign user role request received",
+        extra={"actor_id": current_user.id, "user_id": user_id, "role_id": payload.role_id},
+    )
     user_repository = UserRepository(db)
     role_repository = RoleRepository(db)
     user_role_repository = UserRoleRepository(db)
 
     user = await user_repository.get_user_by_id(user_id)
     if not user:
+        logger.warning(
+            "Assign role failed: user not found",
+            extra={"actor_id": current_user.id, "user_id": user_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
@@ -175,6 +246,10 @@ async def assign_user_role(
 
     role = await role_repository.get_role_by_id(payload.role_id)
     if not role:
+        logger.warning(
+            "Assign role failed: role not found",
+            extra={"actor_id": current_user.id, "role_id": payload.role_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role not found",
@@ -185,6 +260,10 @@ async def assign_user_role(
         role_id=payload.role_id,
     )
     if existing:
+        logger.warning(
+            "Assign role failed: role already assigned",
+            extra={"actor_id": current_user.id, "user_id": user_id, "role_id": payload.role_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Role already assigned to user",
@@ -192,6 +271,11 @@ async def assign_user_role(
 
     service = _build_role_service(db)
     await service.assign_role(user=user, role=role)
+
+    logger.info(
+        "Role assigned to user",
+        extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role.id},
+    )
 
     return UserRoleResponse.model_validate(role)
 
@@ -204,12 +288,20 @@ async def remove_user_role(
     user_id: int,
     role_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> None:
+    logger.info(
+        "Remove user role request received",
+        extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role_id},
+    )
     user_repository = UserRepository(db)
     user = await user_repository.get_user_by_id(user_id)
 
     if not user:
+        logger.warning(
+            "Remove role failed: user not found",
+            extra={"actor_id": current_user.id, "user_id": user_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
@@ -222,6 +314,10 @@ async def remove_user_role(
     )
 
     if not user_role:
+        logger.warning(
+            "Remove role failed: role assignment not found",
+            extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role_id},
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role assignment not found",
@@ -229,5 +325,10 @@ async def remove_user_role(
 
     service = _build_role_service(db)
     await service.remove_role(user_role)
+
+    logger.info(
+        "Role removed from user",
+        extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role_id},
+    )
 
     return None
