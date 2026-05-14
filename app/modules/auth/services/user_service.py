@@ -43,6 +43,8 @@ class UserService:
     async def create_user(self, payload: UserCreateRequest) -> User:
         """Crea un usuario con password hasheada.
 
+        Normaliza RUT y telefonos antes de persistir.
+
         Args:
             payload: Datos validados para crear el usuario.
 
@@ -100,6 +102,8 @@ class UserService:
 
     async def update_user(self, user: User, payload: UserUpdateRequest) -> User:
         """Actualiza un usuario con los campos permitidos.
+
+        Normaliza RUT y telefonos si se envian en el payload.
 
         Args:
             user: Entidad `User` a modificar.

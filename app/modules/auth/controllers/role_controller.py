@@ -44,6 +44,17 @@ async def list_roles(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> list[RoleResponse]:
+    """Lista todos los roles existentes.
+
+    Requiere roles administrativos.
+
+    Args:
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        Lista de `RoleResponse`.
+    """
     logger.info(
         "List roles request received",
         extra={"actor_id": current_user.id},
@@ -65,6 +76,21 @@ async def get_role(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> RoleResponse:
+    """Obtiene un rol por identificador.
+
+    Requiere roles administrativos.
+
+    Args:
+        role_id: Identificador entero del rol.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `RoleResponse` con los datos del rol.
+
+    Raises:
+        HTTPException: 404 si el rol no existe.
+    """
     logger.info(
         "Get role request received",
         extra={"actor_id": current_user.id, "role_id": role_id},
@@ -92,6 +118,22 @@ async def update_role(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> RoleResponse:
+    """Actualiza la descripcion de un rol.
+
+    Requiere roles administrativos.
+
+    Args:
+        role_id: Identificador entero del rol.
+        payload: Datos parciales de actualizacion.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `RoleResponse` con el rol actualizado.
+
+    Raises:
+        HTTPException: 404 si el rol no existe.
+    """
     logger.info(
         "Update role request received",
         extra={"actor_id": current_user.id, "role_id": role_id},

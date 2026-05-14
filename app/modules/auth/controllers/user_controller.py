@@ -57,6 +57,22 @@ async def create_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    """Crea un usuario nuevo.
+
+    Requiere roles administrativos. Valida unicidad de email y RUT antes de
+    persistir el usuario.
+
+    Args:
+        payload: Datos validados del usuario a crear.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `UserResponse` con el usuario creado.
+
+    Raises:
+        HTTPException: 409 si el email o RUT ya existen.
+    """
     logger.info("Create user request received", extra={"actor_id": current_user.id})
     user_repository = UserRepository(db)
 
@@ -100,6 +116,19 @@ async def list_users(
     is_active: bool | None = Query(default=None),
     email: str | None = Query(default=None),
 ) -> list[UserResponse]:
+    """Lista usuarios con filtros opcionales.
+
+    Requiere roles administrativos. Permite filtrar por estado y correo exacto.
+
+    Args:
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+        is_active: Filtra por estado de activacion si se especifica.
+        email: Filtra por correo exacto si se especifica.
+
+    Returns:
+        Lista de `UserResponse`.
+    """
     logger.info(
         "List users request received",
         extra={
@@ -125,6 +154,21 @@ async def get_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    """Obtiene un usuario por identificador.
+
+    Requiere roles administrativos.
+
+    Args:
+        user_id: Identificador entero del usuario.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `UserResponse` con los datos del usuario.
+
+    Raises:
+        HTTPException: 404 si el usuario no existe.
+    """
     logger.info(
         "Get user request received",
         extra={"actor_id": current_user.id, "user_id": user_id},
@@ -152,6 +196,22 @@ async def update_user(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserResponse:
+    """Actualiza datos de un usuario.
+
+    Requiere roles administrativos. Solo se modifican los campos enviados.
+
+    Args:
+        user_id: Identificador entero del usuario.
+        payload: Datos parciales a actualizar.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `UserResponse` con el usuario actualizado.
+
+    Raises:
+        HTTPException: 404 si el usuario no existe.
+    """
     logger.info(
         "Update user request received",
         extra={"actor_id": current_user.id, "user_id": user_id},
@@ -186,6 +246,21 @@ async def list_user_roles(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> list[UserRoleResponse]:
+    """Lista los roles asociados a un usuario.
+
+    Requiere roles administrativos.
+
+    Args:
+        user_id: Identificador entero del usuario.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        Lista de `UserRoleResponse`.
+
+    Raises:
+        HTTPException: 404 si el usuario no existe.
+    """
     logger.info(
         "List user roles request received",
         extra={"actor_id": current_user.id, "user_id": user_id},
@@ -225,6 +300,23 @@ async def assign_user_role(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> UserRoleResponse:
+    """Asigna un rol a un usuario.
+
+    Requiere roles administrativos.
+
+    Args:
+        user_id: Identificador entero del usuario.
+        payload: Identificador del rol a asignar.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        `UserRoleResponse` con el rol asignado.
+
+    Raises:
+        HTTPException: 404 si el usuario o rol no existen.
+        HTTPException: 409 si el rol ya esta asignado.
+    """
     logger.info(
         "Assign user role request received",
         extra={"actor_id": current_user.id, "user_id": user_id, "role_id": payload.role_id},
@@ -290,6 +382,22 @@ async def remove_user_role(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
 ) -> None:
+    """Elimina un rol asociado a un usuario.
+
+    Requiere roles administrativos.
+
+    Args:
+        user_id: Identificador entero del usuario.
+        role_id: Identificador entero del rol.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario administrador autenticado.
+
+    Returns:
+        Respuesta vacia con codigo 204.
+
+    Raises:
+        HTTPException: 404 si el usuario o la asignacion no existen.
+    """
     logger.info(
         "Remove user role request received",
         extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role_id},

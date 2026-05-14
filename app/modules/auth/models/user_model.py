@@ -24,6 +24,17 @@ class User(Base):
         id: Identificador entero del usuario (clave primaria).
         email: Correo electrónico único del usuario.
         password_hash: Hash de la contraseña del usuario.
+        first_name: Nombre(s) del usuario.
+        last_name: Apellido(s) del usuario.
+        rut: Identificador RUT del usuario.
+        degree: Carrera o grado academico del usuario.
+        cod_degree: Codigo interno de la carrera.
+        sexo: Identificador de genero del usuario.
+        phone: Telefono de contacto del usuario.
+        profession: Profesion del usuario.
+        position: Cargo del usuario.
+        departament: Departamento del usuario.
+        sup_phone: Telefono del supervisor.
         is_active: Indica si la cuenta está activa.
         is_verified: Indica si la cuenta ha sido verificada.
         created_at: Marca temporal (UTC) de creación/última actualización.
