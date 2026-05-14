@@ -62,7 +62,7 @@ class NotificationService:
             await fm.send_message(message)
 
             #log de éxito a nivel interno 
-            logger.info(f"Envio SMTP exitoso a {len(request.to_emails)} destinatatio(s)")
+            logger.info(f"Envio SMTP exitoso a {len(request.to_emails)} destinatario(s)")
             return True
         
         except Exception as e:
