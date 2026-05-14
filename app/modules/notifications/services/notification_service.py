@@ -18,10 +18,10 @@ class NotificationService:
             MAIL_USERNAME=config.mail_username,
             MAIL_PASSWORD=config.mail_password,
             MAIL_FROM=config.mail_from,
-            MAIL_PORT=config.mail_port,
-            MAIL_SERVER=config.mail_server,
-            MAIL_STARTTLS=config.mail_starttls,
-            MAIL_SSL_TLS=config.mail_ssl_tls,
+            MAIL_PORT=587,
+            MAIL_SERVER="smtp.gmail.com",
+            MAIL_STARTTLS=True,
+            MAIL_SSL_TLS=False,
             USE_CREDENTIALS=True
         )
 
