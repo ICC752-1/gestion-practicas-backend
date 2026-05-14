@@ -4,9 +4,10 @@ Este módulo define la entidad `User` utilizada por el sistema de autenticación
 autorización.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database.database import Base
@@ -41,9 +42,33 @@ class User(Base):
     last_name: Mapped[str] = mapped_column(String(255), nullable=False)
     rut: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
 
+    degree: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cod_degree: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sexo: Mapped[str | None] = mapped_column(
+        PGEnum(
+            "Femenino",
+            "Masculino",
+            "Otro",
+            "No definido",
+            name="enumGender",
+            create_type=False,
+        ),
+        nullable=True,
+    )
+    phone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    profession: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    position: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    departament: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sup_phone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
     roles = relationship(
         "UserRole", back_populates="user", cascade="all, delete-orphan"
