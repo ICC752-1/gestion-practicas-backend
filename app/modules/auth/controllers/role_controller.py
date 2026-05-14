@@ -108,6 +108,11 @@ async def get_role(
             detail="Role not found",
         )
 
+    logger.info(
+        "Get role completed",
+        extra={"actor_id": current_user.id, "role_id": role_id},
+    )
+
     return RoleResponse.model_validate(role)
 
 

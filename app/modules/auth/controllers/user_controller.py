@@ -186,6 +186,11 @@ async def get_user(
             detail="User not found",
         )
 
+    logger.info(
+        "Get user completed",
+        extra={"actor_id": current_user.id, "user_id": user_id},
+    )
+
     return UserResponse.model_validate(user)
 
 
