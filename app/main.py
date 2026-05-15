@@ -7,12 +7,12 @@ from app.core.logging.logging import setup_logging
 from app.modules.auth.controllers.auth_controller import router as auth_router
 from app.modules.auth.controllers.role_controller import router as roles_router
 from app.modules.auth.controllers.user_controller import router as users_router
+from app.modules.notifications.controllers.notification_controller import router as notifications_router
 from app.modules.internships.controllers.internship_controller import (
     router as internships_router,
 )
 
 import logging
-
 
 setup_logging()
 
@@ -31,4 +31,6 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(roles_router)
+app.include_router(notifications_router)
 app.include_router(internships_router)
+
