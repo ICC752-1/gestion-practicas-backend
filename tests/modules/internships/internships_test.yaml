@@ -1,0 +1,270 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Internships API tests
+meta:
+  id: wrk_internships_api_tests
+  created: 1778800000000
+  modified: 1778800000000
+  description: "Colección para probar endpoints del módulo internships."
+collection:
+  - name: 00 - Auth - Login usuario semilla
+    url: "{{ _.base_url }}/auth/login"
+    meta:
+      id: req_internships_auth_login_seed_user
+      created: 1778800000001
+      modified: 1778800000001
+      isPrivate: false
+      description: "Ejecutar primero. Copiar access_token al environment access_token."
+      sortKey: -1778800000001
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "email": "juan.perez@correo.cl",
+          "password": "my_secure_password"
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 01 - Internships - Crear práctica válida
+    url: "{{ _.base_url }}/internships"
+    meta:
+      id: req_internships_create_valid
+      created: 1778800000002
+      modified: 1778800000002
+      isPrivate: false
+      description: "Requiere access_token de usuario con rol Estudiante."
+      sortKey: -1778800000002
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "org_name": "Empresa Demo SpA",
+          "sector": "Tecnología",
+          "address": "Av. Siempre Viva 123",
+          "city": "Temuco",
+          "org_phone": "+56912345678",
+          "web": "https://empresa-demo.cl",
+          "start_date": "2026-06-01",
+          "end_date": "2026-08-31",
+          "schedule": "Lunes a viernes 09:00-18:00",
+          "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+          "modality": "Presencial",
+          "internship_address": "Av. Siempre Viva 123, Temuco",
+          "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+          "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+          "amount": 150000
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 02 - Internships - Listar mis prácticas
+    url: "{{ _.base_url }}/internships/me"
+    meta:
+      id: req_internships_list_my_internships
+      created: 1778800000003
+      modified: 1778800000003
+      isPrivate: false
+      description: "Lista las prácticas asociadas al usuario autenticado."
+      sortKey: -1778800000003
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 03 - Internships - Obtener práctica por ID
+    url: "{{ _.base_url }}/internships/{{ _.internship_id }}"
+    meta:
+      id: req_internships_get_by_id
+      created: 1778800000004
+      modified: 1778800000004
+      isPrivate: false
+      description: "Actualizar internship_id en el environment con un ID existente."
+      sortKey: -1778800000004
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 04 - Internships - Crear práctica con fechas inválidas
+    url: "{{ _.base_url }}/internships"
+    meta:
+      id: req_internships_create_invalid_dates
+      created: 1778800000005
+      modified: 1778800000005
+      isPrivate: false
+      description: "Debe responder 422 porque end_date es anterior a start_date."
+      sortKey: -1778800000005
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "org_name": "Empresa Demo SpA",
+          "sector": "Tecnología",
+          "address": "Av. Siempre Viva 123",
+          "city": "Temuco",
+          "org_phone": "+56912345678",
+          "web": "https://empresa-demo.cl",
+          "start_date": "2026-08-31",
+          "end_date": "2026-06-01",
+          "schedule": "Lunes a viernes 09:00-18:00",
+          "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+          "modality": "Presencial",
+          "internship_address": "Av. Siempre Viva 123, Temuco",
+          "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+          "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+          "amount": 150000
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 05 - Internships - Crear práctica sin token
+    url: "{{ _.base_url }}/internships"
+    meta:
+      id: req_internships_create_without_token
+      created: 1778800000006
+      modified: 1778800000006
+      isPrivate: false
+      description: "Debe responder 401/403 porque no se envía Bearer token."
+      sortKey: -1778800000006
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "org_name": "Empresa Demo SpA",
+          "sector": "Tecnología",
+          "address": "Av. Siempre Viva 123",
+          "city": "Temuco",
+          "start_date": "2026-06-01",
+          "end_date": "2026-08-31",
+          "schedule": "Lunes a viernes 09:00-18:00",
+          "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+          "modality": "Presencial",
+          "internship_address": "Av. Siempre Viva 123, Temuco",
+          "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+          "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+          "amount": 150000
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 06 - Internships - Obtener práctica inexistente
+    url: "{{ _.base_url }}/internships/999999"
+    meta:
+      id: req_internships_get_not_found
+      created: 1778800000007
+      modified: 1778800000007
+      isPrivate: false
+      description: "Debe responder 404 si no existe una práctica con ese ID."
+      sortKey: -1778800000007
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_internships_api_tests
+    created: 1778800000008
+    modified: 1778800000008
+environments:
+  name: Base Environment
+  meta:
+    id: env_internships_api_tests
+    created: 1778800000009
+    modified: 1778800000009
+    isPrivate: false
+  data:
+    base_url: http://127.0.0.1:8000
+    access_token: paste_access_token_here
+    internship_id: 1
