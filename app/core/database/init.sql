@@ -24,6 +24,12 @@ CREATE TABLE CurrentState (
     description TEXT NOT NULL
 );
 
+INSERT INTO CurrentState (title, description) VALUES
+    ('Pendiente', 'La practica existe como estado del proceso, pero aun no inicia su tramitacion en el sistema.'),
+    ('En revision', 'La practica fue registrada y se encuentra en revision administrativa.'),
+    ('Aprobada', 'La practica fue aprobada por el encargado de practicas.'),
+    ('Reprobada', 'La practica fue rechazada durante la revision administrativa.');
+
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
     first_name VARCHAR(255) NOT NULL,
