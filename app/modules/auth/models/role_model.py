@@ -4,7 +4,7 @@ Este módulo define la entidad `Role` utilizada por el sistema de autenticación
 autorización.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
@@ -46,7 +46,12 @@ class Role(Base):
     )
     description: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
     users = relationship(
         "UserRole", back_populates="role", cascade="all, delete-orphan"
