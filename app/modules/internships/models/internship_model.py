@@ -4,7 +4,7 @@ Este modulo define la entidad `Internship`, utilizada para representar la
 informacion base de una practica profesional asociada a un estudiante.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
@@ -69,7 +69,7 @@ class Internship(Base):
     amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upload_date: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
+        default=datetime.now,
         nullable=False,
     )
     status_id: Mapped[int | None] = mapped_column(
