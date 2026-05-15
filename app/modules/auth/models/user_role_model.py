@@ -4,7 +4,7 @@ Este módulo define la entidad `UserRole`, que representa la relación (muchos a
 muchos) entre usuarios y roles.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -42,7 +42,12 @@ class UserRole(Base):
         Integer, ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
     )
 
-    assigned_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
 
     user = relationship("User", back_populates="roles")
     role = relationship("Role", back_populates="users")

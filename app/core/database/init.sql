@@ -119,13 +119,17 @@ CREATE TABLE LogAction (
 
 -- 3. Insercion de datos iniciales minimos para testear autenticacion y autorizacion
 INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en practicas');
+INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol correspondiente al director de la carrera perteneciente a FICA');
 
 INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone)
 VALUES ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432');
+
+INSERT INTO Users (first_name, last_name, email, password_hash, rut)
+VALUES ('Claudio', 'Navarro', 'claudio.navarro@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '14.283.070-1');
 -- Nota: La contrasena hash corresponde a "my_secure_password"
 
 INSERT INTO user_roles(user_id, role_id) VALUES (1, 1);
-
+INSERT INTO user_roles(user_id, role_id) VALUES (2, 2);
 
 -- 4. Funcion del Trigger para automatizar la auditoria
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()

@@ -1,0 +1,55 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Scratch Pad
+meta:
+  id: wrk_scratchpad
+  created: 1764685246577
+  modified: 1764685246577
+  description: ""
+collection:
+  - url: http://127.0.0.1:8000/notifications/send-email
+    name: Test_notifications
+    meta:
+      id: req_06898b8ea53847088f5c75faa2cae430
+      created: 1778721818770
+      modified: 1778722333699
+      isPrivate: false
+      description: ""
+      sortKey: -1778721818770
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "to_emails": ["gestor.practica@gmail.com"],
+          "subject": "Prueba desde Insomnia",
+          "body": "<h1>¡Hola!</h1><p>Esto es un correo de prueba con <b>HTML</b>.</p>"
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_99d30891da4bdcebc63947a8fc17f076de878684
+    created: 1764685306385
+    modified: 1764685306385
+environments:
+  name: Base Environment
+  meta:
+    id: env_99d30891da4bdcebc63947a8fc17f076de878684
+    created: 1764685306380
+    modified: 1764685306380
+    isPrivate: false

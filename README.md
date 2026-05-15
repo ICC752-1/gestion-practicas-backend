@@ -10,6 +10,7 @@
     <a href="#contexto">Contexto</a> ·
     <a href="#funcionalidades">Funcionalidades</a> ·
     <a href="#setup">Setup</a> ·
+    <a href="#documentacion">Documentación</a> ·
     <a href="#endpoints-disponibles">Endpoints Disponibles</a> ·
   </p>
 </div>
@@ -65,6 +66,13 @@ docker compose up -d --build db
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+### Documentación
+Esta sección reúne documentación propia del funcionamiento interno del sistema.
+
+> Para un alcance mayor y otros dominios, revise el repositorio de documentación.
+
+- [Logging](docs/logging.md)
 
 ### Notas de uso
 - Para detener la base de datos:
