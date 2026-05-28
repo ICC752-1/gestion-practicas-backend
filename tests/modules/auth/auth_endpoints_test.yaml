@@ -1,0 +1,454 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: GESTIÓN DE PRÁCTICAS
+meta:
+  id: wrk_35d0448bdeaf4a299dce244fbb0868a0
+  created: 1777862830783
+  modified: 1777862830783
+  description: ""
+collection:
+  - name: Admin
+    meta:
+      id: fld_59786f16ea8d4948a1f73826802768ee
+      created: 1778783016565
+      modified: 1779982769939
+      sortKey: -1777909664326
+      description: ""
+    children:
+      - name: Roles
+        meta:
+          id: fld_3b02c159430f48b09d2a3b08a8195cdc
+          created: 1779982652573
+          modified: 1779982652573
+          sortKey: -1779982652573
+          description: ""
+        children:
+          - url: "{{ _.base_url }}/roles/"
+            name: /roles
+            meta:
+              id: req_f2612dfc26c2423bb07cfcf9b2e64869
+              created: 1778783021572
+              modified: 1779983923194
+              isPrivate: false
+              description: ""
+              sortKey: -1779982658268
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/roles/1"
+            name: /roles/{id}
+            meta:
+              id: req_b21daca492b745c2afad4f1aeb913a57
+              created: 1778783341507
+              modified: 1779983926143
+              isPrivate: false
+              description: ""
+              sortKey: -1779982658218
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/roles/1"
+            name: /roles/{id}
+            meta:
+              id: req_0713cd7ac396435faaf2785e746dcc47
+              created: 1778783384897
+              modified: 1779983929746
+              isPrivate: false
+              description: ""
+              sortKey: -1779982658168
+            method: PATCH
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"description": "Edición de descripción para estudiante"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+      - name: Usuarios
+        meta:
+          id: fld_42de13c5cebb45c68bffc31a245f56fb
+          created: 1779982687899
+          modified: 1779982687899
+          sortKey: -1779982687899
+          description: ""
+        children:
+          - url: "{{ _.base_url }}/users"
+            name: /users
+            meta:
+              id: req_38dcae23a80045cc8c16bd5fbb298d25
+              created: 1778783939916
+              modified: 1779983901690
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691461
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"email": "s.llanos03@ufromail.cl",
+                	"password": "Llanos9783",
+                	"first_name": "Sebastián",
+                	"last_name": "Llanos",
+                	"rut": "21.459.980-5"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users"
+            name: /users
+            meta:
+              id: req_97e30f7153c448ff8cd9b630cf759536
+              created: 1778784227676
+              modified: 1779983898932
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691561
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users/3"
+            name: /users/{id}
+            meta:
+              id: req_5c23891884304c04a3da443c4fc7fe15
+              created: 1778784264076
+              modified: 1779983904397
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691411
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users/3"
+            name: /users/{id}
+            meta:
+              id: req_0456cf58e02246fb917152ea860e6a85
+              created: 1778784297933
+              modified: 1779983907186
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691261
+            method: PATCH
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"sexo": "Masculino"
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users/3/roles"
+            name: /users/{id}/roles
+            meta:
+              id: req_f865c9348a46431ca8f1174296a305da
+              created: 1778784424398
+              modified: 1779983911646
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691236
+            method: GET
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users/3/roles"
+            name: /users/{id}/roles
+            meta:
+              id: req_05d8ee4b649b4433b01c18f1f74d5dea
+              created: 1778784531850
+              modified: 1779983915534
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691211
+            method: POST
+            body:
+              mimeType: application/json
+              text: |-
+                {
+                	"role_id": 1
+                }
+            headers:
+              - name: Content-Type
+                value: application/json
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+          - url: "{{ _.base_url }}/users/3/roles/1"
+            name: /users/{id}/roles
+            meta:
+              id: req_14cfa6ead3b14b8185640a769a4a4af1
+              created: 1778784602124
+              modified: 1779983919336
+              isPrivate: false
+              description: ""
+              sortKey: -1779982691111
+            method: DELETE
+            headers:
+              - name: User-Agent
+                value: insomnia/12.5.0
+                description: ""
+                disabled: false
+            authentication:
+              type: bearer
+              token: "{{ _.access_token }}"
+            settings:
+              renderRequestBody: true
+              encodeUrl: true
+              followRedirects: global
+              cookies:
+                send: true
+                store: true
+              rebuildPath: true
+  - name: Auth
+    meta:
+      id: fld_160de70928904fb8b1ecaa0a513c2e30
+      created: 1779984190289
+      modified: 1779984190289
+      sortKey: -1779984190289
+      description: ""
+    children:
+      - url: "{{ _.base_url }}/auth/login"
+        name: /auth/login
+        meta:
+          id: req_ebb16cd871004749a4a84c7304c0e328
+          created: 1777909664426
+          modified: 1779984196084
+          isPrivate: false
+          description: ""
+          sortKey: -1779984196046
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+            	"email": "{{ _.email }}",
+            	"password": "{{ _.password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            description: ""
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            insomnia.environment.set("access_token", body.access_token);
+            insomnia.environment.set("refresh_token", body.refresh_token);
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.base_url }}/auth/me"
+        name: /auth/me
+        meta:
+          id: req_9d83ed8f7e8e4eec85754297b45e88f1
+          created: 1777909908033
+          modified: 1779984199916
+          isPrivate: false
+          description: ""
+          sortKey: -1779984195946
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.5.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: "{{ _.access_token }}"
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: "{{ _.base_url }}/auth/logout"
+        name: /auth/logout
+        meta:
+          id: req_e4dda905718e45d49892ca5295c18174
+          created: 1778103646375
+          modified: 1779984201874
+          isPrivate: false
+          description: ""
+          sortKey: -1779984195846
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "refresh_token": "{{ _.refresh_token }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: "{{ _.access_token }}"
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_864678fa068be0bf8236d435f6aa3476e5a2a606
+    created: 1777862830785
+    modified: 1779984100507
+environments:
+  name: Variables
+  meta:
+    id: env_864678fa068be0bf8236d435f6aa3476e5a2a606
+    created: 1777862830784
+    modified: 1779984333542
+    isPrivate: false
+  data:
+    base_url: http://localhost:8000
+    email: claudio.navarro@ufrontera.cl
+    password: my_secure_password
+    access_token: ""
+    refresh_token: ""
