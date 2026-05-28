@@ -15,6 +15,9 @@ from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentInternshipRequirement,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -167,3 +170,56 @@ class AdminRepository:
         result = await self.db.execute(query)
 
         return result.scalar_one_or_none()
+
+    async def list_student_internship_requirements(
+        self,
+        student_id: int,
+    ) -> list[StudentInternshipRequirement]:
+        """Obtiene los requisitos de prácticas asociados a un estudiante."""
+
+        logger.debug(
+            "Fetching student internship requirements",
+            extra={"student_id": student_id},
+        )
+
+        query = (
+            select(StudentInternshipRequirement)
+            .where(StudentInternshipRequirement.user_id == student_id)
+            .order_by(StudentInternshipRequirement.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def get_student_internship_requirement(
+        self,
+        student_id: int,
+        requirement_id: int,
+    ) -> StudentInternshipRequirement | None:
+        """Obtiene un requisito de práctica por estudiante y id."""
+
+        logger.debug(
+            "Fetching student internship requirement",
+            extra={"student_id": student_id, "requirement_id": requirement_id},
+        )
+
+        query = (
+            select(StudentInternshipRequirement)
+            .where(StudentInternshipRequirement.user_id == student_id)
+            .where(StudentInternshipRequirement.id == requirement_id)
+        )
+        result = await self.db.execute(query)
+
+        return result.scalar_one_or_none()
+
+    async def update_student_internship_requirement(
+        self,
+        requirement: StudentInternshipRequirement,
+    ) -> StudentInternshipRequirement:
+        """Persiste cambios en un requisito de práctica."""
+
+        self.db.add(requirement)
+        await self.db.commit()
+        await self.db.refresh(requirement)
+
+        return requirement

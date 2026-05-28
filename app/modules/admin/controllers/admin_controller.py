@@ -14,8 +14,10 @@ from app.core.database.database import get_db
 from app.modules.admin.schemas.admin_schema import (
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
+    AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryResponse,
+    AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.admin.services.admin_service import AdminService
 from app.modules.auth.dependencies.role_dependency import require_roles
@@ -147,3 +149,71 @@ async def get_internship_detail(
         )
 
     return internship
+
+
+@router.get(
+    "/students/{student_id}/internship-requirements",
+    response_model=list[AdminStudentInternshipRequirementItem],
+)
+async def get_student_internship_requirements(
+    student_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+) -> list[AdminStudentInternshipRequirementItem]:
+    """Obtiene requisitos de práctica asociados a un estudiante."""
+
+    logger.info(
+        "Admin student internship requirements request received",
+        extra={"user_id": current_user.id, "student_id": student_id},
+    )
+
+    service = _build_service(db)
+
+    return await service.get_student_internship_requirements(student_id)
+
+
+@router.patch(
+    "/students/{student_id}/internship-requirements/{requirement_id}/status",
+    response_model=AdminStudentInternshipRequirementItem,
+)
+async def update_student_internship_requirement_status(
+    student_id: int,
+    requirement_id: int,
+    payload: AdminUpdateStudentInternshipRequirementStatusRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+) -> AdminStudentInternshipRequirementItem:
+    """Actualiza el estado de un requisito de práctica."""
+
+    logger.info(
+        "Admin student internship requirement status update request received",
+        extra={
+            "user_id": current_user.id,
+            "student_id": student_id,
+            "requirement_id": requirement_id,
+            "status": payload.status,
+        },
+    )
+
+    service = _build_service(db)
+
+    try:
+        requirement = await service.update_student_internship_requirement_status(
+            student_id=student_id,
+            requirement_id=requirement_id,
+            payload=payload,
+            updated_by_user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    if requirement is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student internship requirement not found",
+        )
+
+    return requirement

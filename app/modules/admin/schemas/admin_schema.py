@@ -174,3 +174,39 @@ class AdminInternshipDetailResponse(BaseModel):
     user_id: int | None
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
+
+
+StudentInternshipRequirementType = Literal[
+    "Práctica de Estudio I",
+    "Práctica de Estudio II",
+    "Tesis",
+    "Práctica Controlada",
+]
+StudentInternshipRequirementStatus = Literal[
+    "Pendiente",
+    "Habilitada",
+    "En revisión",
+    "Aprobada",
+    "Rechazada",
+]
+
+
+class AdminStudentInternshipRequirementItem(BaseModel):
+    """Representa un requisito de práctica asociado a un estudiante."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    type: StudentInternshipRequirementType
+    status: StudentInternshipRequirementStatus
+    status_updated_at: datetime | None
+    status_updated_by: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminUpdateStudentInternshipRequirementStatusRequest(BaseModel):
+    """Payload para actualizar el estado de un requisito de práctica."""
+
+    status: StudentInternshipRequirementStatus

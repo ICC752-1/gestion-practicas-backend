@@ -5,11 +5,14 @@ lectura administrativa y transformar entidades ORM a schemas HTTP propios.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.repositories.admin_repository import AdminRepository
 from app.modules.admin.schemas.admin_schema import (
+    AdminStudentInternshipRequirementItem,
+    AdminUpdateStudentInternshipRequirementStatusRequest,
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
     AdminInternshipStatusInfo,
@@ -21,6 +24,9 @@ from app.modules.admin.schemas.admin_schema import (
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentInternshipRequirement,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -156,6 +162,85 @@ class AdminService:
 
         return detail
 
+    async def get_student_internship_requirements(
+        self,
+        student_id: int,
+    ) -> list[AdminStudentInternshipRequirementItem]:
+        """Obtiene los requisitos de práctica asociados a un estudiante."""
+
+        logger.info(
+            "Administrative student internship requirements requested",
+            extra={"student_id": student_id},
+        )
+
+        requirements = await self.repository.list_student_internship_requirements(
+            student_id
+        )
+
+        return [
+            AdminStudentInternshipRequirementItem(
+                id=requirement.id,
+                user_id=requirement.user_id,
+                type=requirement.type,
+                status=requirement.status,
+                status_updated_at=requirement.status_updated_at,
+                status_updated_by=requirement.status_updated_by,
+                created_at=requirement.created_at,
+                updated_at=requirement.updated_at,
+            )
+            for requirement in requirements
+        ]
+
+    async def update_student_internship_requirement_status(
+        self,
+        student_id: int,
+        requirement_id: int,
+        payload: AdminUpdateStudentInternshipRequirementStatusRequest,
+        updated_by_user_id: int,
+    ) -> AdminStudentInternshipRequirementItem | None:
+        """Actualiza el estado de un requisito de práctica."""
+
+        logger.info(
+            "Updating student internship requirement status",
+            extra={
+                "student_id": student_id,
+                "requirement_id": requirement_id,
+                "status": payload.status,
+                "updated_by": updated_by_user_id,
+            },
+        )
+
+        requirement = await self.repository.get_student_internship_requirement(
+            student_id,
+            requirement_id,
+        )
+        if requirement is None:
+            return None
+
+        self._validate_requirement_status_transition(
+            current_status=requirement.status,
+            new_status=payload.status,
+        )
+
+        requirement.status = payload.status
+        requirement.status_updated_at = datetime.now(timezone.utc)
+        requirement.status_updated_by = updated_by_user_id
+
+        updated_requirement = (
+            await self.repository.update_student_internship_requirement(requirement)
+        )
+
+        return AdminStudentInternshipRequirementItem(
+            id=updated_requirement.id,
+            user_id=updated_requirement.user_id,
+            type=updated_requirement.type,
+            status=updated_requirement.status,
+            status_updated_at=updated_requirement.status_updated_at,
+            status_updated_by=updated_requirement.status_updated_by,
+            created_at=updated_requirement.created_at,
+            updated_at=updated_requirement.updated_at,
+        )
+
     def _build_student_info(
         self,
         student: User | None,
@@ -260,3 +345,26 @@ class AdminService:
         )
 
         return status_info
+
+    def _validate_requirement_status_transition(
+        self,
+        current_status: str,
+        new_status: str,
+    ) -> None:
+        """Valida transiciones de estado para requisitos de práctica."""
+
+        if current_status == new_status:
+            return
+
+        allowed_transitions: dict[str, set[str]] = {
+            "Pendiente": {"Habilitada"},
+            "Habilitada": {"En revisión"},
+            "En revisión": {"Aprobada", "Rechazada"},
+            "Rechazada": {"Habilitada"},
+            "Aprobada": set(),
+        }
+
+        if new_status not in allowed_transitions.get(current_status, set()):
+            raise ValueError(
+                f"Invalid status transition from {current_status} to {new_status}"
+            )
