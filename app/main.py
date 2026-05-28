@@ -4,10 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.logging.logging import setup_logging
+from app.modules.admin.controllers.admin_controller import router as admin_router
 from app.modules.auth.controllers.auth_controller import router as auth_router
-from app.modules.auth.controllers.role_controller import router as roles_router
-from app.modules.auth.controllers.user_controller import router as users_router
-from app.modules.notifications.controllers.notification_controller import router as notifications_router
+from app.modules.notifications.controllers.notification_controller import (
+    router as notifications_router,
+)
 from app.modules.internships.controllers.internship_controller import (
     router as internships_router,
 )
@@ -29,8 +30,6 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
-app.include_router(users_router)
-app.include_router(roles_router)
+app.include_router(admin_router)
 app.include_router(notifications_router)
 app.include_router(internships_router)
-
