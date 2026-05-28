@@ -17,7 +17,7 @@ from app.core.database.database import get_db
 from app.modules.auth.services.token_service import TokenService
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 logger = logging.getLogger(__name__)
 
 async def get_current_user(

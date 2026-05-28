@@ -79,6 +79,11 @@ async def get_me(
         `CurrentUserResponse` con datos del usuario y sus roles.
     """
 
+    logger.info(
+        "Get current user completed",
+        extra={"user_id": current_user.id},
+    )
+
     return CurrentUserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -129,4 +134,5 @@ async def logout(
             )
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
+    logger.info("Logout completed", extra={"user_id": current_user.id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
