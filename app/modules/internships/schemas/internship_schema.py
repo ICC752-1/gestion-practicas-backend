@@ -85,7 +85,7 @@ class InternshipCreateRequest(BaseModel):
         if self.internship_period in (PracticePeriodEnum.summer, PracticePeriodEnum.winter) and not self.has_school_insurance:
             raise HTTPException(
                 status_code = status.HTTP_400_BAD_REQUEST,
-                details={
+                detail={
                     "field": "has_school_insurance",
                     "message": "No es posible registrar práctica estival sin respaldo de seguro escolar vigente (D.S. 313)"
                 }
