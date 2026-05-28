@@ -28,7 +28,7 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
 
 #### Caso 1 — Rechazo: Práctica Estival sin Seguro
 
-Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) con `"has_school_insurance": false`, el sistema denegará la petición.
+Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y sin seguro (`"has_school_insurance": false`), el sistema denegará la petición.
 
 **Respuesta:** `400 Bad Request`
 
@@ -96,14 +96,4 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
   "has_school_insurance": true
 }
 ```
-
----
-
-## Resumen de Casos de Prueba
-
-| Test | `internship_period` | `has_school_insurance` | HTTP esperado | Resultado |
-|---|---|---|---|---|
-| `test_register_semester_ok` | `Semestre` | `false` | `201 Created` | ✅ |
-| `test_register_summer_no_insurance` | `Verano` | `false` | `400 Bad Request` | ✅ |
-| `test_register_summer_with_insurance` | `Verano` | `true` | `201 Created` | ✅ |
 
