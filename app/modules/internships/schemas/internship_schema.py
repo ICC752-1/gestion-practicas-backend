@@ -8,7 +8,9 @@ instancias ORM.
 from datetime import date, datetime
 from typing import Literal
 
+from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.modules.internships.models.internship_model import PracticePeriodEnum, PracticeTypeEnum
 
 Modality = Literal["Presencial", "Remoto", "Hibrido"]
 
@@ -31,6 +33,9 @@ class InternshipCreateRequest(BaseModel):
             `Hibrido`).
         internship_address: Direccion especifica donde se ejecutara la
             practica.
+        internship_period: Periodo de la practica ('Semestre', 'Verano', 'Invierno').
+        internship_type: Tipo de practica ('Practica 1', 'Practica 2', Practica controlada, tesis).
+        has_school_insurance: Indica si posee seguro escolar vigente.
         act_description: Descripcion de actividades a realizar.
         ben_description: Descripcion del beneficio o aporte esperado.
         amount: Monto asociado a la practica, si corresponde.
@@ -51,6 +56,9 @@ class InternshipCreateRequest(BaseModel):
     act_description: str = Field(min_length=1, max_length=255)
     ben_description: str = Field(min_length=1, max_length=255)
     amount: int | None = Field(default=None, ge=0)
+    internship_period: PracticePeriodEnum
+    internship_type: PracticeTypeEnum
+    has_school_insurance: bool
 
     @model_validator(mode="after")
     def validate_date_range(self) -> "InternshipCreateRequest":
@@ -67,7 +75,22 @@ class InternshipCreateRequest(BaseModel):
             raise ValueError("end_date must be greater than or equal to start_date")
 
         return self
-
+    
+    @model_validator(mode="after")
+    def validate_school_insurance(self) -> "InternshipCreateRequest":
+        """Valida que el estudiante tenga el seguro escolar
+        Garantiza que no se realicen practicas en el periodo estival ('Verano' o 'Invierno')
+        sin el respaldo del seguro escolar obligatorio (D.S. 313)
+        """
+        if self.internship_period in (PracticePeriodEnum.summer, PracticePeriodEnum.winter) and not self.has_school_insurance:
+            raise HTTPException(
+                status_code = status.HTTP_400_BAD_REQUEST,
+                details={
+                    "field": "has_school_insurance",
+                    "message": "No es posible registrar práctica estival sin respaldo de seguro escolar vigente (D.S. 313)"
+                }
+            )                                
+        return self
 
 class CurrentStateResponse(BaseModel):
     """Respuesta con informacion de un estado de practica.
@@ -112,6 +135,10 @@ class InternshipResponse(BaseModel):
         upload_date: Fecha y hora de registro de la practica.
         status_id: Identificador del estado actual, si existe.
         user_id: Identificador del estudiante propietario de la practica.
+        internship_address: Direccion especifica donde se ejecutara la
+            practica.
+        internship_period: Periodo de la practica ('Semestre', 'Verano', 'Invierno').
+        internship_type: Tipo de practica ('Practica 1', 'Practica 2', Practica controlada, tesis).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -135,3 +162,6 @@ class InternshipResponse(BaseModel):
     upload_date: datetime
     status_id: int | None
     user_id: int | None
+    internship_period: PracticePeriodEnum
+    internship_type: PracticeTypeEnum
+    has_school_insurance: bool

@@ -8,6 +8,8 @@ CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompl
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
 CREATE TYPE "enumCategory" AS ENUM ('Academico', 'Administrativo');
+CREATE TYPE "enumPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno')
+CREATE TYPE "enumInternshipType" AS ENUM ('Practica 1', 'Practice 2', 'Practica controlada', 'Tesis')
 
 -- 2. Creacion de Tablas
 
@@ -69,6 +71,10 @@ CREATE TABLE Internship (
     act_description VARCHAR(255) NOT NULL,
     ben_description VARCHAR(255) NOT NULL,
     amount INTEGER,
+    internship_period "enumPeriod", 
+    internship_type "enumInternshipType",  
+    has_school_insurance BOOLEAN,
+
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
