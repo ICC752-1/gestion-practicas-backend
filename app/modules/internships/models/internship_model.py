@@ -20,9 +20,9 @@ class PracticePeriodEnum(str, enum.Enum):
 
 class PracticeTypeEnum(str, enum.Enum):
     """Enumeración de tipos de práctica según el plan de estudios"""
-    practice_1 = "Practica 1"
-    practice_2 = "Practica 2"
-    controlled_practice = "Practica controlada"
+    practice_1 = "Práctica de Estudio I"
+    practice_2 = "Práctica de Estudio II"
+    controlled_practice = "Práctica Controlada"
     thesis = "Tesis"
 
 class Internship(Base):
@@ -84,7 +84,7 @@ class Internship(Base):
     amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upload_date: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.utcnow(),
         nullable=False,
     )
     status_id: Mapped[int | None] = mapped_column(
@@ -100,21 +100,27 @@ class Internship(Base):
 
     internship_period: Mapped[PracticePeriodEnum] = mapped_column(
         PGEnum(
-            PracticePeriodEnum,
-            name="enumPeriod",
+            "Semestre",
+            "Verano",
+            "Invierno",
+            name="enumInternshipPeriod",
+            create_type=False,
+        ),
+    nullable=False,
+    )
+    
+    internship_type: Mapped[PracticeTypeEnum] = mapped_column(
+        PGEnum(
+            "Práctica de Estudio I",
+            "Práctica de Estudio II",
+            "Práctica Controlada",
+            "Tesis",
+            name="enumStudentInternshipType",
             create_type=False,
         ),
         nullable=False,
     )
     
-    internship_type: Mapped[PracticeTypeEnum] = mapped_column(
-        PGEnum(
-            PracticeTypeEnum,
-            name="enumPracticeType",
-            create_type=False,
-        ),
-        nullable=False,
-    )
     has_school_insurance: Mapped[bool] = mapped_column(
         Boolean, 
         default=False,
