@@ -8,6 +8,8 @@ CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompl
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
 CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
+CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
+CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
 
 -- 2. Creación de Tablas
 
@@ -56,6 +58,19 @@ CREATE TABLE user_roles (
     user_id INTEGER NOT NULL REFERENCES Users(id),
     role_id INTEGER NOT NULL REFERENCES Roles(id),
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE StudentInternshipRequirement (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id),
+    type "enumStudentInternshipType" NOT NULL,
+    status "enumStudentInternshipStatus" NOT NULL DEFAULT 'Pendiente',
+    status_updated_at TIMESTAMP,
+    status_updated_by INTEGER REFERENCES Users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (user_id, type)
 );
 
 CREATE TABLE Internship (
@@ -122,6 +137,34 @@ CREATE TABLE LogAction (
     entity_id INTEGER NOT NULL,
     user_id INTEGER REFERENCES Users(id)
 );
+
+CREATE OR REPLACE FUNCTION fn_create_student_internship_requirements()
+RETURNS TRIGGER AS $$
+DECLARE
+    role_name "enumRole";
+BEGIN
+    SELECT name INTO role_name
+    FROM Roles
+    WHERE id = NEW.role_id;
+
+    IF role_name = 'Estudiante' THEN
+        INSERT INTO StudentInternshipRequirement (user_id, type)
+        VALUES
+            (NEW.user_id, 'Práctica de Estudio I'),
+            (NEW.user_id, 'Práctica de Estudio II'),
+            (NEW.user_id, 'Tesis'),
+            (NEW.user_id, 'Práctica Controlada')
+        ON CONFLICT (user_id, type) DO NOTHING;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_create_student_internship_requirements
+AFTER INSERT ON user_roles
+FOR EACH ROW
+EXECUTE FUNCTION fn_create_student_internship_requirements();
 
 -- 3. Inserción de datos iniciales mínimos para testear autenticación y autorización
 INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en prácticas');
