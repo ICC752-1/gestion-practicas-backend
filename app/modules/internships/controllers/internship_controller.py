@@ -8,7 +8,7 @@ principal en `InternshipService`.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import get_db
@@ -20,7 +20,10 @@ from app.modules.internships.repositories.internship_repository import (
     InternshipRepository,
 )
 from app.modules.internships.schemas.internship_schema import (
+    DashboardInternshipStatus,
     InternshipCreateRequest,
+    InternshipDashboardListItem,
+    InternshipDashboardStatsResponse,
     InternshipResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
@@ -28,6 +31,10 @@ from app.modules.internships.services.internship_service import InternshipServic
 router = APIRouter(prefix="/internships", tags=["Internships"])
 
 STUDENT_ROLE = "Estudiante"
+DASHBOARD_READ_ROLES = [
+    "Encargado de practica",
+    "Director de carrera",
+]
 PRIVILEGED_READ_ROLES = {
     "Encargado de practica",
     "Director de carrera",
@@ -114,6 +121,52 @@ async def create_internship(
     )
 
     return InternshipResponse.model_validate(internship)
+
+
+@router.get("", response_model=list[InternshipDashboardListItem])
+async def list_dashboard_internships(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DASHBOARD_READ_ROLES))],
+    status_filter: Annotated[
+        DashboardInternshipStatus | None,
+        Query(alias="status"),
+    ] = None,
+) -> list[InternshipDashboardListItem]:
+    """Lista practicas para el dashboard de coordinador/director.
+
+    Args:
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+        status_filter: Estado normalizado opcional (`submitted`, `in_review`,
+            `approved`, `rejected`).
+
+    Returns:
+        Lista de practicas con estudiante y estado normalizado para dashboard.
+    """
+
+    service = _build_service(db)
+
+    return await service.list_dashboard_internships(status_filter=status_filter)
+
+
+@router.get("/stats", response_model=InternshipDashboardStatsResponse)
+async def get_dashboard_stats(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DASHBOARD_READ_ROLES))],
+) -> InternshipDashboardStatsResponse:
+    """Obtiene conteos agregados para el dashboard de coordinador/director.
+
+    Args:
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+
+    Returns:
+        Conteos globales y por estado normalizado.
+    """
+
+    service = _build_service(db)
+
+    return await service.get_dashboard_stats()
 
 
 @router.get("/me", response_model=list[InternshipResponse])
