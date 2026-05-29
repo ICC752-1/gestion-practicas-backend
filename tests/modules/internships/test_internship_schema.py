@@ -2,8 +2,10 @@ from datetime import date
 
 import pytest
 from pydantic import ValidationError
+from fastapi import HTTPException
 
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
+from app.modules.internships.models.internship_model import PracticePeriodEnum, PracticeTypeEnum
 
 
 def _valid_payload() -> dict[str, object]:
@@ -23,6 +25,9 @@ def _valid_payload() -> dict[str, object]:
         "act_description": "Desarrollo de funcionalidades backend.",
         "ben_description": "Apoyo al equipo de plataforma.",
         "amount": 120000,
+        "internship_period": PracticePeriodEnum.semester,  # "Semestre"
+        "internship_type": PracticeTypeEnum.practice_1,    # "Practica 1"
+        "has_school_insurance": False,
     }
 
 
@@ -32,6 +37,7 @@ def test_internship_create_request_accepts_valid_payload() -> None:
     assert internship.org_name == "Acme Chile"
     assert internship.modality == "Presencial"
     assert internship.amount == 120000
+    assert internship.internship_period == "Semestre"
 
 
 def test_internship_create_request_rejects_end_date_before_start_date() -> None:
@@ -96,3 +102,41 @@ def test_internship_create_request_rejects_blank_required_text(
 
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
+
+def test_register_semester_ok() -> None:
+    """Test: Practica semestral sin seguro escolar debe ser aceptada (retorna 201)"""
+
+    payload = _valid_payload()
+    payload["internship_period"] = PracticePeriodEnum.semester
+    payload["has_school_insurance"] = False
+
+    internship = InternshipCreateRequest(**payload)
+
+    assert internship.internship_period == "Semestre"
+    assert internship.has_school_insurance is False
+
+def test_register_summer_no_insurance() -> None:
+    """Test: Practica de Verano sin seguro escolar debe arrojar HTTPException"""
+
+    payload = _valid_payload()
+    payload["internship_period"] = PracticePeriodEnum.summer
+    payload["has_school_insurance"] = False
+
+    with pytest.raises(HTTPException) as exc_info:
+        InternshipCreateRequest(**payload)
+        
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail["field"] == "has_school_insurance"
+    assert "No es posible registrar práctica estival" in exc_info.value.detail["message"]
+
+
+def test_register_summer_with_insurance() -> None:
+    """Test: Práctica en Verano con seguro debe ser aceptada (Retorna 201)"""
+    payload = _valid_payload()
+    payload["internship_period"] = PracticePeriodEnum.summer 
+    payload["has_school_insurance"] = True
+
+    internship = InternshipCreateRequest(**payload)
+    
+    assert internship.internship_period == "Verano"
+    assert internship.has_school_insurance is True

@@ -1,15 +1,19 @@
--- 1. Creacion de Enumeraciones (Enums)
-CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera');
+-- 1. Creación de Enumeraciones (Enums)
+CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de práctica', 'Encargado de práctica', 'Director de carrera', 'Secretaria de Carrera');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Practica', 'Documento', 'Presentacion', 'Estado', 'Rol', 'Configuracion');
+CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
-CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Hibrido');
+CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
-CREATE TYPE "enumCategory" AS ENUM ('Academico', 'Administrativo');
 
--- 2. Creacion de Tablas
+CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
+CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
+CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
+CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
+
+-- 2. Creación de Tablas
 
 CREATE TABLE Roles (
     id SERIAL PRIMARY KEY,
@@ -23,6 +27,12 @@ CREATE TABLE CurrentState (
     title VARCHAR(100) NOT NULL,
     description TEXT NOT NULL
 );
+
+INSERT INTO CurrentState (title, description) VALUES
+    ('Pendiente', 'La práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.'),
+    ('En revisión', 'La práctica fue registrada y se encuentra en revisión administrativa.'),
+    ('Aprobada', 'La práctica fue aprobada por el encargado de prácticas.'),
+    ('Reprobada', 'La práctica fue rechazada durante la revisión administrativa.');
 
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
@@ -52,6 +62,19 @@ CREATE TABLE user_roles (
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE StudentInternshipRequirement (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id),
+    type "enumStudentInternshipType" NOT NULL,
+    status "enumStudentInternshipStatus" NOT NULL DEFAULT 'Pendiente',
+    status_updated_at TIMESTAMP,
+    status_updated_by INTEGER REFERENCES Users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (user_id, type)
+);
+
 CREATE TABLE Internship (
     id SERIAL PRIMARY KEY,
     org_name VARCHAR(255) NOT NULL,
@@ -69,6 +92,10 @@ CREATE TABLE Internship (
     act_description VARCHAR(255) NOT NULL,
     ben_description VARCHAR(255) NOT NULL,
     amount INTEGER,
+    internship_period "enumInternshipPeriod", 
+    internship_type "enumStudentInternshipType",  
+    has_school_insurance BOOLEAN,
+
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
@@ -117,6 +144,34 @@ CREATE TABLE LogAction (
     user_id INTEGER REFERENCES Users(id)
 );
 
+CREATE OR REPLACE FUNCTION fn_create_student_internship_requirements()
+RETURNS TRIGGER AS $$
+DECLARE
+    role_name "enumRole";
+BEGIN
+    SELECT name INTO role_name
+    FROM Roles
+    WHERE id = NEW.role_id;
+
+    IF role_name = 'Estudiante' THEN
+        INSERT INTO StudentInternshipRequirement (user_id, type)
+        VALUES
+            (NEW.user_id, 'Práctica de Estudio I'),
+            (NEW.user_id, 'Práctica de Estudio II'),
+            (NEW.user_id, 'Tesis'),
+            (NEW.user_id, 'Práctica Controlada')
+        ON CONFLICT (user_id, type) DO NOTHING;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_create_student_internship_requirements
+AFTER INSERT ON user_roles
+FOR EACH ROW
+EXECUTE FUNCTION fn_create_student_internship_requirements();
+
 -- 3. Insercion de datos iniciales minimos para testear autenticacion y autorizacion
 INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en practicas');
 INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol correspondiente al director de la carrera perteneciente a FICA');
@@ -131,7 +186,7 @@ VALUES ('Claudio', 'Navarro', 'claudio.navarro@ufrontera.cl', '$argon2id$v=19$m=
 INSERT INTO user_roles(user_id, role_id) VALUES (1, 1);
 INSERT INTO user_roles(user_id, role_id) VALUES (2, 2);
 
--- 4. Funcion del Trigger para automatizar la auditoria
+-- 4. Función del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -140,9 +195,9 @@ DECLARE
 BEGIN
     entity_enum := CASE lower(TG_TABLE_NAME)
         WHEN 'users' THEN 'Usuario'::"enumEntity"
-        WHEN 'internship' THEN 'Practica'::"enumEntity"
+        WHEN 'internship' THEN 'Práctica'::"enumEntity"
         WHEN 'document' THEN 'Documento'::"enumEntity"
-        WHEN 'presentation' THEN 'Presentacion'::"enumEntity"
+        WHEN 'presentation' THEN 'Presentación'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
         WHEN 'currentstate' THEN 'Estado'::"enumEntity"
         ELSE NULL
@@ -161,15 +216,15 @@ BEGIN
 
     IF (TG_OP = 'INSERT') THEN
         INSERT INTO LogAction (action, entity, description, new_value, entity_id, user_id)
-        VALUES ('INSERT', entity_enum, 'Creacion de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('INSERT', entity_enum, 'Creación de nuevo registro', to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'UPDATE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, new_value, entity_id, user_id)
-        VALUES ('UPDATE', entity_enum, 'Actualizacion de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
+        VALUES ('UPDATE', entity_enum, 'Actualización de datos', to_jsonb(OLD), to_jsonb(NEW), NEW.id, current_user_id);
         RETURN NEW;
     ELSIF (TG_OP = 'DELETE') THEN
         INSERT INTO LogAction (action, entity, description, old_value, entity_id, user_id)
-        VALUES ('DELETE', entity_enum, 'Eliminacion de registro', to_jsonb(OLD), OLD.id, current_user_id);
+        VALUES ('DELETE', entity_enum, 'Eliminación de registro', to_jsonb(OLD), OLD.id, current_user_id);
         RETURN OLD;
     END IF;
 
