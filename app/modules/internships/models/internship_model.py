@@ -5,13 +5,25 @@ informacion base de una practica profesional asociada a un estudiante.
 """
 
 from datetime import date, datetime, timezone
-
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
+import enum
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.database import Base
 
+class PracticePeriodEnum(str, enum.Enum):
+    """Enumeración de periodos académicos para las prácticas"""
+    semester = "Semestre"
+    summer = "Verano"
+    winter = "Invierno"
+
+class PracticeTypeEnum(str, enum.Enum):
+    """Enumeración de tipos de práctica según el plan de estudios"""
+    practice_1 = "Práctica de Estudio I"
+    practice_2 = "Práctica de Estudio II"
+    controlled_practice = "Práctica Controlada"
+    thesis = "Tesis"
 
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
@@ -36,6 +48,9 @@ class Internship(Base):
         upload_date: Fecha y hora de registro.
         status_id: Identificador del estado actual, si existe.
         user_id: Identificador del estudiante propietario.
+        internship_period: Periodo de la practic según `enumPeriod`.
+        internship_type: Tipo de la practica según `enumInternshipType`.
+        has_school_insure: Booleanno que indica si posee seguro escolar.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
     """
@@ -69,7 +84,7 @@ class Internship(Base):
     amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upload_date: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.utcnow(),
         nullable=False,
     )
     status_id: Mapped[int | None] = mapped_column(
@@ -81,6 +96,35 @@ class Internship(Base):
         Integer,
         ForeignKey("users.id"),
         nullable=True,
+    )
+
+    internship_period: Mapped[PracticePeriodEnum] = mapped_column(
+        PGEnum(
+            "Semestre",
+            "Verano",
+            "Invierno",
+            name="enumInternshipPeriod",
+            create_type=False,
+        ),
+    nullable=False,
+    )
+    
+    internship_type: Mapped[PracticeTypeEnum] = mapped_column(
+        PGEnum(
+            "Práctica de Estudio I",
+            "Práctica de Estudio II",
+            "Práctica Controlada",
+            "Tesis",
+            name="enumStudentInternshipType",
+            create_type=False,
+        ),
+        nullable=False,
+    )
+    
+    has_school_insurance: Mapped[bool] = mapped_column(
+        Boolean, 
+        default=False,
+        nullable=False,
     )
 
     status = relationship("CurrentState", back_populates="internships")

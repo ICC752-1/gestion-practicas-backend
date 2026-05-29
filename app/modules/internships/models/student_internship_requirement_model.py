@@ -77,4 +77,4 @@ class StudentInternshipRequirement(Base):
         nullable=False,
     )
 
-    student = relationship("User")
+    student = relationship("User", foreign_keys=[user_id])
