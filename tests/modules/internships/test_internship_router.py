@@ -1,11 +1,13 @@
-from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
+import pytest
+from fastapi import HTTPException
 
-from app.core.database.database import get_db
 from app.main import app
-from app.modules.auth.dependencies.auth_dependency import get_current_user
+from app.modules.auth.dependencies.role_dependency import require_roles
+from app.modules.internships.controllers.internship_controller import (
+    DASHBOARD_READ_ROLES,
+)
 
 
 def _methods_for_path(path: str) -> set[str]:
@@ -26,14 +28,6 @@ def _user(user_id: int, roles: list[str]) -> SimpleNamespace:
             for role_name in roles
         ],
     )
-
-
-async def _override_get_db() -> AsyncGenerator[None, None]:
-    yield None
-
-
-async def _override_current_student() -> SimpleNamespace:
-    return _user(user_id=1, roles=["Estudiante"])
 
 
 def test_internships_router_is_registered() -> None:
@@ -59,14 +53,10 @@ def test_users_and_roles_routers_are_registered() -> None:
     assert "/roles/{role_id}" in paths
 
 
-def test_dashboard_internships_rejects_student_role() -> None:
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_current_user] = _override_current_student
+async def test_dashboard_internships_rejects_student_role() -> None:
+    role_checker = require_roles(DASHBOARD_READ_ROLES)
 
-    try:
-        with TestClient(app) as client:
-            response = client.get("/internships")
-    finally:
-        app.dependency_overrides.clear()
+    with pytest.raises(HTTPException) as exc_info:
+        await role_checker(_user(user_id=1, roles=["Estudiante"]))
 
-    assert response.status_code == 403
+    assert exc_info.value.status_code == 403
