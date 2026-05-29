@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-Modality = Literal["Presencial", "Remoto", "Hibrido"]
+Modality = Literal["Presencial", "Remoto", "Híbrido"]
 
 
 class AdminSummaryByStatusItem(BaseModel):

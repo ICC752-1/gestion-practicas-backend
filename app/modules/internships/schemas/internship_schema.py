@@ -9,10 +9,14 @@ from datetime import date, datetime
 from typing import Literal
 
 from fastapi import HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from app.modules.internships.models.internship_model import PracticePeriodEnum, PracticeTypeEnum
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-Modality = Literal["Presencial", "Remoto", "Hibrido"]
+from app.modules.internships.models.internship_model import (
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+)
+
+Modality = Literal["Presencial", "Remoto", "Híbrido"]
 
 
 class InternshipCreateRequest(BaseModel):
@@ -25,16 +29,22 @@ class InternshipCreateRequest(BaseModel):
         city: Ciudad donde se ubica la organizacion.
         org_phone: Telefono de contacto de la organizacion, si existe.
         web: Sitio web de la organizacion, si existe.
+        supervisor_name: Nombre completo del supervisor de practica.
+        supervisor_profession: Profesion del supervisor de practica.
+        supervisor_position: Cargo del supervisor de practica.
+        supervisor_department: Departamento o seccion del supervisor.
+        supervisor_email: Correo electronico del supervisor.
+        supervisor_phone: Telefono del supervisor de practica.
         start_date: Fecha de inicio de la practica.
         end_date: Fecha de termino de la practica.
         schedule: Horario definido para la practica.
         days: Dias en que se realizara la practica.
         modality: Modalidad de la practica (`Presencial`, `Remoto` o
-            `Hibrido`).
+            `Híbrido`).
         internship_address: Direccion especifica donde se ejecutara la
             practica.
-        internship_period: Periodo de la practica ('Semestre', 'Verano', 'Invierno').
-        internship_type: Tipo de practica ('Practica 1', 'Practica 2', Practica controlada, tesis).
+        internship_period: Periodo de la practica.
+        internship_type: Tipo de practica.
         has_school_insurance: Indica si posee seguro escolar vigente.
         act_description: Descripcion de actividades a realizar.
         ben_description: Descripcion del beneficio o aporte esperado.
@@ -47,6 +57,12 @@ class InternshipCreateRequest(BaseModel):
     city: str = Field(min_length=1, max_length=255)
     org_phone: str | None = Field(default=None, max_length=255)
     web: str | None = Field(default=None, max_length=255)
+    supervisor_name: str = Field(min_length=1, max_length=255)
+    supervisor_profession: str = Field(min_length=1, max_length=255)
+    supervisor_position: str = Field(min_length=1, max_length=255)
+    supervisor_department: str = Field(min_length=1, max_length=255)
+    supervisor_email: EmailStr
+    supervisor_phone: str = Field(min_length=1, max_length=255)
     start_date: date
     end_date: date
     schedule: str = Field(min_length=1, max_length=255)
@@ -75,22 +91,30 @@ class InternshipCreateRequest(BaseModel):
             raise ValueError("end_date must be greater than or equal to start_date")
 
         return self
-    
+
     @model_validator(mode="after")
     def validate_school_insurance(self) -> "InternshipCreateRequest":
         """Valida que el estudiante tenga el seguro escolar
         Garantiza que no se realicen practicas en el periodo estival ('Verano' o 'Invierno')
         sin el respaldo del seguro escolar obligatorio (D.S. 313)
         """
-        if self.internship_period in (PracticePeriodEnum.summer, PracticePeriodEnum.winter) and not self.has_school_insurance:
+        is_seasonal_period = self.internship_period in (
+            PracticePeriodEnum.summer,
+            PracticePeriodEnum.winter,
+        )
+        if is_seasonal_period and not self.has_school_insurance:
             raise HTTPException(
-                status_code = status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
                     "field": "has_school_insurance",
-                    "message": "No es posible registrar práctica estival sin respaldo de seguro escolar vigente (D.S. 313)"
-                }
-            )                                
+                    "message": (
+                        "No es posible registrar práctica estival sin respaldo "
+                        "de seguro escolar vigente (D.S. 313)"
+                    ),
+                },
+            )
         return self
+
 
 class CurrentStateResponse(BaseModel):
     """Respuesta con informacion de un estado de practica.
@@ -122,6 +146,12 @@ class InternshipResponse(BaseModel):
         city: Ciudad donde se ubica la organizacion.
         org_phone: Telefono de contacto de la organizacion, si existe.
         web: Sitio web de la organizacion, si existe.
+        supervisor_name: Nombre completo del supervisor de practica.
+        supervisor_profession: Profesion del supervisor de practica.
+        supervisor_position: Cargo del supervisor de practica.
+        supervisor_department: Departamento o seccion del supervisor.
+        supervisor_email: Correo electronico del supervisor.
+        supervisor_phone: Telefono del supervisor de practica.
         start_date: Fecha de inicio de la practica.
         end_date: Fecha de termino de la practica.
         schedule: Horario definido para la practica.
@@ -137,8 +167,8 @@ class InternshipResponse(BaseModel):
         user_id: Identificador del estudiante propietario de la practica.
         internship_address: Direccion especifica donde se ejecutara la
             practica.
-        internship_period: Periodo de la practica ('Semestre', 'Verano', 'Invierno').
-        internship_type: Tipo de practica ('Practica 1', 'Practica 2', Practica controlada, tesis).
+        internship_period: Periodo de la practica.
+        internship_type: Tipo de practica.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -150,6 +180,12 @@ class InternshipResponse(BaseModel):
     city: str
     org_phone: str | None
     web: str | None
+    supervisor_name: str
+    supervisor_profession: str
+    supervisor_position: str
+    supervisor_department: str
+    supervisor_email: EmailStr
+    supervisor_phone: str
     start_date: date
     end_date: date
     schedule: str

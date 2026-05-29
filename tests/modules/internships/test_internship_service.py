@@ -1,5 +1,9 @@
 from datetime import date
 
+from app.modules.internships.models.internship_model import (
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+)
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
 from app.modules.internships.services.internship_service import InternshipService
 
@@ -12,6 +16,12 @@ def _valid_payload() -> InternshipCreateRequest:
         city="Temuco",
         org_phone="+56912345678",
         web="https://acme.example",
+        supervisor_name="Ana Perez",
+        supervisor_profession="Ingeniera Civil Informatica",
+        supervisor_position="Jefa de Proyectos",
+        supervisor_department="Tecnologia",
+        supervisor_email="ana.perez@acme.example",
+        supervisor_phone="+56987654321",
         start_date=date(2026, 6, 1),
         end_date=date(2026, 8, 31),
         schedule="09:00-18:00",
@@ -21,6 +31,9 @@ def _valid_payload() -> InternshipCreateRequest:
         act_description="Desarrollo de funcionalidades backend.",
         ben_description="Apoyo al equipo de plataforma.",
         amount=120000,
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_1,
+        has_school_insurance=False,
     )
 
 
@@ -60,6 +73,7 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert internship is repository.created_internship
     assert internship.user_id == 42
     assert internship.org_name == "Acme Chile"
+    assert internship.supervisor_email == "ana.perez@acme.example"
 
 
 async def test_get_internship_delegates_lookup_to_repository() -> None:

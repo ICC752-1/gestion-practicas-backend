@@ -33,7 +33,7 @@ sistema propuesto.
 | Autenticación con emisión de tokens | ◐ |
 | Consulta del usuario autenticado | ◐ |
 | Gestión de estudiantes | ◯ |
-| Gestión de prácticas | ◯ |
+| Gestión de prácticas | ◐ |
 | Inicialización de base de datos con datos base | ⬤ |
 | Validación de credenciales y estado de usuario | ◐ |
 | Logging y auditoría de acciones | ◯ |
@@ -95,6 +95,17 @@ docker exec -it internship_db psql -U <usuario> -d internship_db
 > La contraseña asociada es `my_secure_password`.
 
 ### Endpoints disponibles
+#### Autenticación
+
 - `POST /auth/login`
 - `GET /auth/me`
 - `POST /auth/logout`
+
+#### Gestión de prácticas
+
+- `POST /internships`: crea una práctica asociada al estudiante autenticado. Requiere token Bearer y rol `Estudiante`.
+- `GET /internships/me`: lista las prácticas registradas por el usuario autenticado.
+- `GET /internships/{internship_id}`: obtiene el detalle de una práctica por identificador. Permite acceso al estudiante propietario o a roles con permisos de revisión.
+
+> [!NOTE]
+> La gestión de prácticas se encuentra en estado parcial: actualmente permite crear prácticas, listar las prácticas propias y consultar el detalle de una práctica existente. Aún quedan pendientes flujos como actualización de estado, revisión, aprobación/rechazo, documentos asociados e integración completa con los demás módulos del proceso.
