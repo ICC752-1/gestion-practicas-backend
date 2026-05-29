@@ -4,26 +4,32 @@ Este modulo define la entidad `Internship`, utilizada para representar la
 informacion base de una practica profesional asociada a un estudiante.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 import enum
+
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.database import Base
 
+
 class PracticePeriodEnum(str, enum.Enum):
     """Enumeración de periodos académicos para las prácticas"""
+
     semester = "Semestre"
     summer = "Verano"
     winter = "Invierno"
 
+
 class PracticeTypeEnum(str, enum.Enum):
     """Enumeración de tipos de práctica según el plan de estudios"""
+
     practice_1 = "Práctica de Estudio I"
     practice_2 = "Práctica de Estudio II"
     controlled_practice = "Práctica Controlada"
     thesis = "Tesis"
+
 
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
@@ -36,6 +42,12 @@ class Internship(Base):
         city: Ciudad donde se ubica la organizacion.
         org_phone: Telefono de contacto de la organizacion, si existe.
         web: Sitio web de la organizacion, si existe.
+        supervisor_name: Nombre completo del supervisor de practica.
+        supervisor_profession: Profesion del supervisor de practica.
+        supervisor_position: Cargo del supervisor de practica.
+        supervisor_department: Departamento o seccion del supervisor.
+        supervisor_email: Correo electronico del supervisor.
+        supervisor_phone: Telefono del supervisor de practica.
         start_date: Fecha de inicio de la practica.
         end_date: Fecha de termino de la practica.
         schedule: Horario definido para la practica.
@@ -48,9 +60,9 @@ class Internship(Base):
         upload_date: Fecha y hora de registro.
         status_id: Identificador del estado actual, si existe.
         user_id: Identificador del estudiante propietario.
-        internship_period: Periodo de la practic según `enumPeriod`.
-        internship_type: Tipo de la practica según `enumInternshipType`.
-        has_school_insure: Booleanno que indica si posee seguro escolar.
+        internship_period: Periodo de la practica segun `enumPeriod`.
+        internship_type: Tipo de la practica segun `enumInternshipType`.
+        has_school_insurance: Booleano que indica si posee seguro escolar.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
     """
@@ -64,6 +76,12 @@ class Internship(Base):
     city: Mapped[str] = mapped_column(String(255), nullable=False)
     org_phone: Mapped[str | None] = mapped_column(String(255), nullable=True)
     web: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    supervisor_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    supervisor_profession: Mapped[str] = mapped_column(String(255), nullable=False)
+    supervisor_position: Mapped[str] = mapped_column(String(255), nullable=False)
+    supervisor_department: Mapped[str] = mapped_column(String(255), nullable=False)
+    supervisor_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    supervisor_phone: Mapped[str] = mapped_column(String(255), nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     schedule: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -72,7 +90,7 @@ class Internship(Base):
         PGEnum(
             "Presencial",
             "Remoto",
-            "Hibrido",
+            "Híbrido",
             name="enumModality",
             create_type=False,
         ),
@@ -106,9 +124,9 @@ class Internship(Base):
             name="enumInternshipPeriod",
             create_type=False,
         ),
-    nullable=False,
+        nullable=False,
     )
-    
+
     internship_type: Mapped[PracticeTypeEnum] = mapped_column(
         PGEnum(
             "Práctica de Estudio I",
@@ -120,9 +138,9 @@ class Internship(Base):
         ),
         nullable=False,
     )
-    
+
     has_school_insurance: Mapped[bool] = mapped_column(
-        Boolean, 
+        Boolean,
         default=False,
         nullable=False,
     )
