@@ -1,11 +1,14 @@
 from datetime import date
 
 import pytest
-from pydantic import ValidationError
 from fastapi import HTTPException
+from pydantic import ValidationError
 
+from app.modules.internships.models.internship_model import (
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+)
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
-from app.modules.internships.models.internship_model import PracticePeriodEnum, PracticeTypeEnum
 
 
 def _valid_payload() -> dict[str, object]:
@@ -16,6 +19,12 @@ def _valid_payload() -> dict[str, object]:
         "city": "Temuco",
         "org_phone": "+56912345678",
         "web": "https://acme.example",
+        "supervisor_name": "Ana Perez",
+        "supervisor_profession": "Ingeniera Civil Informatica",
+        "supervisor_position": "Jefa de Proyectos",
+        "supervisor_department": "Tecnologia",
+        "supervisor_email": "ana.perez@acme.example",
+        "supervisor_phone": "+56987654321",
         "start_date": date(2026, 6, 1),
         "end_date": date(2026, 8, 31),
         "schedule": "09:00-18:00",
@@ -26,7 +35,7 @@ def _valid_payload() -> dict[str, object]:
         "ben_description": "Apoyo al equipo de plataforma.",
         "amount": 120000,
         "internship_period": PracticePeriodEnum.semester,  # "Semestre"
-        "internship_type": PracticeTypeEnum.practice_1,    # "Practica 1"
+        "internship_type": PracticeTypeEnum.practice_1,  # "Practica 1"
         "has_school_insurance": False,
     }
 
@@ -36,6 +45,7 @@ def test_internship_create_request_accepts_valid_payload() -> None:
 
     assert internship.org_name == "Acme Chile"
     assert internship.modality == "Presencial"
+    assert internship.supervisor_email == "ana.perez@acme.example"
     assert internship.amount == 120000
     assert internship.internship_period == "Semestre"
 
@@ -48,7 +58,7 @@ def test_internship_create_request_rejects_end_date_before_start_date() -> None:
         InternshipCreateRequest(**payload)
 
 
-@pytest.mark.parametrize("invalid_modality", ["Online", "Híbrido", ""])
+@pytest.mark.parametrize("invalid_modality", ["Online", "Hibrido", ""])
 def test_internship_create_request_rejects_invalid_modality(
     invalid_modality: str,
 ) -> None:
@@ -57,6 +67,15 @@ def test_internship_create_request_rejects_invalid_modality(
 
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
+
+
+def test_internship_create_request_accepts_hybrid_modality_with_accent() -> None:
+    payload = _valid_payload()
+    payload["modality"] = "Híbrido"
+
+    internship = InternshipCreateRequest(**payload)
+
+    assert internship.modality == "Híbrido"
 
 
 def test_internship_create_request_rejects_negative_amount() -> None:
@@ -87,6 +106,11 @@ def test_internship_create_request_allows_optional_fields_to_be_omitted() -> Non
         "sector",
         "address",
         "city",
+        "supervisor_name",
+        "supervisor_profession",
+        "supervisor_position",
+        "supervisor_department",
+        "supervisor_phone",
         "schedule",
         "days",
         "internship_address",
@@ -103,6 +127,15 @@ def test_internship_create_request_rejects_blank_required_text(
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
 
+
+def test_internship_create_request_rejects_invalid_supervisor_email() -> None:
+    payload = _valid_payload()
+    payload["supervisor_email"] = "not-an-email"
+
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)
+
+
 def test_register_semester_ok() -> None:
     """Test: Practica semestral sin seguro escolar debe ser aceptada (retorna 201)"""
 
@@ -115,6 +148,7 @@ def test_register_semester_ok() -> None:
     assert internship.internship_period == "Semestre"
     assert internship.has_school_insurance is False
 
+
 def test_register_summer_no_insurance() -> None:
     """Test: Practica de Verano sin seguro escolar debe arrojar HTTPException"""
 
@@ -124,7 +158,7 @@ def test_register_summer_no_insurance() -> None:
 
     with pytest.raises(HTTPException) as exc_info:
         InternshipCreateRequest(**payload)
-        
+
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail["field"] == "has_school_insurance"
     assert "No es posible registrar práctica estival" in exc_info.value.detail["message"]
@@ -133,10 +167,10 @@ def test_register_summer_no_insurance() -> None:
 def test_register_summer_with_insurance() -> None:
     """Test: Práctica en Verano con seguro debe ser aceptada (Retorna 201)"""
     payload = _valid_payload()
-    payload["internship_period"] = PracticePeriodEnum.summer 
+    payload["internship_period"] = PracticePeriodEnum.summer
     payload["has_school_insurance"] = True
 
     internship = InternshipCreateRequest(**payload)
-    
+
     assert internship.internship_period == "Verano"
     assert internship.has_school_insurance is True
