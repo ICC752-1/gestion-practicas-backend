@@ -5,6 +5,7 @@
     <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.14+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
     <a href="https://www.docker.com"><img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
     <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/uv-Astral-2E71FF?style=for-the-badge" alt="uv"></a>
+    <a href="https://github.com/ICC752-1/gestion-practicas-backend/actions/workflows/ci.yml"><img src="https://github.com/ICC752-1/gestion-practicas-backend/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   </p>
   <p>
     <a href="#contexto">Contexto</a> ·
@@ -67,12 +68,53 @@ docker compose up -d --build db
 http://127.0.0.1:8000/docs
 ```
 
+#### 5. Verificación local (lint + tests)
+
+```bash
+uv sync --dev
+uv run ruff check .
+uv run pytest --tb=short
+```
+
 ### Documentación
 Esta sección reúne documentación propia del funcionamiento interno del sistema.
 
 > Para un alcance mayor y otros dominios, revise el repositorio de documentación.
 
 - [Logging](docs/logging.md)
+
+### CI/CD
+El repositorio cuenta con workflows automatizados:
+
+- **CI**: ejecuta lint y tests en cada push y pull request.
+- **CD**: al hacer merge a `main` construye la imagen y despliega en la VPS.
+
+La imagen de producción se publica en:
+
+- `ghcr.io/icc752-1/gestion-practicas-backend:latest`
+- `ghcr.io/icc752-1/gestion-practicas-backend:<commit_sha>`
+
+#### Despliegue en producción
+1. Crear la carpeta `/home/ci/gestion-practicas-backend` en la VPS.
+2. Copiar `docker-compose.prod.yml` y `.env.production` a esa ruta.
+3. Copiar `app/core/database/init.sql` a `/home/ci/gestion-practicas-backend/app/core/database/init.sql`.
+4. Completar las variables de entorno en `.env.production`.
+5. Ejecutar el despliegue con Docker Compose:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d
+```
+
+> [!NOTE]
+> La base de datos de producción persiste datos en el volumen `pgdata`.
+
+#### Reproducir CI localmente
+```bash
+uv sync --dev
+uv run ruff check .
+uv run pytest --tb=short
+```
 
 ### Notas de uso
 - Para detener la base de datos:
