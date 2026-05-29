@@ -4,6 +4,12 @@ import pytest
 from sqlalchemy import text
 
 
+# El AsyncEngine mantiene un pool asociado al event loop. Si cada test corre en un loop
+# distinto (config por defecto de pytest-asyncio), puede aparecer:
+# "Future attached to a different loop". Forzamos el mismo loop para este modulo.
+pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
 async def test_engine_connection() -> None:
     """Verifica que el engine conecta correctamente a PostgreSQL."""
 
