@@ -7,14 +7,14 @@ meta:
   modified: 1778800000000
   description: "Colección para probar endpoints del módulo internships."
 collection:
-  - name: 00 - Auth - Login usuario semilla
+  - name: 00 - Auth - Login estudiante semilla
     url: "{{ _.base_url }}/auth/login"
     meta:
       id: req_internships_auth_login_seed_user
       created: 1778800000001
       modified: 1778800000001
       isPrivate: false
-      description: "Ejecutar primero. Copiar access_token al environment access_token."
+      description: "Ejecutar primero. Copiar access_token al environment student_access_token."
       sortKey: -1778800000001
     method: POST
     body:
@@ -39,6 +39,38 @@ collection:
         store: true
       rebuildPath: true
 
+  - name: 00b - Auth - Login director semilla
+    url: "{{ _.base_url }}/auth/login"
+    meta:
+      id: req_internships_auth_login_seed_director
+      created: 1778800000010
+      modified: 1778800000010
+      isPrivate: false
+      description: "Copiar access_token al environment access_token para endpoints de dashboard."
+      sortKey: -1778800000010
+    method: POST
+    body:
+      mimeType: application/json
+      text: >-
+        {
+          "email": "claudio.navarro@ufrontera.cl",
+          "password": "my_secure_password"
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
   - name: 01 - Internships - Crear práctica válida
     url: "{{ _.base_url }}/internships"
     meta:
@@ -46,7 +78,7 @@ collection:
       created: 1778800000002
       modified: 1778800000002
       isPrivate: false
-      description: "Requiere access_token de usuario con rol Estudiante."
+      description: "Requiere student_access_token de usuario con rol Estudiante."
       sortKey: -1778800000002
     method: POST
     body:
@@ -82,7 +114,7 @@ collection:
       - name: Content-Type
         value: application/json
       - name: Authorization
-        value: "Bearer {{ _.access_token }}"
+        value: "Bearer {{ _.student_access_token }}"
       - name: User-Agent
         value: insomnia/12.5.0
         disabled: false
@@ -107,7 +139,7 @@ collection:
     method: GET
     headers:
       - name: Authorization
-        value: "Bearer {{ _.access_token }}"
+        value: "Bearer {{ _.student_access_token }}"
       - name: User-Agent
         value: insomnia/12.5.0
         disabled: false
@@ -132,7 +164,7 @@ collection:
     method: GET
     headers:
       - name: Authorization
-        value: "Bearer {{ _.access_token }}"
+        value: "Bearer {{ _.student_access_token }}"
       - name: User-Agent
         value: insomnia/12.5.0
         disabled: false
@@ -188,7 +220,7 @@ collection:
       - name: Content-Type
         value: application/json
       - name: Authorization
-        value: "Bearer {{ _.access_token }}"
+        value: "Bearer {{ _.student_access_token }}"
       - name: User-Agent
         value: insomnia/12.5.0
         disabled: false
@@ -265,7 +297,130 @@ collection:
     method: GET
     headers:
       - name: Authorization
+        value: "Bearer {{ _.student_access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 07 - Internships - GET Dashboard Stats
+    url: "{{ _.base_url }}/internships/stats"
+    meta:
+      id: req_internships_dashboard_stats
+      created: 1778800000011
+      modified: 1778800000011
+      isPrivate: false
+      description: "Requiere access_token de usuario con rol Director de carrera o Encargado de practica."
+      sortKey: -1778800000011
+    method: GET
+    headers:
+      - name: Authorization
         value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 08 - Internships - GET Dashboard Internships
+    url: "{{ _.base_url }}/internships"
+    meta:
+      id: req_internships_dashboard_list
+      created: 1778800000012
+      modified: 1778800000012
+      isPrivate: false
+      description: "Lista practicas reales para el dashboard coordinador/director."
+      sortKey: -1778800000012
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 09 - Internships - GET Dashboard Internships by Submitted Status
+    url: "{{ _.base_url }}/internships?status=submitted"
+    meta:
+      id: req_internships_dashboard_list_submitted
+      created: 1778800000013
+      modified: 1778800000013
+      isPrivate: false
+      description: "Debe incluir practicas sin estado o con estado Pendiente."
+      sortKey: -1778800000013
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.access_token }}"
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 10 - Internships - GET Dashboard Stats (sin token)
+    url: "{{ _.base_url }}/internships/stats"
+    meta:
+      id: req_internships_dashboard_stats_without_token
+      created: 1778800000014
+      modified: 1778800000014
+      isPrivate: false
+      description: "Debe responder 401/403 porque no se envia Bearer token."
+      sortKey: -1778800000014
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+
+  - name: 11 - Internships - GET Dashboard Internships (rol incorrecto)
+    url: "{{ _.base_url }}/internships"
+    meta:
+      id: req_internships_dashboard_list_wrong_role
+      created: 1778800000015
+      modified: 1778800000015
+      isPrivate: false
+      description: "Usar token de estudiante; debe responder 403."
+      sortKey: -1778800000015
+    method: GET
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.student_access_token }}"
       - name: User-Agent
         value: insomnia/12.5.0
         disabled: false
@@ -293,5 +448,7 @@ environments:
     isPrivate: false
   data:
     base_url: http://127.0.0.1:8000
-    access_token: paste_access_token_here
+    access_token: paste_privileged_access_token_here
+    student_access_token: paste_student_access_token_here
+    director_access_token: paste_director_access_token_here
     internship_id: 1

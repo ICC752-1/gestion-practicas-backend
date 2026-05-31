@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from types import SimpleNamespace
 
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
@@ -44,6 +45,7 @@ class FakeInternshipRepository:
         self.requested_user_id = None
         self.internship_by_id = None
         self.internships_by_user = []
+        self.dashboard_internships = []
 
     async def create_internship(self, internship):
         self.created_internship = internship
@@ -59,6 +61,41 @@ class FakeInternshipRepository:
         self.requested_user_id = user_id
 
         return self.internships_by_user
+
+    async def list_dashboard_internships(self):
+        return self.dashboard_internships
+
+
+def _student() -> SimpleNamespace:
+    return SimpleNamespace(
+        id=10,
+        email="camila.rojas@ufromail.cl",
+        first_name="Camila",
+        last_name="Rojas",
+        rut="11.111.111-1",
+        degree="Ingenieria Civil Informatica",
+    )
+
+
+def _status(title: str) -> SimpleNamespace:
+    return SimpleNamespace(title=title)
+
+
+def _dashboard_internship(
+    internship_id: int,
+    status=None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=internship_id,
+        org_name="Acme Chile",
+        city="Temuco",
+        internship_type=PracticeTypeEnum.practice_1,
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 8, 31),
+        upload_date=datetime(2026, 5, 29, 12, 0, 0),
+        status=status,
+        student=_student(),
+    )
 
 
 async def test_create_internship_assigns_authenticated_user_id() -> None:
@@ -96,3 +133,54 @@ async def test_list_user_internships_delegates_lookup_to_repository() -> None:
 
     assert internships == repository.internships_by_user
     assert repository.requested_user_id == 42
+
+
+async def test_list_dashboard_internships_maps_null_status_as_submitted() -> None:
+    repository = FakeInternshipRepository()
+    repository.dashboard_internships = [_dashboard_internship(1, status=None)]
+    service = InternshipService(internship_repository=repository)
+
+    internships = await service.list_dashboard_internships()
+
+    assert len(internships) == 1
+    assert internships[0].id == 1
+    assert internships[0].status == "submitted"
+    assert internships[0].status_label == "Pendiente"
+    assert internships[0].student is not None
+    assert internships[0].student.email == "camila.rojas@ufromail.cl"
+
+
+async def test_list_dashboard_internships_filters_by_normalized_status() -> None:
+    repository = FakeInternshipRepository()
+    repository.dashboard_internships = [
+        _dashboard_internship(1, status=_status("Reprobada")),
+        _dashboard_internship(2, status=_status("Aprobada")),
+        _dashboard_internship(3, status=_status("Rechazada")),
+    ]
+    service = InternshipService(internship_repository=repository)
+
+    internships = await service.list_dashboard_internships(status_filter="rejected")
+
+    assert [internship.id for internship in internships] == [1, 3]
+    assert all(internship.status == "rejected" for internship in internships)
+
+
+async def test_get_dashboard_stats_counts_normalized_statuses() -> None:
+    repository = FakeInternshipRepository()
+    repository.dashboard_internships = [
+        _dashboard_internship(1, status=None),
+        _dashboard_internship(2, status=_status("Pendiente")),
+        _dashboard_internship(3, status=_status("En revisión")),
+        _dashboard_internship(4, status=_status("Aprobada")),
+        _dashboard_internship(5, status=_status("Rechazada")),
+        _dashboard_internship(6, status=_status("Reprobada")),
+    ]
+    service = InternshipService(internship_repository=repository)
+
+    stats = await service.get_dashboard_stats()
+
+    assert stats.total == 6
+    assert stats.submitted == 2
+    assert stats.in_review == 1
+    assert stats.approved == 1
+    assert stats.rejected == 2

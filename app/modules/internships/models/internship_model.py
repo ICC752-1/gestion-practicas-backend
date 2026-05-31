@@ -4,7 +4,7 @@ Este modulo define la entidad `Internship`, utilizada para representar la
 informacion base de una practica profesional asociada a un estudiante.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 import enum
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
@@ -102,7 +102,7 @@ class Internship(Base):
     amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     upload_date: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.utcnow(),
+        default=lambda: datetime.now(UTC).replace(tzinfo=None),
         nullable=False,
     )
     status_id: Mapped[int | None] = mapped_column(

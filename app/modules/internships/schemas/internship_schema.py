@@ -17,6 +17,7 @@ from app.modules.internships.models.internship_model import (
 )
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
+DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
 
 
 class InternshipCreateRequest(BaseModel):
@@ -130,6 +131,44 @@ class CurrentStateResponse(BaseModel):
     id: int
     title: str
     description: str
+
+
+class InternshipDashboardStudentResponse(BaseModel):
+    """Informacion basica del estudiante para el dashboard coordinador."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    first_name: str
+    last_name: str
+    rut: str
+    degree: str | None
+
+
+class InternshipDashboardListItem(BaseModel):
+    """Practica resumida para listados del dashboard coordinador."""
+
+    id: int
+    org_name: str
+    city: str
+    internship_type: PracticeTypeEnum
+    start_date: date
+    end_date: date
+    upload_date: datetime
+    status: DashboardInternshipStatus
+    status_label: str
+    student: InternshipDashboardStudentResponse | None
+
+
+class InternshipDashboardStatsResponse(BaseModel):
+    """Conteos agregados de practicas para el dashboard coordinador."""
+
+    total: int
+    submitted: int
+    in_review: int
+    approved: int
+    rejected: int
 
 
 class InternshipResponse(BaseModel):
