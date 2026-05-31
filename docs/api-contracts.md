@@ -38,15 +38,65 @@ Todos requieren token y un rol administrativo permitido por el backend.
 
 ## Practicas
 
-No existe `GET /internships` general para listar todas las practicas. El listado
-del estudiante autenticado es `GET /internships/me`. Los listados administrativos
-estan en `/admin/internships` y se documentan en `docs/admin.md`.
+`GET /internships` existe solo para el dashboard de coordinador/director. El
+listado del estudiante autenticado sigue siendo `GET /internships/me`. Los
+listados administrativos del modulo `admin` estan en `/admin/internships` y se
+documentan en `docs/admin.md`.
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
 | POST | `/internships` | Rol `Estudiante` | `InternshipCreateRequest` | `InternshipResponse` |
+| GET | `/internships` | Rol `Encargado de practica` o `Director de carrera` | Query opcional `status` | `list[InternshipDashboardListItem]` |
+| GET | `/internships/stats` | Rol `Encargado de practica` o `Director de carrera` | - | `InternshipDashboardStatsResponse` |
 | GET | `/internships/me` | Bearer token | - | `list[InternshipResponse]` |
 | GET | `/internships/{internship_id}` | Propietario o rol privilegiado | Path `internship_id` | `InternshipResponse` |
+
+### Dashboard coordinador
+
+Filtros validos para `GET /internships?status=`:
+
+- `submitted`: practicas sin estado o con estado `Pendiente`.
+- `in_review`: practicas con estado `En revisión`.
+- `approved`: practicas con estado `Aprobada`.
+- `rejected`: practicas con estado `Rechazada` o `Reprobada`.
+
+Respuesta resumida:
+
+```json
+[
+  {
+    "id": 15,
+    "org_name": "Empresa X",
+    "city": "Temuco",
+    "internship_type": "Práctica de Estudio I",
+    "start_date": "2026-06-01",
+    "end_date": "2026-08-31",
+    "upload_date": "2026-05-29T12:00:00",
+    "status": "submitted",
+    "status_label": "Pendiente",
+    "student": {
+      "id": 1,
+      "email": "student@correo.cl",
+      "first_name": "Juan",
+      "last_name": "Perez",
+      "rut": "12.345.678-9",
+      "degree": "Ingenieria Civil Informatica"
+    }
+  }
+]
+```
+
+`GET /internships/stats` retorna:
+
+```json
+{
+  "total": 12,
+  "submitted": 4,
+  "in_review": 3,
+  "approved": 3,
+  "rejected": 2
+}
+```
 
 ### Payload de creacion de practica
 

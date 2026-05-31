@@ -7,6 +7,7 @@ sesion asincrona de SQLAlchemy.
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.modules.internships.models.internship_model import Internship
 
@@ -80,6 +81,25 @@ class InternshipRepository:
             select(Internship)
             .where(Internship.user_id == user_id)
             .order_by(Internship.upload_date.desc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def list_dashboard_internships(self) -> list[Internship]:
+        """Lista practicas con relaciones necesarias para dashboard coordinador.
+
+        Returns:
+            Lista de practicas con estudiante y estado actual precargados.
+        """
+
+        query = (
+            select(Internship)
+            .options(
+                selectinload(Internship.student),
+                selectinload(Internship.status),
+            )
+            .order_by(Internship.upload_date.desc(), Internship.id.desc())
         )
         result = await self.db.execute(query)
 
