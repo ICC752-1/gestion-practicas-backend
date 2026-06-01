@@ -5,7 +5,7 @@ servicio de mensajería, asegurando la validación de tipos y formatos.
 """
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import List, Optional
+from typing import List
 
 class EmailNotificationRequest(BaseModel):
     """

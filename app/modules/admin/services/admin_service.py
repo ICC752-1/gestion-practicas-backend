@@ -24,9 +24,7 @@ from app.modules.admin.schemas.admin_schema import (
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
-from app.modules.internships.models.student_internship_requirement_model import (
-    StudentInternshipRequirement,
-)
+
 
 
 logger = logging.getLogger(__name__)
