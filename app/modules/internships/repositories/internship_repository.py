@@ -9,7 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from fastapi import HTTPException
+
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.current_state_model import CurrentState
 
 
 class InternshipRepository:
@@ -104,3 +107,18 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def get_state_by_title(self, title: str) -> CurrentState:
+        result = await self.db.execute(
+            select(CurrentState).where(CurrentState.title == title)
+        )
+        state = result.scalar_one_or_none()
+        if state is None:
+            raise HTTPException(500, f"Estado '{title}' no encontrado en BD")
+        return state
+
+    async def save(self, internship: Internship) -> Internship:
+        self.db.add(internship)
+        await self.db.commit()
+        await self.db.refresh(internship)
+        return internship
