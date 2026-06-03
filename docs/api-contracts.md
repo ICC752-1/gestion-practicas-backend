@@ -49,6 +49,7 @@ documentan en `docs/admin.md`.
 | GET | `/internships` | Rol `Encargado de practica` o `Director de carrera` | Query opcional `status` | `list[InternshipDashboardListItem]` |
 | GET | `/internships/stats` | Rol `Encargado de practica` o `Director de carrera` | - | `InternshipDashboardStatsResponse` |
 | GET | `/internships/me` | Bearer token | - | `list[InternshipResponse]` |
+| GET | `/internships/{internship_id}/tracking` | Propietario o rol privilegiado | Path `internship_id` | `list[InternshipTrackingResponse]` |
 | GET | `/internships/{internship_id}` | Propietario o rol privilegiado | Path `internship_id` | `InternshipResponse` |
 
 ### Dashboard coordinador
@@ -59,6 +60,51 @@ Filtros validos para `GET /internships?status=`:
 - `in_review`: practicas con estado `En revisión`.
 - `approved`: practicas con estado `Aprobada`.
 - `rejected`: practicas con estado `Rechazada` o `Reprobada`.
+
+### Tracking de estados
+
+`GET /internships/{internship_id}/tracking` retorna el historial cronologico de
+estados de una practica. Puede consultarlo el estudiante propietario o un rol
+privilegiado de lectura (`Encargado de practica`, `Director de carrera` o
+`Secretaria de Carrera`).
+
+Estados canonicos de practica:
+
+- `Pendiente`
+- `En revisión`
+- `Aprobada`
+- `Rechazada`
+
+`Reprobada` se mantiene solo como compatibilidad de lectura para datos antiguos
+y se interpreta como estado rechazado.
+
+Respuesta resumida:
+
+```json
+[
+  {
+    "id": 1,
+    "internship_id": 15,
+    "previous_status": null,
+    "new_status": {
+      "id": 1,
+      "title": "Pendiente",
+      "description": "La práctica existe como estado del proceso."
+    },
+    "actor": {
+      "id": 2,
+      "email": "student@correo.cl",
+      "first_name": "Juan",
+      "last_name": "Perez"
+    },
+    "reason": "Registro inicial de práctica",
+    "changed_at": "2026-06-03T10:30:00",
+    "metadata": {
+      "event": "internship_created"
+    }
+  }
+]
+```
 
 Respuesta resumida:
 
