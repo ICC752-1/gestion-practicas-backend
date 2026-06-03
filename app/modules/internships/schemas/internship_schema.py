@@ -6,7 +6,7 @@ instancias ORM.
 """
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
@@ -131,6 +131,46 @@ class CurrentStateResponse(BaseModel):
     id: int
     title: str
     description: str
+
+
+class InternshipTrackingActorResponse(BaseModel):
+    """Informacion basica del usuario que ejecuta una transicion."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    first_name: str
+    last_name: str
+
+
+class InternshipTrackingResponse(BaseModel):
+    """Respuesta con una entrada del historial de estados de una practica.
+
+    Attributes:
+        id: Identificador entero de la entrada de historial.
+        internship_id: Identificador de la practica asociada.
+        previous_status: Estado anterior, si existia.
+        new_status: Estado nuevo asignado a la practica.
+        actor: Usuario que ejecuto o disparo la transicion.
+        reason: Motivo funcional de la transicion, si corresponde.
+        changed_at: Fecha y hora de la transicion.
+        metadata: Datos auxiliares de contexto.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    internship_id: int
+    previous_status: CurrentStateResponse | None
+    new_status: CurrentStateResponse
+    actor: InternshipTrackingActorResponse | None
+    reason: str | None
+    changed_at: datetime
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        validation_alias="metadata_json",
+    )
 
 
 class InternshipDashboardStudentResponse(BaseModel):

@@ -65,6 +65,7 @@ class Internship(Base):
         has_school_insurance: Booleano que indica si posee seguro escolar.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
+        status_history: Relacion ORM con el historial de estados.
     """
 
     __tablename__ = "internship"
@@ -147,3 +148,8 @@ class Internship(Base):
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User")
+    status_history = relationship(
+        "InternshipStatusHistory",
+        back_populates="internship",
+        cascade="all, delete-orphan",
+    )

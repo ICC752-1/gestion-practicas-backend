@@ -4,7 +4,13 @@ Este modulo define `InternshipService`, encargado de coordinar los casos de uso
 del modulo `internships` y delegar operaciones de persistencia al repositorio.
 """
 
+from typing import Any
+
+from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_status_history_model import (
+    InternshipStatusHistory,
+)
 from app.modules.internships.repositories.internship_repository import (
     InternshipRepository,
 )
@@ -17,12 +23,34 @@ from app.modules.internships.schemas.internship_schema import (
 )
 
 DEFAULT_DASHBOARD_STATUS_LABEL = "Pendiente"
+PENDING_STATUS_TITLE = "Pendiente"
+IN_REVIEW_STATUS_TITLE = "En revisión"
+APPROVED_STATUS_TITLE = "Aprobada"
+REJECTED_STATUS_TITLE = "Rechazada"
+LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+INITIAL_HISTORY_REASON = "Registro inicial de práctica"
 STATUS_LABEL_TO_DASHBOARD_STATUS: dict[str, DashboardInternshipStatus] = {
-    "Pendiente": "submitted",
-    "En revisión": "in_review",
-    "Aprobada": "approved",
-    "Rechazada": "rejected",
-    "Reprobada": "rejected",
+    PENDING_STATUS_TITLE: "submitted",
+    IN_REVIEW_STATUS_TITLE: "in_review",
+    APPROVED_STATUS_TITLE: "approved",
+    REJECTED_STATUS_TITLE: "rejected",
+    LEGACY_REJECTED_STATUS_TITLE: "rejected",
+}
+STATUS_TITLE_ALIASES = {
+    LEGACY_REJECTED_STATUS_TITLE: REJECTED_STATUS_TITLE,
+}
+ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    PENDING_STATUS_TITLE: {
+        IN_REVIEW_STATUS_TITLE,
+        APPROVED_STATUS_TITLE,
+        REJECTED_STATUS_TITLE,
+    },
+    IN_REVIEW_STATUS_TITLE: {
+        APPROVED_STATUS_TITLE,
+        REJECTED_STATUS_TITLE,
+    },
+    APPROVED_STATUS_TITLE: set(),
+    REJECTED_STATUS_TITLE: set(),
 }
 EMPTY_DASHBOARD_STATS = {
     "submitted": 0,
@@ -67,12 +95,20 @@ class InternshipService:
             Entidad `Internship` persistida.
         """
 
+        initial_status = await self._get_required_state(PENDING_STATUS_TITLE)
         internship = Internship(
             **internship_data.model_dump(),
             user_id=user_id,
+            status_id=initial_status.id,
         )
 
-        return await self.internship_repository.create_internship(internship)
+        return await self.internship_repository.create_internship_with_history(
+            internship=internship,
+            initial_status=initial_status,
+            actor_id=user_id,
+            reason=INITIAL_HISTORY_REASON,
+            metadata={"event": "internship_created"},
+        )
 
     async def get_internship(self, internship_id: int) -> Internship | None:
         """Obtiene una practica por identificador.
@@ -97,6 +133,78 @@ class InternshipService:
         """
 
         return await self.internship_repository.list_internships_by_user(user_id)
+
+    async def list_internship_tracking(
+        self,
+        internship_id: int,
+    ) -> list[InternshipStatusHistory]:
+        """Lista el historial de estados de una practica.
+
+        Args:
+            internship_id: Identificador entero de la practica.
+
+        Returns:
+            Entradas de historial ordenadas cronologicamente.
+        """
+
+        return await self.internship_repository.list_internship_status_history(
+            internship_id=internship_id,
+        )
+
+    async def transition_internship_status(
+        self,
+        internship_id: int,
+        new_status_title: str,
+        actor_id: int,
+        reason: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Internship | None:
+        """Cambia el estado de una practica y registra su historial.
+
+        Este metodo no se expone por HTTP en 9.3. Queda disponible como caso de
+        uso interno para que las acciones administrativas de 9.5 reutilicen la
+        misma matriz de transiciones.
+
+        Args:
+            internship_id: Identificador de la practica a actualizar.
+            new_status_title: Estado destino solicitado.
+            actor_id: Usuario que ejecuta la transicion.
+            reason: Motivo funcional de la transicion.
+            metadata: Datos auxiliares de contexto, si existen.
+
+        Returns:
+            Practica actualizada o `None` si no existe.
+
+        Raises:
+            ValueError: Si el estado destino no existe o la transicion no esta
+                permitida.
+        """
+
+        internship = await self.internship_repository.get_internship_by_id(
+            internship_id,
+        )
+        if internship is None:
+            return None
+
+        previous_status = internship.status
+        current_status_title = self._status_title_or_default(previous_status)
+        canonical_new_status_title = self._canonical_status_title(new_status_title)
+
+        self._validate_status_transition(
+            current_status_title=current_status_title,
+            new_status_title=canonical_new_status_title,
+        )
+
+        new_status = await self._get_required_state(canonical_new_status_title)
+
+        return await self.internship_repository.update_internship_status_with_history(
+            internship=internship,
+            previous_status=previous_status,
+            new_status=new_status,
+            actor_id=actor_id,
+            reason=reason,
+            metadata=metadata,
+        )
 
     async def list_dashboard_internships(
         self,
@@ -184,3 +292,48 @@ class InternshipService:
         )
 
         return normalized_status, status_label
+
+    async def _get_required_state(self, title: str) -> CurrentState:
+        """Obtiene un estado existente o falla si falta la semilla base."""
+
+        state = await self.internship_repository.get_state_by_title(title)
+        if state is None:
+            raise ValueError(f"Required internship status not found: {title}")
+
+        return state
+
+    def _status_title_or_default(self, status: CurrentState | None) -> str:
+        """Normaliza un estado actual ausente como `Pendiente`."""
+
+        if status is None or not status.title:
+            return PENDING_STATUS_TITLE
+
+        return self._canonical_status_title(status.title)
+
+    def _canonical_status_title(self, status_title: str) -> str:
+        """Convierte nombres historicos a su estado canonico."""
+
+        return STATUS_TITLE_ALIASES.get(status_title, status_title)
+
+    def _validate_status_transition(
+        self,
+        current_status_title: str,
+        new_status_title: str,
+    ) -> None:
+        """Valida una transicion funcional de estado de practica."""
+
+        if current_status_title == new_status_title:
+            raise ValueError(
+                f"Invalid status transition from {current_status_title} "
+                f"to {new_status_title}"
+            )
+
+        allowed_destinations = ALLOWED_STATUS_TRANSITIONS.get(
+            current_status_title,
+            set(),
+        )
+        if new_status_title not in allowed_destinations:
+            raise ValueError(
+                f"Invalid status transition from {current_status_title} "
+                f"to {new_status_title}"
+            )

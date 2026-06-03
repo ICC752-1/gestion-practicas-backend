@@ -25,6 +25,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipResponse,
+    InternshipTrackingResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
 
@@ -190,6 +191,58 @@ async def list_my_internships(
     return [
         InternshipResponse.model_validate(internship)
         for internship in internships
+    ]
+
+
+@router.get(
+    "/{internship_id}/tracking",
+    response_model=list[InternshipTrackingResponse],
+)
+async def get_internship_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipTrackingResponse]:
+    """Obtiene el historial de estados de una practica.
+
+    La consulta exige que la practica exista y que el usuario sea propietario o
+    tenga un rol privilegiado de lectura.
+
+    Args:
+        internship_id: Identificador entero de la practica solicitada.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado obtenido desde el token Bearer.
+
+    Returns:
+        Lista cronologica de transiciones de estado de la practica.
+
+    Raises:
+        HTTPException: Con codigo 404 si la practica no existe.
+        HTTPException: Con codigo 403 si el usuario no tiene permisos.
+    """
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    status_history = await service.list_internship_tracking(
+        internship_id=internship_id,
+    )
+
+    return [
+        InternshipTrackingResponse.model_validate(history)
+        for history in status_history
     ]
 
 
