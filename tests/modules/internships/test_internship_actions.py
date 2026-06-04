@@ -1,136 +1,404 @@
+"""Tests unitarios para las acciones administrativas de practicas.
+
+Cubre las subtareas 6 del issue 9.5:
+- Aprobacion valida (etapa 1 y etapa 2)
+- Rechazo valido
+- Derivacion valida a DIRAE
+- Rol incorrecto para cada accion (403)
+- Comentario faltante en rechazo y derivacion (400)
+- Transicion invalida desde estado terminal (409)
+- Practica inexistente (404)
+"""
+
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi import HTTPException
-from app.modules.internships.services.internship_service import InternshipService
 
-# Mapeo consistente para que los helpers y el repositorio falso usen las mismas IDs
-STATE_IDS = {
-    "Pendiente": 1,
-    "En revisión": 2,
-    "Aprobada": 3,
-    "Rechazada": 4,
-    "En revisión DIRAE": 5
-}
+from app.modules.internships.services.internship_service import (
+    APPROVED_STATUS_TITLE,
+    IN_REVIEW_DIRAE_STATUS_TITLE,
+    IN_REVIEW_STATUS_TITLE,
+    LEGACY_REJECTED_STATUS_TITLE,
+    PENDING_STATUS_TITLE,
+    REJECTED_STATUS_TITLE,
+    InternshipService,
+)
 
-def _status(title: str) -> SimpleNamespace:
-    return SimpleNamespace(id=STATE_IDS.get(title, 99), title=title)
 
-def _internship(status_title: str | None = None) -> SimpleNamespace:
-    status_obj = _status(status_title) if status_title else None
-    return SimpleNamespace(
-        id=1,
-        status=status_obj,
-        status_id=status_obj.id if status_obj else None,
-    )
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-def _user(roles: list[str]) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=10,
-        roles=[
-            SimpleNamespace(role=SimpleNamespace(name=r))
-            for r in roles
-        ],
-    )
+def _make_state(title: str, state_id: int = 1) -> MagicMock:
+    state = MagicMock()
+    state.id = state_id
+    state.title = title
+    return state
 
-class FakeInternshipRepository:
-    def __init__(self, internship=None) -> None:
-        self.internship = internship
-        self.saved = None
-        self._states = {
-            title: SimpleNamespace(id=state_id, title=title)
-            for title, state_id in STATE_IDS.items()
-        }
 
-    async def get_internship_by_id(self, internship_id: int):
-        return self.internship
+def _make_internship(status_title: str | None, internship_id: int = 1) -> MagicMock:
+    internship = MagicMock()
+    internship.id = internship_id
+    internship.status_id = 1
+    internship.status = _make_state(status_title) if status_title else None
+    return internship
 
-    async def get_state_by_title(self, title: str):
-        if title not in self._states:
-            raise HTTPException(500, f"Estado '{title}' no encontrado en BD")
-        return self._states[title]
 
-    async def save(self, internship):
-        self.saved = internship
+def _make_user(*role_names: str) -> MagicMock:
+    user = MagicMock()
+    user.id = 99
+    user.roles = [
+        SimpleNamespace(role=SimpleNamespace(name=name))
+        for name in role_names
+    ]
+    return user
+
+
+def _make_service(
+    internship: MagicMock | None = None,
+    state_map: dict[str, MagicMock] | None = None,
+) -> InternshipService:
+    """Construye InternshipService con repositorio completamente mockeado."""
+
+    repo = AsyncMock()
+    repo.get_internship_by_id.return_value = internship
+
+    async def _get_state(title: str) -> MagicMock | None:
+        return state_map.get(title) if state_map else None
+
+    repo.get_state_by_title.side_effect = _get_state
+
+    async def _update_with_history(
+        internship, previous_status, new_status, actor_id, reason, metadata=None
+    ):
+        internship.status_id = new_status.id
+        internship.status = new_status
         return internship
 
-    async def create_internship(self, internship): ...
-    async def list_internships_by_user(self, user_id): return []
-    async def list_dashboard_internships(self): return []
+    repo.update_internship_status_with_history.side_effect = _update_with_history
+
+    return InternshipService(internship_repository=repo)
 
 
-# =========================================================================
-# TESTS (Soporte Asíncrono Habilitado)
-# =========================================================================
+# ---------------------------------------------------------------------------
+# approve
+# ---------------------------------------------------------------------------
 
-@pytest.mark.anyio
-async def test_coordinador_aprueba_stage_1() -> None:
-    """Encargado de práctica aprueba: Pendiente → En revisión."""
-    internship = _internship("Pendiente")
-    repository = FakeInternshipRepository(internship=internship)
-    service = InternshipService(internship_repository=repository)
+class TestApprove:
 
-    actor = _user(["Encargado de practica"])
-    result = await service.approve(internship_id=1, actor=actor, comment=None)
+    @pytest.mark.asyncio
+    async def test_etapa1_pendiente_a_en_revision(self):
+        """Encargado de practica aprueba desde Pendiente → En revision."""
+        state_map = {IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2)}
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Encargado de practica")
 
-    assert repository.saved is not None
-    assert result.status_id == STATE_IDS["En revisión"]
+        result = await service.approve(internship.id, actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_etapa2_en_revision_a_aprobada(self):
+        """Director de carrera aprueba desde En revision → Aprobada."""
+        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
+        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Director de carrera")
+
+        result = await service.approve(internship.id, actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_etapa2_desde_en_revision_dirae(self):
+        """Director de carrera aprueba desde En revision DIRAE → Aprobada."""
+        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
+        internship = _make_internship(IN_REVIEW_DIRAE_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Director de carrera")
+
+        result = await service.approve(internship.id, actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_rol_incorrecto_etapa1_lanza_403(self):
+        """Director de carrera no puede ejecutar etapa 1."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Director de carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_rol_incorrecto_etapa2_lanza_403(self):
+        """Encargado de practica no puede ejecutar etapa 2."""
+        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_ya_aprobada_lanza_409(self):
+        """Aprobar una practica ya aprobada devuelve 409."""
+        internship = _make_internship(APPROVED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Director de carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_ya_rechazada_lanza_409(self):
+        """Aprobar una practica rechazada sin reapertura devuelve 409."""
+        internship = _make_internship(REJECTED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_reprobada_legacy_lanza_409(self):
+        """Aprobar una practica con estado legacy Reprobada devuelve 409."""
+        internship = _make_internship(LEGACY_REJECTED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_inexistente_lanza_404(self):
+        """Aprobar una practica que no existe devuelve 404."""
+        service = _make_service(internship=None)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(999, actor, comment=None)
+
+        assert exc.value.status_code == 404
 
 
-@pytest.mark.anyio
-async def test_director_aprueba_stage_2() -> None:
-    """Director de carrera aprueba: En revisión → Aprobada."""
-    internship = _internship("En revisión")
-    repository = FakeInternshipRepository(internship=internship)
-    service = InternshipService(internship_repository=repository)
+# ---------------------------------------------------------------------------
+# reject
+# ---------------------------------------------------------------------------
 
-    actor = _user(["Director de carrera"])
-    result = await service.approve(internship_id=1, actor=actor, comment="Todo OK")
+class TestReject:
 
-    assert repository.saved is not None
-    assert result.status_id == STATE_IDS["Aprobada"]
+    @pytest.mark.asyncio
+    async def test_rechazo_valido_desde_pendiente(self):
+        """Encargado de practica rechaza desde Pendiente → Rechazada."""
+        state_map = {REJECTED_STATUS_TITLE: _make_state(REJECTED_STATUS_TITLE, 4)}
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Encargado de practica")
+
+        result = await service.reject(internship.id, actor, comment="Documentacion incompleta")
+
+        assert result.status.title == REJECTED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_rechazo_valido_desde_en_revision(self):
+        """Director de carrera rechaza desde En revision → Rechazada."""
+        state_map = {REJECTED_STATUS_TITLE: _make_state(REJECTED_STATUS_TITLE, 4)}
+        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Director de carrera")
+
+        result = await service.reject(internship.id, actor, comment="No cumple requisitos")
+
+        assert result.status.title == REJECTED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_sin_comentario_lanza_400(self):
+        """Rechazar sin comentario devuelve 400."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(internship.id, actor, comment=None)
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_comentario_en_blanco_lanza_400(self):
+        """Rechazar con comentario vacío devuelve 400."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(internship.id, actor, comment="   ")
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rol_incorrecto_lanza_403(self):
+        """Secretaria de Carrera no puede rechazar."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_ya_rechazada_lanza_409(self):
+        """Rechazar una practica ya rechazada devuelve 409."""
+        internship = _make_internship(REJECTED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_ya_aprobada_lanza_409(self):
+        """Rechazar una practica aprobada devuelve 409."""
+        internship = _make_internship(APPROVED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Director de carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_inexistente_lanza_404(self):
+        """Rechazar una practica que no existe devuelve 404."""
+        service = _make_service(internship=None)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reject(999, actor, comment="Motivo")
+
+        assert exc.value.status_code == 404
 
 
-@pytest.mark.anyio
-async def test_estudiante_recibe_403_al_aprobar() -> None:
-    """Estudiante no tiene permisos y recibe 403."""
-    internship = _internship("Pendiente")
-    repository = FakeInternshipRepository(internship=internship)
-    service = InternshipService(internship_repository=repository)
+# ---------------------------------------------------------------------------
+# derive
+# ---------------------------------------------------------------------------
 
-    actor = _user(["Estudiante"])
+class TestDerive:
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.approve(internship_id=1, actor=actor, comment=None)
+    @pytest.mark.asyncio
+    async def test_derivacion_valida_desde_pendiente(self):
+        """Secretaria de Carrera deriva desde Pendiente → En revision DIRAE."""
+        state_map = {
+            IN_REVIEW_DIRAE_STATUS_TITLE: _make_state(IN_REVIEW_DIRAE_STATUS_TITLE, 5)
+        }
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Secretaria de Carrera")
 
-    assert exc_info.value.status_code == 403
+        result = await service.derive(internship.id, actor, comment="Requiere revision DIRAE")
 
+        assert result.status.title == IN_REVIEW_DIRAE_STATUS_TITLE
 
-@pytest.mark.anyio
-async def test_rechazo_sin_comment_devuelve_400() -> None:
-    """Rechazar sin comentario o con puros espacios lanza 400."""
-    internship = _internship("Pendiente")
-    repository = FakeInternshipRepository(internship=internship)
-    service = InternshipService(internship_repository=repository)
+    @pytest.mark.asyncio
+    async def test_derivacion_valida_desde_en_revision(self):
+        """Secretaria de Carrera deriva desde En revision → En revision DIRAE."""
+        state_map = {
+            IN_REVIEW_DIRAE_STATUS_TITLE: _make_state(IN_REVIEW_DIRAE_STATUS_TITLE, 5)
+        }
+        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Secretaria de Carrera")
 
-    actor = _user(["Encargado de practica"])
+        result = await service.derive(internship.id, actor, comment="Se eleva a DIRAE")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.reject(internship_id=1, actor=actor, comment="   ")  # Forzando .strip()
+        assert result.status.title == IN_REVIEW_DIRAE_STATUS_TITLE
 
-    assert exc_info.value.status_code == 400
+    @pytest.mark.asyncio
+    async def test_sin_comentario_lanza_400(self):
+        """Derivar sin comentario devuelve 400."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
 
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment=None)
 
-@pytest.mark.anyio
-async def test_transicion_invalida_practica_rechazada_lanza_409() -> None:
-    """Validar que no se puede aprobar una práctica ya rechazada."""
-    internship = _internship("Rechazada")
-    repository = FakeInternshipRepository(internship=internship)
-    service = InternshipService(internship_repository=repository)
+        assert exc.value.status_code == 400
 
-    actor = _user(["Encargado de practica"])
+    @pytest.mark.asyncio
+    async def test_comentario_en_blanco_lanza_400(self):
+        """Derivar con comentario vacío devuelve 400."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.approve(internship_id=1, actor=actor, comment=None)
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="   ")
 
-    assert exc_info.value.status_code == 409
-    assert "Transición inválida" in exc_info.value.detail
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_rol_incorrecto_lanza_403(self):
+        """Encargado de practica no puede derivar."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_aprobada_lanza_409(self):
+        """Derivar una practica aprobada devuelve 409."""
+        internship = _make_internship(APPROVED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_rechazada_lanza_409(self):
+        """Derivar una practica rechazada devuelve 409."""
+        internship = _make_internship(REJECTED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="Motivo")
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_inexistente_lanza_404(self):
+        """Derivar una practica que no existe devuelve 404."""
+        service = _make_service(internship=None)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(999, actor, comment="Motivo")
+
+        assert exc.value.status_code == 404
