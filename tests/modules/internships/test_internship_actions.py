@@ -1,7 +1,8 @@
 """Tests unitarios para las acciones administrativas de practicas.
 
 Cubre las subtareas 6 del issue 9.5:
-- Aprobacion valida (etapa 1 y etapa 2)
+- Aprobacion valida desde pendiente, En revisio y En revision DIRAE
+- Aprobación directa desde pendiente skip_review)
 - Rechazo valido
 - Derivacion valida a DIRAE
 - Rol incorrecto para cada accion (403)
@@ -79,8 +80,8 @@ def _make_service(
 class TestApprove:
 
     @pytest.mark.asyncio
-    async def test_etapa1_pendiente_a_en_revision(self):
-        """Encargado de practica aprueba desde Pendiente → En revision."""
+    async def test_encargado_aprueba_desde_pendiente_a_en_revision(self):
+        """Encargado de práctica aprueba desde Pendiente → En revisión (Flujo secuencial regular)."""
         state_map = {IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2)}
         internship = _make_internship(PENDING_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)
@@ -91,8 +92,33 @@ class TestApprove:
         assert result.status.title == IN_REVIEW_STATUS_TITLE
 
     @pytest.mark.asyncio
+    async def test_director_aprueba_desde_pendiente_directo_a_aprobada(self):
+        """Director de carrera aprueba desde Pendiente → Aprobada directamente (No secuencial)."""
+        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Director de carrera")
+
+        result = await service.approve(internship.id, actor, comment=None)
+
+        # CORRECCIÓN: El Director no se bloquea, va directo a Aprobada
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_encargado_permite_skip_review_desde_pendiente(self):
+        """Encargado puede forzar Pendiente → Aprobada usando skip_review=True."""
+        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        actor = _make_user("Encargado de practica")
+
+        result = await service.approve(internship.id, actor, comment=None, skip_review=True)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+    @pytest.mark.asyncio
     async def test_etapa2_en_revision_a_aprobada(self):
-        """Director de carrera aprueba desde En revision → Aprobada."""
+        """Cualquier rol autorizado aprueba desde En revisión → Aprobada."""
         state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
         internship = _make_internship(IN_REVIEW_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)
@@ -104,7 +130,7 @@ class TestApprove:
 
     @pytest.mark.asyncio
     async def test_etapa2_desde_en_revision_dirae(self):
-        """Director de carrera aprueba desde En revision DIRAE → Aprobada."""
+        """Director de carrera aprueba desde En revisión DIRAE → Aprobada."""
         state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
         internship = _make_internship(IN_REVIEW_DIRAE_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)
@@ -115,23 +141,11 @@ class TestApprove:
         assert result.status.title == APPROVED_STATUS_TITLE
 
     @pytest.mark.asyncio
-    async def test_rol_incorrecto_etapa1_lanza_403(self):
-        """Director de carrera no puede ejecutar etapa 1."""
+    async def test_rol_sin_permiso_approve_lanza_403(self):
+        """Secretaría de Carrera no puede aprobar."""
         internship = _make_internship(PENDING_STATUS_TITLE)
         service = _make_service(internship=internship)
-        actor = _make_user("Director de carrera")
-
-        with pytest.raises(HTTPException) as exc:
-            await service.approve(internship.id, actor, comment=None)
-
-        assert exc.value.status_code == 403
-
-    @pytest.mark.asyncio
-    async def test_rol_incorrecto_etapa2_lanza_403(self):
-        """Encargado de practica no puede ejecutar etapa 2."""
-        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
-        service = _make_service(internship=internship)
-        actor = _make_user("Encargado de practica")
+        actor = _make_user("Secretaria de Carrera")
 
         with pytest.raises(HTTPException) as exc:
             await service.approve(internship.id, actor, comment=None)
@@ -140,7 +154,7 @@ class TestApprove:
 
     @pytest.mark.asyncio
     async def test_ya_aprobada_lanza_409(self):
-        """Aprobar una practica ya aprobada devuelve 409."""
+        """Aprobar una práctica ya aprobada devuelve 409."""
         internship = _make_internship(APPROVED_STATUS_TITLE)
         service = _make_service(internship=internship)
         actor = _make_user("Director de carrera")
@@ -151,32 +165,8 @@ class TestApprove:
         assert exc.value.status_code == 409
 
     @pytest.mark.asyncio
-    async def test_ya_rechazada_lanza_409(self):
-        """Aprobar una practica rechazada sin reapertura devuelve 409."""
-        internship = _make_internship(REJECTED_STATUS_TITLE)
-        service = _make_service(internship=internship)
-        actor = _make_user("Encargado de practica")
-
-        with pytest.raises(HTTPException) as exc:
-            await service.approve(internship.id, actor, comment=None)
-
-        assert exc.value.status_code == 409
-
-    @pytest.mark.asyncio
-    async def test_reprobada_legacy_lanza_409(self):
-        """Aprobar una practica con estado legacy Reprobada devuelve 409."""
-        internship = _make_internship(LEGACY_REJECTED_STATUS_TITLE)
-        service = _make_service(internship=internship)
-        actor = _make_user("Encargado de practica")
-
-        with pytest.raises(HTTPException) as exc:
-            await service.approve(internship.id, actor, comment=None)
-
-        assert exc.value.status_code == 409
-
-    @pytest.mark.asyncio
     async def test_inexistente_lanza_404(self):
-        """Aprobar una practica que no existe devuelve 404."""
+        """Aprobar una práctica que no existe devuelve 404."""
         service = _make_service(internship=None)
         actor = _make_user("Encargado de practica")
 

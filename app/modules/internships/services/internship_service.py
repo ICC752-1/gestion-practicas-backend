@@ -66,12 +66,6 @@ ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     REJECTED_STATUS_TITLE: set(),
 }
 
-APPROVE_TRANSITIONS: dict[str, str] = {
-    PENDING_STATUS_TITLE:         IN_REVIEW_STATUS_TITLE,
-    IN_REVIEW_STATUS_TITLE:       APPROVED_STATUS_TITLE,
-    IN_REVIEW_DIRAE_STATUS_TITLE: APPROVED_STATUS_TITLE,
-}
-
 EMPTY_DASHBOARD_STATS = {
     "submitted": 0,
     "in_review": 0,
@@ -465,29 +459,35 @@ class InternshipService:
         comment: str | None,
         skip_review: bool = False,
     ) -> Internship:
-        """Aprueba una práctica según su estado actual.
+        """Aprueba una práctica adaptando el estado destino según la matriz de negocio.
 
-        Encargado de práctica y Director de carrera tienen los mismos permisos.
-        El flujo no es secuencial obligatorio:
+        El flujo no es secuencial obligatorio. El estado destino se determina de
+        forma dinámica combinando el estado actual, el rol del actor y el flag
+        `skip_review`:
 
-        - ``Pendiente`` → ``En revisión`` (flujo normal, ``skip_review=False``).
-        - ``Pendiente`` → ``Aprobada`` (flujo directo, ``skip_review=True``).
-        - ``En revisión`` → ``Aprobada``.
-        - ``En revisión DIRAE`` → ``Aprobada``.
+        - Si está ``Pendiente``:
+            - Va directo a ``Aprobada`` si el actor es "Director de carrera" o 
+              si `skip_review=True`.
+            - Va a ``En revisión`` si el actor es "Encargado de práctica" (flujo regular).
+        - Si está ``En revisión`` o ``En revisión DIRAE``:
+            - Va a ``Aprobada`` independientemente de si es Encargado o Director.
 
         Args:
-            internship_id: Identificador de la práctica.
-            actor: Usuario autenticado con rol autorizado.
-            comment: Comentario opcional.
-            skip_review: Si es ``True``, aprueba directamente desde ``Pendiente``
-                omitiendo el estado ``En revisión``.
+            internship_id: Identificador único de la práctica a aprobar.
+            actor: Entidad del usuario autenticado que ejecuta la acción.
+            comment: Comentario u observación opcional que se registrará en el historial.
+            skip_review: Si es ``True``, fuerza la transición directa a ``Aprobada``
+                desde el estado ``Pendiente``, omitiendo la etapa de revisión.
 
         Returns:
-            La entidad ``Internship`` con su nuevo estado.
+            La entidad `Internship` actualizada con su nuevo estado y el registro
+            de historial asociado.
 
         Raises:
-            HTTPException 403: Si el actor no tiene permiso ``approve``.
-            HTTPException 409: Si el estado actual no admite aprobación o es terminal.
+            HTTPException 403: Si el actor no posee el permiso "approve" en sus roles.
+            HTTPException 404: Si la práctica con el `internship_id` provisto no existe.
+            HTTPException 409: Si el estado actual es terminal o si la transición
+                solicitada no está permitida en `ALLOWED_STATUS_TRANSITIONS`.
         """
         self._require_action(actor, "approve")
         internship = await self._get_or_404(internship_id)
@@ -496,18 +496,25 @@ class InternshipService:
         if current_title in TERMINAL_STATES:
             raise HTTPException(
                 status_code=409,
-                detail=f"No se puede aprobar una práctica en estado terminal: {current_title}.",
+                detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
-        if current_title == PENDING_STATUS_TITLE and skip_review:
+        user_roles = {r.role.name for r in actor.roles}
+        
+        if current_title == PENDING_STATUS_TITLE:
+            if skip_review or "Director de carrera" in user_roles:
+                next_title = APPROVED_STATUS_TITLE
+            else:
+                next_title = IN_REVIEW_STATUS_TITLE
+        elif current_title in (IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE):
             next_title = APPROVED_STATUS_TITLE
-        elif current_title in APPROVE_TRANSITIONS:
-            next_title = APPROVE_TRANSITIONS[current_title]
         else:
             raise HTTPException(
                 status_code=409,
                 detail=f"El estado actual '{current_title}' no permite aprobación.",
             )
+
+        self._validate_status_transition(current_title, next_title)
 
         return await self._do_transition(
             internship=internship,
@@ -515,7 +522,7 @@ class InternshipService:
             actor_id=actor.id,
             reason=comment,
             metadata={"action": "approve", "skip_review": skip_review},
-        )       
+        )    
 
     async def reject(self, internship_id: int, actor: User, comment: str | None) -> Internship:
         """
