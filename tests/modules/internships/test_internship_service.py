@@ -244,6 +244,42 @@ async def test_transition_internship_status_updates_status_and_history() -> None
     assert repository.updated_metadata == {"source": "test"}
 
 
+@pytest.mark.parametrize(
+    ("current_status", "new_status", "new_status_id"),
+    [
+        ("Pendiente", "Aprobada", 3),
+        ("Pendiente", "Rechazada", 4),
+        ("En revisión", "Aprobada", 3),
+        ("En revisión", "Rechazada", 4),
+    ],
+)
+async def test_transition_internship_status_allows_non_sequential_review_matrix(
+    current_status: str,
+    new_status: str,
+    new_status_id: int,
+) -> None:
+    repository = FakeInternshipRepository()
+    repository.internship_by_id = SimpleNamespace(
+        id=7,
+        status_id=repository.states[current_status].id,
+        status=repository.states[current_status],
+    )
+    service = InternshipService(internship_repository=repository)
+
+    internship = await service.transition_internship_status(
+        internship_id=7,
+        new_status_title=new_status,
+        actor_id=99,
+        reason="Revisión administrativa",
+    )
+
+    assert internship is repository.internship_by_id
+    assert internship.status_id == new_status_id
+    assert repository.updated_previous_status.title == current_status
+    assert repository.updated_new_status.title == new_status
+    assert repository.updated_reason == "Revisión administrativa"
+
+
 async def test_transition_internship_status_rejects_invalid_transition() -> None:
     repository = FakeInternshipRepository()
     repository.internship_by_id = SimpleNamespace(

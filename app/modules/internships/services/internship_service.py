@@ -459,25 +459,20 @@ class InternshipService:
         comment: str | None,
         skip_review: bool = False,
     ) -> Internship:
-        """Aprueba una práctica adaptando el estado destino según la matriz de negocio.
+        """Aprueba una práctica sin imponer una cadena Encargado -> Director.
 
-        El flujo no es secuencial obligatorio. El estado destino se determina de
-        forma dinámica combinando el estado actual, el rol del actor y el flag
-        `skip_review`:
-
-        - Si está ``Pendiente``:
-            - Va directo a ``Aprobada`` si el actor es "Director de carrera" o 
-              si `skip_review=True`.
-            - Va a ``En revisión`` si el actor es "Encargado de práctica" (flujo regular).
-        - Si está ``En revisión`` o ``En revisión DIRAE``:
-            - Va a ``Aprobada`` independientemente de si es Encargado o Director.
+        El flujo no es secuencial obligatorio: cualquier actor con permiso
+        `approve` puede aprobar desde ``Pendiente`` o ``En revisión``. El estado
+        ``En revisión`` queda como trazabilidad opcional, no como paso bloqueante.
+        ``En revisión DIRAE`` se conserva solo como compatibilidad con registros
+        existentes.
 
         Args:
             internship_id: Identificador único de la práctica a aprobar.
             actor: Entidad del usuario autenticado que ejecuta la acción.
             comment: Comentario u observación opcional que se registrará en el historial.
-            skip_review: Si es ``True``, fuerza la transición directa a ``Aprobada``
-                desde el estado ``Pendiente``, omitiendo la etapa de revisión.
+            skip_review: Bandera conservada por compatibilidad; la aprobación
+                desde ``Pendiente`` ya es directa para roles autorizados.
 
         Returns:
             La entidad `Internship` actualizada con su nuevo estado y el registro
@@ -499,14 +494,11 @@ class InternshipService:
                 detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
-        user_roles = {r.role.name for r in actor.roles}
-        
-        if current_title == PENDING_STATUS_TITLE:
-            if skip_review or "Director de carrera" in user_roles:
-                next_title = APPROVED_STATUS_TITLE
-            else:
-                next_title = IN_REVIEW_STATUS_TITLE
-        elif current_title in (IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE):
+        if current_title in (
+            PENDING_STATUS_TITLE,
+            IN_REVIEW_STATUS_TITLE,
+            IN_REVIEW_DIRAE_STATUS_TITLE,
+        ):
             next_title = APPROVED_STATUS_TITLE
         else:
             raise HTTPException(
@@ -620,4 +612,3 @@ class InternshipService:
             raise HTTPException(status_code=404, detail="Práctica no encontrada (Internship not found)")
         return internship
             
-

@@ -1,8 +1,7 @@
 """Tests unitarios para las acciones administrativas de practicas.
 
 Cubre las subtareas 6 del issue 9.5:
-- Aprobacion valida desde pendiente, En revisio y En revision DIRAE
-- Aprobación directa desde pendiente skip_review)
+- Aprobacion valida directa desde pendiente, En revision y En revision DIRAE
 - Rechazo valido
 - Derivacion valida a DIRAE
 - Rol incorrecto para cada accion (403)
@@ -79,16 +78,16 @@ def _make_service(
 class TestApprove:
 
     @pytest.mark.asyncio
-    async def test_encargado_aprueba_desde_pendiente_a_en_revision(self):
-        """Encargado de práctica aprueba desde Pendiente → En revisión (Flujo secuencial regular)."""
-        state_map = {IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2)}
+    async def test_encargado_aprueba_desde_pendiente_directo_a_aprobada(self):
+        """Encargado de práctica aprueba desde Pendiente → Aprobada."""
+        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
         internship = _make_internship(PENDING_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)
         actor = _make_user("Encargado de practica")
 
         result = await service.approve(internship.id, actor, comment=None)
 
-        assert result.status.title == IN_REVIEW_STATUS_TITLE
+        assert result.status.title == APPROVED_STATUS_TITLE
 
     @pytest.mark.asyncio
     async def test_director_aprueba_desde_pendiente_directo_a_aprobada(self):
@@ -100,12 +99,11 @@ class TestApprove:
 
         result = await service.approve(internship.id, actor, comment=None)
 
-        # CORRECCIÓN: El Director no se bloquea, va directo a Aprobada
         assert result.status.title == APPROVED_STATUS_TITLE
 
     @pytest.mark.asyncio
-    async def test_encargado_permite_skip_review_desde_pendiente(self):
-        """Encargado puede forzar Pendiente → Aprobada usando skip_review=True."""
+    async def test_skip_review_se_conserva_por_compatibilidad(self):
+        """skip_review no es requerido, pero se conserva compatible."""
         state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
         internship = _make_internship(PENDING_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)

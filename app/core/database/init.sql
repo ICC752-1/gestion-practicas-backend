@@ -32,7 +32,7 @@ INSERT INTO CurrentState (title, description) VALUES
     ('Pendiente', 'La práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.'),
     ('En revisión DIRAE', 'La práctica presenta observaciones en sus plazos y fue derivada a la Dirección de Registro Académico y Estudiantil.'),
     ('En revisión', 'La práctica fue registrada y se encuentra en revisión administrativa.'),
-    ('Aprobada', 'La práctica fue aprobada por el encargado de prácticas.'),
+    ('Aprobada', 'La práctica fue aprobada durante la revisión administrativa.'),
     ('Rechazada', 'La práctica fue rechazada durante la revisión administrativa.');
 
 CREATE TABLE Users (

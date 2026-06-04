@@ -304,13 +304,11 @@ async def approve_internship(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
 ) -> InternshipActionResponse:
-    """Aprueba una practica segun la etapa de revision actual.
- 
-    La aprobacion sigue un flujo de dos etapas:
- 
-    - Etapa 1 (`Pendiente` → `En revision`): solo `Encargado de practica`.
-    - Etapa 2 (`En revision` / `En revision DIRAE` → `Aprobada`): solo
-      `Director de carrera`.
+    """Aprueba una practica sin imponer orden secuencial entre roles.
+
+    `Encargado de practica` y `Director de carrera` pueden aprobar desde
+    `Pendiente` o `En revision`. El estado `En revision` se usa solo como
+    trazabilidad opcional, no como paso obligatorio.
  
     Args:
         internship_id: Identificador de la practica a aprobar.
