@@ -364,6 +364,20 @@ class InternshipService:
             )
 
     def _get_user_actions(self, user: User) -> set[str]:
+        """
+        Obtiene el conjunto de acciones permitidas para un usuario según sus roles.
+
+        Itera sobre todos los roles asignados al usuario y consolida los permisos
+        configurados en `ROLE_PERMISSION`.
+
+        Args:
+            user: Entidad del usuario autenticado que conntiene sus roles.
+
+        Returns:
+            Un conjunto con los identificadores de las acciones permitidas.
+
+        """
+
         allowed = set()
         for user_role in user.roles:
             role_name = user_role.role.name
@@ -371,10 +385,36 @@ class InternshipService:
         return allowed
     
     def _require_action(self, user: User, action: str) -> None:
+        """
+        Valida si el usuario tiene permisos para ejecutar una acción específica.
+
+        Args:
+            user: Entidad del usuario que intenta realizar la acción.
+            action:  Nombre de la acción requerida (ej, 'approve_stage_1', 'reject').
+
+        Raises:
+            HTTPException: Con código de estado 403 si el usuario no cuenta 
+            con la acción permitidad en sus roles.
+        """
         if action not in self._get_user_actions(user):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     def _require_comment(self, comment: str | None, action: str) -> None:
+        """
+        Verifica la obligatoriedad de un comentario/motivo para ciertas acciones.
+
+        Para acciones de rechazo o derivación, se exige que el comentario no esté
+        vacío ni contenga únicamente espacios en blanco.
+
+        Args:
+            comment: Texto del motivo o comentario ingresado por el actor.
+            action: Tipo de acción que se está evaluando ('reject' o 'derive').
+
+        Raises:
+            HTTPException: Con código de estado 400 si la acción exige un comentario
+                y este no fue provisto.
+        """
+
         if action in ("reject", "derive") and (not comment or not comment.strip()):
             raise HTTPException(
                 status_code=400, 
@@ -389,6 +429,20 @@ class InternshipService:
         reason: str | None,
         metadata: dict[str, Any] | None = None,
     ) -> Internship:
+        
+        """Ejecuta de manera interna la transición de estado de una práctica y registra su historial.
+
+        Args:
+            internship: Entidad de la práctica que cambiará de estado.
+            new_status_title: Título del nuevo estado destino.
+            actor_id: Identificador del usuario que realiza la operación.
+            reason: Comentario o justificación del cambio de estado.
+            metadata: Datos contextuales adicionales para el registro del historial.
+
+        Returns:
+            La entidad `Internship` actualizada tras aplicar el cambio en el repositorio.
+        """
+
         new_status = await self._get_required_state(new_status_title)
         return await self.internship_repository.update_internship_status_with_history(
             internship=internship,
@@ -400,6 +454,36 @@ class InternshipService:
         )    
 
     async def approve(self, internship_id: int, actor: User, comment: str | None) -> Internship:
+        """Procesa la aprobación de una práctica avanzando su flujo según el estado actual.
+
+        La aprobación sigue un flujo de dos etapas con soporte para bypass cuando
+        no existe un Encargado de práctica activo en el sistema:
+
+        - Etapa 1 (``Pendiente`` → ``En revisión``):
+            - ``Encargado de práctica``: siempre permitido.
+            - ``Director de carrera``: permitido **solo si no existe ningún
+            Encargado de práctica activo** en el sistema. Si existe al menos
+            uno, se rechaza con 403 para preservar el flujo normal.
+
+        - Etapa 2 (``En revisión`` / ``En revisión DIRAE`` → ``Aprobada``):
+            - Solo ``Director de carrera``, sin excepción.
+
+        Args:
+            internship_id: Identificador único de la práctica a aprobar.
+            actor: Usuario autenticado que ejecuta la acción de aprobación.
+            comment: Comentario opcional asociado a la transición.
+
+        Returns:
+            La entidad ``Internship`` modificada con su nuevo estado.
+
+        Raises:
+            HTTPException 403: Si el actor no tiene permiso para la etapa actual,
+                o si es Director de carrera intentando la etapa 1 cuando existe
+                al menos un Encargado de práctica activo.
+            HTTPException 409: Si la práctica está en estado terminal, o si su
+                estado actual no admite aprobación.
+        """
+        
         internship = await self._get_or_404(internship_id)
         current_title = self._status_title_or_default(internship.status)
 
@@ -410,11 +494,31 @@ class InternshipService:
             )
 
         if current_title in APPROVE_STAGE_1_FROM:
-            self._require_action(actor, "approve_stage_1")
+            actor_actions = self._get_user_actions(actor)
+
+            if "approve_stage_1" in actor_actions:
+                # Encargado de práctica: flujo normal
+                pass
+            elif "approve_stage_2" in actor_actions:
+                # Director de carrera: solo puede hacer etapa 1 si no hay encargados activos
+                has_encargado = await self.internship_repository.has_active_users_with_role(
+                    "Encargado de practica"
+                )
+                if has_encargado:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Existe un Encargado de práctica activo. "
+                            "Solo él puede mover la práctica a revisión.",
+                    )
+            else:
+                raise HTTPException(status_code=403, detail="Insufficient permissions")
+
             next_title = IN_REVIEW_STATUS_TITLE
+
         elif current_title in APPROVE_STAGE_2_FROM:
             self._require_action(actor, "approve_stage_2")
             next_title = APPROVED_STATUS_TITLE
+
         else:
             raise HTTPException(
                 status_code=409,
@@ -427,9 +531,28 @@ class InternshipService:
             actor_id=actor.id,
             reason=comment,
             metadata={"action": "approve"},
-        )             
+        )            
 
     async def reject(self, internship_id: int, actor: User, comment: str | None) -> Internship:
+        """
+        Rechaza de forma definitiva una solicitud de práctica.
+
+        Valida que el actor posea los permisos de rechazo y exige de manera obligatoria 
+        un motivo en el parámetro `comment`. No permite modificar prácticas en estados terminales.
+
+        Args:
+            internship_id: Identificador único de la práctica.
+            actor: Usuario que ejecuta el rechazo.
+            comment: Motivo obligatorio del rechazo de la práctica.
+
+        Returns:
+            La entidad `Internship` transicionada al estado 'Rechazada'.
+
+        Raises:
+            HTTPException: Con código de estado 409 si la práctica ya se encuentra 
+                en un estado terminal.
+        """
+        
         self._require_action(actor, "reject")
         self._require_comment(comment, "reject")
         internship = await self._get_or_404(internship_id)
@@ -450,6 +573,23 @@ class InternshipService:
         )
     
     async def derive(self, internship_id: int, actor: User, comment: str | None) -> Internship:
+        """
+        Deriva el flujo de la práctica hacia la Dirección de Registro Académico Estudiantil (DIRAE).
+
+        Requiere que el actor cuente con el permiso de derivación y que argumente la acción 
+        mediante un comentario obligatorio.
+
+        Args:
+            internship_id: Identificador único de la práctica.
+            actor: Usuario encargado de derivar el caso (ej. Secretaria de Carrera).
+            comment: Comentario u observaciones obligatorias para la derivación.
+
+        Returns:
+            La entidad `Internship` actualizada al estado 'En revisión DIRAE'.
+
+        Raises:
+            HTTPException: Con código de estado 409 si la práctica está en un estado terminal.
+        """
         self._require_action(actor, "derive")
         self._require_comment(comment, "derive")
         internship = await self._get_or_404(internship_id)
@@ -470,9 +610,23 @@ class InternshipService:
         )
 
     async def _get_or_404(self, internship_id: int) -> Internship:
-            internship = await self.internship_repository.get_internship_by_id(internship_id)
-            if internship is None:
-                raise HTTPException(status_code=404, detail="Práctica no encontrada (Internship not found)")
-            return internship
+        """
+        Busca una práctica por su identificador o lanza un error si no existe.
+
+        Método utilitario interno para asegurar la existencia de la entidad antes de operar.
+
+        Args:
+            internship_id: Identificador de la práctica requerida.
+
+        Returns:
+            La entidad `Internship` recuperada del repositorio.
+
+        Raises:
+            HTTPException: Con código de estado 404 si el repositorio devuelve `None`.
+        """    
+        internship = await self.internship_repository.get_internship_by_id(internship_id)
+        if internship is None:
+            raise HTTPException(status_code=404, detail="Práctica no encontrada (Internship not found)")
+        return internship
             
 

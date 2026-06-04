@@ -16,6 +16,9 @@ from app.modules.internships.models.internship_model import Internship
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole  
+from app.modules.auth.models.role_model import Role           
 
 class InternshipRepository:
     """Implementa operaciones de lectura y escritura sobre practicas.
@@ -237,3 +240,25 @@ class InternshipRepository:
         return internship
 
     
+    async def has_active_users_with_role(self, role_name: str) -> bool:
+        """Verifica si existe al menos un usuario activo con el rol indicado.
+
+        Se utiliza para determinar si el bypass de etapa 1 está habilitado:
+        el Director de carrera solo puede aprobar desde ``Pendiente`` cuando
+        no hay ningún Encargado de práctica activo en el sistema.
+
+        Args:
+            role_name: Nombre del rol a buscar (ej. ``"Encargado de practica"``).
+
+        Returns:
+            ``True`` si existe al menos un usuario activo con ese rol;
+            ``False`` en caso contrario.
+        """
+        result = await self.db.execute(
+            select(UserRole)
+            .join(Role, UserRole.role_id == Role.id)
+            .join(User, UserRole.user_id == User.id)
+            .where(Role.name == role_name, User.is_active == True)
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
