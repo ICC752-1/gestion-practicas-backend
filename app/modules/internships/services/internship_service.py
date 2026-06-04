@@ -22,7 +22,6 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
 )
-from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.auth.models.user_model import User
 
 DEFAULT_DASHBOARD_STATUS_LABEL = "Pendiente"
@@ -31,6 +30,11 @@ IN_REVIEW_STATUS_TITLE = "En revisión"
 APPROVED_STATUS_TITLE = "Aprobada"
 REJECTED_STATUS_TITLE = "Rechazada"
 LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
+APPROVE_STAGE_1_FROM = {PENDING_STATUS_TITLE}
+APPROVE_STAGE_2_FROM = {IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE}
+TERMINAL_STATES = {APPROVED_STATUS_TITLE, REJECTED_STATUS_TITLE, LEGACY_REJECTED_STATUS_TITLE}
+
 INITIAL_HISTORY_REASON = "Registro inicial de práctica"
 STATUS_LABEL_TO_DASHBOARD_STATUS: dict[str, DashboardInternshipStatus] = {
     PENDING_STATUS_TITLE: "submitted",
@@ -45,13 +49,20 @@ STATUS_TITLE_ALIASES = {
 ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     PENDING_STATUS_TITLE: {
         IN_REVIEW_STATUS_TITLE,
+        IN_REVIEW_DIRAE_STATUS_TITLE,
         APPROVED_STATUS_TITLE,
         REJECTED_STATUS_TITLE,
     },
     IN_REVIEW_STATUS_TITLE: {
         APPROVED_STATUS_TITLE,
         REJECTED_STATUS_TITLE,
+        IN_REVIEW_DIRAE_STATUS_TITLE
     },
+    IN_REVIEW_DIRAE_STATUS_TITLE: {     
+        APPROVED_STATUS_TITLE,
+        REJECTED_STATUS_TITLE,
+    },
+
     APPROVED_STATUS_TITLE: set(),
     REJECTED_STATUS_TITLE: set(),
 }
@@ -66,7 +77,7 @@ EMPTY_DASHBOARD_STATS = {
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "Encargado de practica": ["approve_stage_1", "reject"],
     "Director de carrera": ["approve_stage_2", "reject"],
-    "Secretaria de carrera": ["derive"]
+    "Secretaria de Carrera": ["derive"]
 }
 
 class InternshipService:
@@ -244,7 +255,11 @@ class InternshipService:
         ]
 
     async def get_dashboard_stats(self) -> InternshipDashboardStatsResponse:
-        """Obtiene conteos agregados para el dashboard de coordinador/director."""
+        """Obtiene conteos agregados para el dashboard de coordinador/director.
+        
+        Returns:
+            Totales globales y por estado normalizado
+        """
 
         internships = await self.internship_repository.list_dashboard_internships()
         counters = dict(EMPTY_DASHBOARD_STATS)
@@ -264,6 +279,7 @@ class InternshipService:
     def _build_dashboard_item(
         self,
         internship: Internship,
+
     ) -> InternshipDashboardListItem:
         normalized_status, status_label = self._normalize_dashboard_status(internship)
         student = None
@@ -365,86 +381,93 @@ class InternshipService:
                 detail=f"El motivo/comentario es obligatorio para la acción: {action}"
             )
 
-    def _register_audit_event(
-        self, internship_id: int, action: str, actor_id: int, comment: str | None
-    ) -> None:
-        """
-        STUB de integración con Tracking de 9.3.
-        Mantiene la trazabilidad mínima requerida hasta la llegada del servicio real.
-        """
-        import logging
-        logging.getLogger(__name__).info(
-            "[TRACKING-STUB] internship=%s action=%s actor=%s comment=%s",
-            internship_id, action, actor_id, comment,
-        )
+    async def _do_transition(
+        self,
+        internship: Internship,
+        new_status_title: str,
+        actor_id: int,
+        reason: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Internship:
+        new_status = await self._get_required_state(new_status_title)
+        return await self.internship_repository.update_internship_status_with_history(
+            internship=internship,
+            previous_status=internship.status,
+            new_status=new_status,
+            actor_id=actor_id,
+            reason=reason,
+            metadata=metadata,
+        )    
 
     async def approve(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-            internship = await self._get_or_404(internship_id)
+        internship = await self._get_or_404(internship_id)
+        current_title = self._status_title_or_default(internship.status)
 
-            # Validación de transiciones inválidas (Control de flujo de estados)
-            if internship.status is not None:
-                if internship.status.title in ("Rechazada", "Reprobada"):
-                    raise HTTPException(
-                        status_code=409, 
-                        detail="Transición inválida: No se puede aprobar una práctica rechazada/reprobada sin reapertura."
-                    )
-                if internship.status.title == "Aprobada":
-                    raise HTTPException(
-                        status_code=409, 
-                        detail="La práctica ya se encuentra completamente aprobada."
-                    )
+        if current_title in TERMINAL_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede aprobar una práctica en estado terminal: {current_title}.",
+            )
 
-            # Lógica de aprobación por Etapas / Roles
-            if internship.status is None or internship.status.title == "Pendiente":
-                self._require_action(actor, "approve_stage_1")
-                next_title = "En revisión"
-            elif internship.status.title == "En revisión":
-                self._require_action(actor, "approve_stage_2")
-                next_title = "Aprobada"
-            else:
-                raise HTTPException(status_code=409, detail="Estado actual no mapeado para aprobación")
+        if current_title in APPROVE_STAGE_1_FROM:
+            self._require_action(actor, "approve_stage_1")
+            next_title = IN_REVIEW_STATUS_TITLE
+        elif current_title in APPROVE_STAGE_2_FROM:
+            self._require_action(actor, "approve_stage_2")
+            next_title = APPROVED_STATUS_TITLE
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El estado actual '{current_title}' no permite aprobación.",
+            )
 
-            new_state = await self.internship_repository.get_state_by_title(next_title)
-            internship.status_id = new_state.id
-            
-            await self.internship_repository.save(internship)
-            self._register_audit_event(internship_id, "approve", actor.id, comment)
-            return internship                   
+        return await self._do_transition(
+            internship=internship,
+            new_status_title=next_title,
+            actor_id=actor.id,
+            reason=comment,
+            metadata={"action": "approve"},
+        )             
 
     async def reject(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-            self._require_action(actor, "reject")
-            self._require_comment(comment, "reject")
-            internship = await self._get_or_404(internship_id)
+        self._require_action(actor, "reject")
+        self._require_comment(comment, "reject")
+        internship = await self._get_or_404(internship_id)
+        current_title = self._status_title_or_default(internship.status)
 
-            # Evitar re-rechazar si ya está en ese estado terminal
-            if internship.status is not None and internship.status.title in ("Rechazada", "Reprobada"):
-                raise HTTPException(status_code=409, detail="La práctica ya fue rechazada previamente.")
+        if current_title in TERMINAL_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede rechazar una práctica en estado terminal: {current_title}.",
+            )
 
-            new_state = await self.internship_repository.get_state_by_title("Rechazada")
-            internship.status_id = new_state.id
-            
-            await self.internship_repository.save(internship)
-            self._register_audit_event(internship_id, "reject", actor.id, comment)
-            return internship
-
+        return await self._do_transition(
+            internship=internship,
+            new_status_title=REJECTED_STATUS_TITLE,
+            actor_id=actor.id,
+            reason=comment,
+            metadata={"action": "reject"},
+        )
+    
     async def derive(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-            self._require_action(actor, "derive")
-            self._require_comment(comment, "derive")
-            internship = await self._get_or_404(internship_id)
+        self._require_action(actor, "derive")
+        self._require_comment(comment, "derive")
+        internship = await self._get_or_404(internship_id)
+        current_title = self._status_title_or_default(internship.status)
 
-            # Evitar derivaciones desde estados inválidos
-            if internship.status is not None and internship.status.title in ("Rechazada", "Reprobada", "Aprobada"):
-                raise HTTPException(
-                    status_code=409, 
-                    detail=f"No se puede derivar una práctica en estado terminal: {internship.status.title}"
-                )
+        if current_title in TERMINAL_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede derivar una práctica en estado terminal: {current_title}.",
+            )
 
-            new_state = await self.internship_repository.get_state_by_title("En revisión DIRAE")
-            internship.status_id = new_state.id
-            
-            await self.internship_repository.save(internship)
-            self._register_audit_event(internship_id, "derive", actor.id, comment)
-            return internship
+        return await self._do_transition(
+            internship=internship,
+            new_status_title=IN_REVIEW_DIRAE_STATUS_TITLE,
+            actor_id=actor.id,
+            reason=comment,
+            metadata={"action": "derive"},
+        )
 
     async def _get_or_404(self, internship_id: int) -> Internship:
             internship = await self.internship_repository.get_internship_by_id(internship_id)

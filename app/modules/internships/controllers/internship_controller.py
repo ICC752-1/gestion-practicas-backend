@@ -294,41 +294,129 @@ async def get_internship(
 
     return InternshipResponse.model_validate(internship)
 
-@router.post("/{internship_id}/approve", response_model=InternshipActionResponse)
+@router.post(
+    "/{internship_id}/approve",
+    response_model=InternshipActionResponse,
+)
 async def approve_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
 ) -> InternshipActionResponse:
+    """Aprueba una practica segun la etapa de revision actual.
+ 
+    La aprobacion sigue un flujo de dos etapas:
+ 
+    - Etapa 1 (`Pendiente` → `En revision`): solo `Encargado de practica`.
+    - Etapa 2 (`En revision` / `En revision DIRAE` → `Aprobada`): solo
+      `Director de carrera`.
+ 
+    Args:
+        internship_id: Identificador de la practica a aprobar.
+        payload: Payload con comentario opcional.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 404: Si la practica no existe.
+        HTTPException 403: Si el rol del actor no corresponde a la etapa actual.
+        HTTPException 409: Si la practica ya esta en estado terminal o el estado
+            actual no es apto para aprobacion.
+    """
+ 
     service = _build_service(db)
     internship = await service.approve(internship_id, current_user, payload.comment)
-    return InternshipActionResponse(id=internship.id,
-                                    status_id=internship.status_id,
-                                    comment=payload.comment)
-
-@router.post("/{internship_id}/reject", response_model=InternshipActionResponse)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
+ 
+@router.post(
+    "/{internship_id}/reject",
+    response_model=InternshipActionResponse,
+)
 async def reject_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
 ) -> InternshipActionResponse:
+    """Rechaza una practica que no se encuentra en estado terminal.
+ 
+    Roles autorizados: `Encargado de practica` y `Director de carrera`.
+    El comentario de rechazo es obligatorio.
+ 
+    Args:
+        internship_id: Identificador de la practica a rechazar.
+        payload: Payload con el motivo del rechazo (obligatorio).
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 400: Si no se proporciona comentario.
+        HTTPException 403: Si el actor no tiene permiso `reject`.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica ya fue rechazada o aprobada.
+    """
+ 
     service = _build_service(db)
     internship = await service.reject(internship_id, current_user, payload.comment)
-    return InternshipActionResponse(id=internship.id,
-                                    status_id=internship.status_id,
-                                    comment=payload.comment)
-
-@router.post("/{internship_id}/derive", response_model=InternshipActionResponse)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
+ 
+@router.post(
+    "/{internship_id}/derive",
+    response_model=InternshipActionResponse,
+)
 async def derive_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
 ) -> InternshipActionResponse:
+    """Deriva una practica a revision por DIRAE.
+ 
+    Solo `Secretaria de Carrera` puede ejecutar esta accion. La practica no
+    debe encontrarse en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+    El comentario es obligatorio.
+ 
+    Args:
+        internship_id: Identificador de la practica a derivar.
+        payload: Payload con el motivo de la derivacion (obligatorio).
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 400: Si no se proporciona comentario.
+        HTTPException 403: Si el actor no tiene permiso `derive`.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica ya esta en estado terminal.
+    """
+ 
     service = _build_service(db)
     internship = await service.derive(internship_id, current_user, payload.comment)
-    return InternshipActionResponse(id=internship.id,
-                                    status_id=internship.status_id,
-                                    comment=payload.comment)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
