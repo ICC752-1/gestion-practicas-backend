@@ -21,7 +21,6 @@ from app.modules.internships.services.internship_service import (
     APPROVED_STATUS_TITLE,
     IN_REVIEW_DIRAE_STATUS_TITLE,
     IN_REVIEW_STATUS_TITLE,
-    LEGACY_REJECTED_STATUS_TITLE,
     PENDING_STATUS_TITLE,
     REJECTED_STATUS_TITLE,
     InternshipService,
