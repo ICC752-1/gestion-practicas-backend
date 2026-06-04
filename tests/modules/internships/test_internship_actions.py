@@ -26,11 +26,6 @@ from app.modules.internships.services.internship_service import (
     InternshipService,
 )
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _make_state(title: str, state_id: int = 1) -> MagicMock:
     state = MagicMock()
     state.id = state_id
@@ -80,11 +75,6 @@ def _make_service(
     repo.update_internship_status_with_history.side_effect = _update_with_history
 
     return InternshipService(internship_repository=repo)
-
-
-# ---------------------------------------------------------------------------
-# approve
-# ---------------------------------------------------------------------------
 
 class TestApprove:
 
@@ -195,11 +185,6 @@ class TestApprove:
 
         assert exc.value.status_code == 404
 
-
-# ---------------------------------------------------------------------------
-# reject
-# ---------------------------------------------------------------------------
-
 class TestReject:
 
     @pytest.mark.asyncio
@@ -296,11 +281,6 @@ class TestReject:
             await service.reject(999, actor, comment="Motivo")
 
         assert exc.value.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# derive
-# ---------------------------------------------------------------------------
 
 class TestDerive:
 
