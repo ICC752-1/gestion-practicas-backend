@@ -51,6 +51,80 @@ documentan en `docs/admin.md`.
 | GET | `/internships/me` | Bearer token | - | `list[InternshipResponse]` |
 | GET | `/internships/{internship_id}/tracking` | Propietario o rol privilegiado | Path `internship_id` | `list[InternshipTrackingResponse]` |
 | GET | `/internships/{internship_id}` | Propietario o rol privilegiado | Path `internship_id` | `InternshipResponse` |
+| POST | `/internships/{internship_id}/approve` | Rol `Encargado de practica` o `Director de carrera` | `ApproveRequest` | `InternshipResponse` |
+| POST | `/internships/{internship_id}/reject` | Rol `Encargado de practica` o `Director de carrera` | `RejectRequest` | `InternshipResponse` |
+| POST | `/internships/{internship_id}/derive` | Rol `Secretaria de Carrera` | `DeriveRequest` | `InternshipResponse` |
+
+### Acciones Administrativas (Flujo de Estados)
+
+Para conocer la matriz de transiciones detallada y las reglas de negocio que evitan el flujo secuencial obligatorio, revisar **`docs/business_rules.md` (RN-02)**.
+
+#### Aprobación (`POST /internships/{internship_id}/approve`)
+
+* **Payload (`ApproveRequest`):**
+
+```json
+{
+  "comment": "Comentario opcional de aprobación",
+  "skip_review": false
+}
+```
+
+**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** o el flag `skip_review: true` la avanzará a **Aprobada**. El rol de **Encargado** (con `skip_review: false`) la avanzará a **En revisión**.
+
+#### Rechazo (`POST /internships/{internship_id}/reject`)
+
+* **Payload (`RejectRequest`):**
+
+```json
+{
+  "comment": "Motivo explícito del rechazo"
+}
+```
+
+**Restricción:** El campo `comment` es estrictamente obligatorio. Si se envía vacío, con espacios o nulo, la API responderá con un error **400 Bad Request**.
+
+#### Derivación a DIRAE (`POST /internships/{internship_id}/derive`)
+
+* **Payload (`DeriveRequest`):**
+
+```json
+{
+  "comment": "Observaciones de la derivación documental"
+}
+```
+
+**Restricción:** Acción exclusiva del rol **Secretaria de Carrera**. Exige comentario obligatorio.
+
+#### Errores Comunes de Flujo (Estructurales)
+
+Cualquiera de los tres endpoints de acciones administrativas puede arrojar las siguientes respuestas bajo condiciones de falla:
+
+##### 400 Bad Request (Falta Comentario Obligatorio)
+
+```json
+{
+  "detail": "El motivo/comentario es obligatorio para la acción: reject"
+}
+```
+
+##### 403 Forbidden (Rol Inadecuado o sin Permisos)
+
+```json
+{
+  "detail": "Insufficient permissions"
+}
+```
+
+##### 409 Conflict (Intento de Modificación de Estado Terminal)
+
+```json
+{
+  "detail": "No se puede operar sobre una práctica en estado terminal: Aprobada."
+}
+```
+
+
 
 ### Dashboard coordinador
 

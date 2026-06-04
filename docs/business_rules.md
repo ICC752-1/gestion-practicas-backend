@@ -109,3 +109,30 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
 }
 ```
 
+## RN-02: Matriz de Transiciones de Estados y Permisología por Rol
+
+### Descripción
+
+El flujo de evaluación de una solicitud de práctica está diseñado bajo un modelo de **concurrencia jerárquica no secuencial obligatoria**. Esto asegura que el Director de Carrera mantenga la facultad de resolver solicitudes de manera inmediata sin depender de pasos intermedios, evitando cuellos de botella en la gestión de la Escuela, mientras se preserva el estado de revisión para auditoría y trazabilidad ordinaria.
+
+### Definición de la Regla
+
+1. **Flexibilidad del Flujo Inicial:** Una práctica en estado `Pendiente` puede transicionar directamente a `Aprobada` o `Rechazada` sin obligar al registro de la etapa intermedia `En revisión`.
+2. **Jerarquía Concurrente de Aprobación:** Tanto el **Encargado de Práctica** como el **Director de Carrera** poseen permisos idénticos para las acciones de aprobación (`approve`) y rechazo (`reject`), variando únicamente el impacto automático en el estado de destino para solicitudes nuevas.
+3. **Desacoplamiento de Gestión Documental:** El rol de **Secretaría de Carrera** interviene exclusivamente en la fase de tramitación documental posterior o paralela mediante la acción de derivación (`derive`). Secretaría **no posee** facultades para dictaminar la aprobación o rechazo técnico-académico de la práctica.
+
+### Matriz de Permisología Funcional
+
+| Origen | Destino | Acción Funcional | Encargado de Práctica | Director de Carrera | Secretaría de Carrera |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| `Pendiente` | `En revisión` | `approve` (flujo regular) | **Sí** | **Sí** | No |
+| `Pendiente` | `Aprobada` | `approve` (`skip_review=True` / Directo) | **Sí** | **Sí** | No |
+| `Pendiente` | `Rechazada` | `reject` | **Sí** | **Sí** | No |
+| `En revisión` | `Aprobada` | `approve` | **Sí** | **Sí** | No |
+| `En revisión` | `Rechazada` | `reject` | **Sí** | **Sí** | No |
+| `Pendiente` o `En revisión` | `En revisión DIRAE` | `derive` | Según regla documental | Según regla documental | **Sí** |
+
+> [!WARNING]
+> **Criterio de Restricción Terminal:** Los estados `Aprobada`, `Rechazada` y `Reprobada (Legacy)` son estrictamente **terminales**. Cualquier intento de aplicar una acción administrativa sobre ellos gatillará un rechazo inmediato por consistencia de datos (`409 Conflict`).
+
+---
