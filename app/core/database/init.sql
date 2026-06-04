@@ -30,9 +30,10 @@ CREATE TABLE CurrentState (
 
 INSERT INTO CurrentState (title, description) VALUES
     ('Pendiente', 'La práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.'),
+    ('En revisión DIRAE', 'La práctica presenta observaciones en sus plazos y fue derivada a la Dirección de Registro Académico y Estudiantil.'),
     ('En revisión', 'La práctica fue registrada y se encuentra en revisión administrativa.'),
-    ('Aprobada', 'La práctica fue aprobada por el encargado de prácticas.'),
-    ('Reprobada', 'La práctica fue rechazada durante la revisión administrativa.');
+    ('Aprobada', 'La práctica fue aprobada durante la revisión administrativa.'),
+    ('Rechazada', 'La práctica fue rechazada durante la revisión administrativa.');
 
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
@@ -105,6 +106,17 @@ CREATE TABLE Internship (
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
+);
+
+CREATE TABLE internship_status_history (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id),
+    previous_status_id INTEGER REFERENCES CurrentState(id),
+    new_status_id INTEGER NOT NULL REFERENCES CurrentState(id),
+    actor_id INTEGER REFERENCES Users(id),
+    reason TEXT,
+    changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    metadata JSONB
 );
 
 CREATE TABLE DocumentType (

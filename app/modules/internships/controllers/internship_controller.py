@@ -21,10 +21,13 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InternshipActionRequest,      
+    InternshipActionResponse,
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipResponse,
+    InternshipTrackingResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
 
@@ -41,6 +44,10 @@ PRIVILEGED_READ_ROLES = {
     "Secretaria de Carrera",
 }
 
+ACTION_ROLES = [
+    "Encargado de practica", 
+    "Director de carrera", 
+    "Secretaria de Carrera"]
 
 def _has_any_role(user: User, role_names: set[str]) -> bool:
     """Verifica si un usuario posee al menos uno de los roles indicados.
@@ -193,6 +200,58 @@ async def list_my_internships(
     ]
 
 
+@router.get(
+    "/{internship_id}/tracking",
+    response_model=list[InternshipTrackingResponse],
+)
+async def get_internship_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipTrackingResponse]:
+    """Obtiene el historial de estados de una practica.
+
+    La consulta exige que la practica exista y que el usuario sea propietario o
+    tenga un rol privilegiado de lectura.
+
+    Args:
+        internship_id: Identificador entero de la practica solicitada.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado obtenido desde el token Bearer.
+
+    Returns:
+        Lista cronologica de transiciones de estado de la practica.
+
+    Raises:
+        HTTPException: Con codigo 404 si la practica no existe.
+        HTTPException: Con codigo 403 si el usuario no tiene permisos.
+    """
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    status_history = await service.list_internship_tracking(
+        internship_id=internship_id,
+    )
+
+    return [
+        InternshipTrackingResponse.model_validate(history)
+        for history in status_history
+    ]
+
+
 @router.get("/{internship_id}", response_model=InternshipResponse)
 async def get_internship(
     internship_id: int,
@@ -234,3 +293,128 @@ async def get_internship(
         )
 
     return InternshipResponse.model_validate(internship)
+
+@router.post(
+    "/{internship_id}/approve",
+    response_model=InternshipActionResponse,
+)
+async def approve_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Aprueba una practica sin imponer orden secuencial entre roles.
+
+    `Encargado de practica` y `Director de carrera` pueden aprobar desde
+    `Pendiente` o `En revision`. El estado `En revision` se usa solo como
+    trazabilidad opcional, no como paso obligatorio.
+ 
+    Args:
+        internship_id: Identificador de la practica a aprobar.
+        payload: Payload con comentario opcional.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 404: Si la practica no existe.
+        HTTPException 403: Si el rol del actor no corresponde a la etapa actual.
+        HTTPException 409: Si la practica ya esta en estado terminal o el estado
+            actual no es apto para aprobacion.
+    """
+ 
+    service = _build_service(db)
+    internship = await service.approve(internship_id, current_user, payload.comment)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
+ 
+@router.post(
+    "/{internship_id}/reject",
+    response_model=InternshipActionResponse,
+)
+async def reject_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Rechaza una practica que no se encuentra en estado terminal.
+ 
+    Roles autorizados: `Encargado de practica` y `Director de carrera`.
+    El comentario de rechazo es obligatorio.
+ 
+    Args:
+        internship_id: Identificador de la practica a rechazar.
+        payload: Payload con el motivo del rechazo (obligatorio).
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 400: Si no se proporciona comentario.
+        HTTPException 403: Si el actor no tiene permiso `reject`.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica ya fue rechazada o aprobada.
+    """
+ 
+    service = _build_service(db)
+    internship = await service.reject(internship_id, current_user, payload.comment)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
+ 
+@router.post(
+    "/{internship_id}/derive",
+    response_model=InternshipActionResponse,
+)
+async def derive_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Deriva una practica a revision por DIRAE.
+ 
+    Solo `Secretaria de Carrera` puede ejecutar esta accion. La practica no
+    debe encontrarse en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+    El comentario es obligatorio.
+ 
+    Args:
+        internship_id: Identificador de la practica a derivar.
+        payload: Payload con el motivo de la derivacion (obligatorio).
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+ 
+    Returns:
+        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+ 
+    Raises:
+        HTTPException 400: Si no se proporciona comentario.
+        HTTPException 403: Si el actor no tiene permiso `derive`.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica ya esta en estado terminal.
+    """
+ 
+    service = _build_service(db)
+    internship = await service.derive(internship_id, current_user, payload.comment)
+ 
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=payload.comment,
+    )
+ 
