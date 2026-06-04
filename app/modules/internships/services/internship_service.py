@@ -31,8 +31,6 @@ APPROVED_STATUS_TITLE = "Aprobada"
 REJECTED_STATUS_TITLE = "Rechazada"
 LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
 IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
-APPROVE_STAGE_1_FROM = {PENDING_STATUS_TITLE}
-APPROVE_STAGE_2_FROM = {IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE}
 TERMINAL_STATES = {APPROVED_STATUS_TITLE, REJECTED_STATUS_TITLE, LEGACY_REJECTED_STATUS_TITLE}
 
 INITIAL_HISTORY_REASON = "Registro inicial de práctica"
@@ -46,6 +44,7 @@ STATUS_LABEL_TO_DASHBOARD_STATUS: dict[str, DashboardInternshipStatus] = {
 STATUS_TITLE_ALIASES = {
     LEGACY_REJECTED_STATUS_TITLE: REJECTED_STATUS_TITLE,
 }
+
 ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     PENDING_STATUS_TITLE: {
         IN_REVIEW_STATUS_TITLE,
@@ -67,6 +66,12 @@ ALLOWED_STATUS_TRANSITIONS: dict[str, set[str]] = {
     REJECTED_STATUS_TITLE: set(),
 }
 
+APPROVE_TRANSITIONS: dict[str, str] = {
+    PENDING_STATUS_TITLE:         IN_REVIEW_STATUS_TITLE,
+    IN_REVIEW_STATUS_TITLE:       APPROVED_STATUS_TITLE,
+    IN_REVIEW_DIRAE_STATUS_TITLE: APPROVED_STATUS_TITLE,
+}
+
 EMPTY_DASHBOARD_STATS = {
     "submitted": 0,
     "in_review": 0,
@@ -75,8 +80,8 @@ EMPTY_DASHBOARD_STATS = {
 }
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "Encargado de practica": ["approve_stage_1", "reject"],
-    "Director de carrera": ["approve_stage_2", "reject"],
+    "Encargado de practica": ["approve", "reject"],
+    "Director de carrera": ["approve", "reject"],
     "Secretaria de Carrera": ["derive"]
 }
 
@@ -390,7 +395,7 @@ class InternshipService:
 
         Args:
             user: Entidad del usuario que intenta realizar la acción.
-            action:  Nombre de la acción requerida (ej, 'approve_stage_1', 'reject').
+            action:  Nombre de la acción requerida (ej, 'approve', 'reject').
 
         Raises:
             HTTPException: Con código de estado 403 si el usuario no cuenta 
@@ -453,37 +458,38 @@ class InternshipService:
             metadata=metadata,
         )    
 
-    async def approve(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-        """Procesa la aprobación de una práctica avanzando su flujo según el estado actual.
+    async def approve(
+        self,
+        internship_id: int,
+        actor: User,
+        comment: str | None,
+        skip_review: bool = False,
+    ) -> Internship:
+        """Aprueba una práctica según su estado actual.
 
-        La aprobación sigue un flujo de dos etapas con soporte para bypass cuando
-        no existe un Encargado de práctica activo en el sistema:
+        Encargado de práctica y Director de carrera tienen los mismos permisos.
+        El flujo no es secuencial obligatorio:
 
-        - Etapa 1 (``Pendiente`` → ``En revisión``):
-            - ``Encargado de práctica``: siempre permitido.
-            - ``Director de carrera``: permitido **solo si no existe ningún
-            Encargado de práctica activo** en el sistema. Si existe al menos
-            uno, se rechaza con 403 para preservar el flujo normal.
-
-        - Etapa 2 (``En revisión`` / ``En revisión DIRAE`` → ``Aprobada``):
-            - Solo ``Director de carrera``, sin excepción.
+        - ``Pendiente`` → ``En revisión`` (flujo normal, ``skip_review=False``).
+        - ``Pendiente`` → ``Aprobada`` (flujo directo, ``skip_review=True``).
+        - ``En revisión`` → ``Aprobada``.
+        - ``En revisión DIRAE`` → ``Aprobada``.
 
         Args:
-            internship_id: Identificador único de la práctica a aprobar.
-            actor: Usuario autenticado que ejecuta la acción de aprobación.
-            comment: Comentario opcional asociado a la transición.
+            internship_id: Identificador de la práctica.
+            actor: Usuario autenticado con rol autorizado.
+            comment: Comentario opcional.
+            skip_review: Si es ``True``, aprueba directamente desde ``Pendiente``
+                omitiendo el estado ``En revisión``.
 
         Returns:
-            La entidad ``Internship`` modificada con su nuevo estado.
+            La entidad ``Internship`` con su nuevo estado.
 
         Raises:
-            HTTPException 403: Si el actor no tiene permiso para la etapa actual,
-                o si es Director de carrera intentando la etapa 1 cuando existe
-                al menos un Encargado de práctica activo.
-            HTTPException 409: Si la práctica está en estado terminal, o si su
-                estado actual no admite aprobación.
+            HTTPException 403: Si el actor no tiene permiso ``approve``.
+            HTTPException 409: Si el estado actual no admite aprobación o es terminal.
         """
-        
+        self._require_action(actor, "approve")
         internship = await self._get_or_404(internship_id)
         current_title = self._status_title_or_default(internship.status)
 
@@ -493,32 +499,10 @@ class InternshipService:
                 detail=f"No se puede aprobar una práctica en estado terminal: {current_title}.",
             )
 
-        if current_title in APPROVE_STAGE_1_FROM:
-            actor_actions = self._get_user_actions(actor)
-
-            if "approve_stage_1" in actor_actions:
-                # Encargado de práctica: flujo normal
-                pass
-            elif "approve_stage_2" in actor_actions:
-                # Director de carrera: solo puede hacer etapa 1 si no hay encargados activos
-                has_encargado = await self.internship_repository.has_active_users_with_role(
-                    "Encargado de practica"
-                )
-                if has_encargado:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Existe un Encargado de práctica activo. "
-                            "Solo él puede mover la práctica a revisión.",
-                    )
-            else:
-                raise HTTPException(status_code=403, detail="Insufficient permissions")
-
-            next_title = IN_REVIEW_STATUS_TITLE
-
-        elif current_title in APPROVE_STAGE_2_FROM:
-            self._require_action(actor, "approve_stage_2")
+        if current_title == PENDING_STATUS_TITLE and skip_review:
             next_title = APPROVED_STATUS_TITLE
-
+        elif current_title in APPROVE_TRANSITIONS:
+            next_title = APPROVE_TRANSITIONS[current_title]
         else:
             raise HTTPException(
                 status_code=409,
@@ -530,8 +514,8 @@ class InternshipService:
             new_status_title=next_title,
             actor_id=actor.id,
             reason=comment,
-            metadata={"action": "approve"},
-        )            
+            metadata={"action": "approve", "skip_review": skip_review},
+        )       
 
     async def reject(self, internship_id: int, actor: User, comment: str | None) -> Internship:
         """
