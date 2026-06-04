@@ -17,6 +17,7 @@ from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
 
+from fastapi import HTTPException
 
 class InternshipRepository:
     """Implementa operaciones de lectura y escritura sobre practicas.
@@ -235,4 +236,19 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
+        return internship
+
+    async def get_state_by_title(self, title: str) -> CurrentState:
+        result = await self.db.execute(
+            select(CurrentState).where(CurrentState.title == title)
+        )
+        state = result.scalar_one_or_none()
+        if state is None:
+            raise HTTPException(500, f"Estado '{title}' no encontrado en BD")
+        return state
+
+    async def save(self, internship: Internship) -> Internship:
+        self.db.add(internship)
+        await self.db.commit()
+        await self.db.refresh(internship)
         return internship

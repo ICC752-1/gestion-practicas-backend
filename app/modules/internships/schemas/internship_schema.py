@@ -280,3 +280,21 @@ class InternshipResponse(BaseModel):
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
     has_school_insurance: bool
+
+class InternshipActionRequest(BaseModel):
+    """Payload para acciones de transición de estado.
+
+    Attributes:
+        comment: Comentario obligatorio en rechazo y derivación.
+    """
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class InternshipActionResponse(BaseModel):
+    """Respuesta tras ejecutar una acción de transición."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status_id: int | None
+    comment: str | None

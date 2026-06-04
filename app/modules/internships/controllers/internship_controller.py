@@ -21,6 +21,8 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InternshipActionRequest,      
+    InternshipActionResponse,
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
@@ -42,6 +44,10 @@ PRIVILEGED_READ_ROLES = {
     "Secretaria de Carrera",
 }
 
+ACTION_ROLES = [
+    "Encargado de practica", 
+    "Director de carrera", 
+    "Secretaria de Carrera"]
 
 def _has_any_role(user: User, role_names: set[str]) -> bool:
     """Verifica si un usuario posee al menos uno de los roles indicados.
@@ -287,3 +293,42 @@ async def get_internship(
         )
 
     return InternshipResponse.model_validate(internship)
+
+@router.post("/{internship_id}/approve", response_model=InternshipActionResponse)
+async def approve_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    service = _build_service(db)
+    internship = await service.approve(internship_id, current_user, payload.comment)
+    return InternshipActionResponse(id=internship.id,
+                                    status_id=internship.status_id,
+                                    comment=payload.comment)
+
+@router.post("/{internship_id}/reject", response_model=InternshipActionResponse)
+async def reject_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    service = _build_service(db)
+    internship = await service.reject(internship_id, current_user, payload.comment)
+    return InternshipActionResponse(id=internship.id,
+                                    status_id=internship.status_id,
+                                    comment=payload.comment)
+
+@router.post("/{internship_id}/derive", response_model=InternshipActionResponse)
+async def derive_internship(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+) -> InternshipActionResponse:
+    service = _build_service(db)
+    internship = await service.derive(internship_id, current_user, payload.comment)
+    return InternshipActionResponse(id=internship.id,
+                                    status_id=internship.status_id,
+                                    comment=payload.comment)
