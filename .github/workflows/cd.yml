@@ -4,40 +4,110 @@ on:
   push:
     branches:
       - main
+      - feature/devops-cicd-vps-deployment
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/cd.yml"
 
 jobs:
-  deploy:
+  quality:
+    name: Quality
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: gestion_practicas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d gestion_practicas"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: gestion_practicas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      JWT_SECRET_KEY: test-secret
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
         with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/icc752-1/gestion-practicas-backend:latest
-            ghcr.io/icc752-1/gestion-practicas-backend:${{ github.sha }}
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            set -e
-            cd /home/ci/gestion-practicas-backend
-            sudo docker compose -f docker-compose.prod.yml pull
-            sudo docker compose -f docker-compose.prod.yml up -d
-            curl -f http://localhost:8000/docs
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Tests
+        run: uv run pytest --tb=short
+
+  deploy:
+    name: Build And Deploy Backend
+    needs: quality
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: gestion-practicas-backend
+      IMAGE_ARCHIVE: backend-${{ github.sha }}.tar.gz
+      RELEASES_DIR: /srv/team-b/releases
+      APP_DIR: /srv/team-b/app
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Image
+        run: |
+          docker build \
+            --label app=gestion-practicas \
+            --label service=backend \
+            -t "$IMAGE_NAME:${{ github.sha }}" \
+            .
+
+      - name: Export Image
+        run: docker save "$IMAGE_NAME:${{ github.sha }}" | gzip > "$IMAGE_ARCHIVE"
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          ssh-keyscan -p "$VPS_PORT" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload Image Archive And Database Init
+        run: |
+          ssh -i ~/.ssh/vps_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "mkdir -p '$APP_DIR' '$RELEASES_DIR'"
+          scp -i ~/.ssh/vps_key -P "$VPS_PORT" "$IMAGE_ARCHIVE" \
+            "$VPS_USER@$VPS_HOST:$RELEASES_DIR/$IMAGE_ARCHIVE"
+          scp -i ~/.ssh/vps_key -P "$VPS_PORT" app/core/database/init.sql \
+            "$VPS_USER@$VPS_HOST:$APP_DIR/init.sql"
+
+      - name: Deploy Backend
+        run: |
+          ssh -i ~/.ssh/vps_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "APP_DIR='$APP_DIR' RELEASES_DIR='$RELEASES_DIR' '$APP_DIR/scripts/deploy-loaded-image.sh' backend '$IMAGE_NAME:${{ github.sha }}' '$RELEASES_DIR/$IMAGE_ARCHIVE'"
