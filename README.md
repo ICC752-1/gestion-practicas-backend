@@ -88,26 +88,29 @@ El repositorio cuenta con workflows automatizados:
 
 - **CI**: ejecuta lint y tests en cada push y pull request.
 - **CD**: al hacer merge a `main` construye la imagen y despliega en la VPS.
+  Temporalmente tambien despliega desde `feature/devops-cicd-vps-deployment`
+  para validar la canalizacion sin interferir con `develop`.
 
-La imagen de producción se publica en:
+La imagen de produccion no se publica en un registry. El workflow:
 
-- `ghcr.io/icc752-1/gestion-practicas-backend:latest`
-- `ghcr.io/icc752-1/gestion-practicas-backend:<commit_sha>`
+1. Construye `gestion-practicas-backend:<commit_sha>`.
+2. Exporta la imagen con `docker save`.
+3. Copia el archivo comprimido a `/srv/team-b/releases` en la VPS.
+4. Carga la imagen con `sudo docker load`.
+5. La etiqueta como `gestion-practicas-backend:deploy`.
+6. Reinicia el servicio `backend` del stack compartido.
 
 #### Despliegue en producción
-1. Crear la carpeta `/home/ci/gestion-practicas-backend` en la VPS.
-2. Copiar `docker-compose.prod.yml` y `.env.production` a esa ruta.
-3. Copiar `app/core/database/init.sql` a `/home/ci/gestion-practicas-backend/app/core/database/init.sql`.
-4. Completar las variables de entorno en `.env.production`.
-5. Ejecutar el despliegue con Docker Compose:
+El stack de produccion vive en el repositorio `gestion-practicas-deployment` y
+se espera en la VPS bajo:
 
-```bash
-sudo docker compose -f docker-compose.prod.yml pull
-sudo docker compose -f docker-compose.prod.yml up -d
+```text
+/srv/team-b/app
 ```
 
-> [!NOTE]
-> La base de datos de producción persiste datos en el volumen `pgdata`.
+El archivo `app/core/database/init.sql` se copia a
+`/srv/team-b/app/init.sql` durante el despliegue para inicializar PostgreSQL en
+el primer arranque del volumen.
 
 #### Reproducir CI localmente
 ```bash
