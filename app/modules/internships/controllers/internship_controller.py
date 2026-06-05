@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import get_db
+from app.core.config import config
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
@@ -21,7 +22,7 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
-    InternshipActionRequest,      
+    InternshipActionRequest,
     InternshipActionResponse,
     InternshipCreateRequest,
     InternshipDashboardListItem,
@@ -30,6 +31,12 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipTrackingResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
+from app.modules.notifications.repositories.notification_repository import (
+    NotificationRepository,
+)
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
 
 router = APIRouter(prefix="/internships", tags=["Internships"])
 
@@ -89,11 +96,18 @@ def _build_service(db: AsyncSession) -> InternshipService:
         db: Sesion asincrona de SQLAlchemy inyectada por FastAPI.
 
     Returns:
-        Instancia de `InternshipService` configurada con su repositorio.
+        Instancia de `InternshipService` configurada con su repositorio
+        y servicio de notificaciones.
     """
+
+    notification_service = NotificationService(
+        notification_repository=NotificationRepository(db),
+        app_config=config,
+    )
 
     return InternshipService(
         internship_repository=InternshipRepository(db),
+        notification_service=notification_service,
     )
 
 
