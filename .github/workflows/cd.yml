@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/devops-cicd-vps-deployment
     paths:
       - "app/**"
       - "tests/**"
