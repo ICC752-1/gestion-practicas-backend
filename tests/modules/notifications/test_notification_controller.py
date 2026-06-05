@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 
 import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
