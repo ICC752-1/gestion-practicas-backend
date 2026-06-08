@@ -6,7 +6,7 @@ el valor original del campo exceptuado; solo registra la autorización
 con trazabilidad completa.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
@@ -62,7 +62,7 @@ class InternshipException(Base):
     )
     authorized_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC).replace(tzinfo=None),
         nullable=False,
     )
 
