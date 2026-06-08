@@ -30,6 +30,10 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipTrackingResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
+from app.modules.internships.schemas.internship_schema import (
+    InternshipExceptionRequest,
+    InternshipExceptionResponse,
+)
 
 router = APIRouter(prefix="/internships", tags=["Internships"])
 
@@ -48,6 +52,10 @@ ACTION_ROLES = [
     "Encargado de practica", 
     "Director de carrera", 
     "Secretaria de Carrera"]
+
+EXCEPTION_ROLES = [
+    "Encargado de practica", 
+    "Director de carrera"]
 
 def _has_any_role(user: User, role_names: set[str]) -> bool:
     """Verifica si un usuario posee al menos uno de los roles indicados.
@@ -417,4 +425,81 @@ async def derive_internship(
         status_id=internship.status_id,
         comment=payload.comment,
     )
- 
+
+@router.post(
+    "/{internship_id}/exceptions",
+    response_model=InternshipExceptionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def grant_internship_exception(
+    internship_id: int,
+    payload: InternshipExceptionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(EXCEPTION_ROLES))],
+) -> InternshipExceptionResponse:
+    """Registra una excepcion administrativa sobre una regla de negocio.
+
+    Permite que una practica continúe su flujo pese a no cumplir la regla
+    indicada. La excepcion no modifica el valor original del campo exceptuado
+    ni implica cumplimiento real de la regla base.
+
+    Args:
+        internship_id: Identificador de la practica.
+        payload: Regla a exceptuar y justificacion obligatoria.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario con rol autorizado para otorgar excepciones.
+
+    Returns:
+        ``InternshipExceptionResponse`` con responsable, fecha y regla exceptuada.
+
+    Raises:
+        HTTPException 400: Si la regla no admite excepcion o el motivo esta vacio.
+        HTTPException 403: Si el actor no tiene permiso ``grant_exception``.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica esta en estado terminal.
+    """
+    service = _build_service(db)
+    exception = await service.grant_exception(
+        internship_id=internship_id,
+        actor=current_user,
+        rule=payload.rule,
+        reason=payload.reason,
+    )
+    return InternshipExceptionResponse.model_validate(exception)
+
+@router.get(
+    "/{internship_id}/exceptions",
+    response_model=list[InternshipExceptionResponse],
+)
+async def list_internship_exceptions(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipExceptionResponse]:
+    """Lista las excepciones administrativas registradas para una practica.
+
+    Accesible para el propietario de la practica y roles privilegiados.
+
+    Args:
+        internship_id: Identificador de la practica.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario autenticado.
+
+    Returns:
+        Lista de excepciones con responsable y fecha.
+
+    Raises:
+        HTTPException 403: Si el usuario no tiene acceso a la practica.
+        HTTPException 404: Si la practica no existe.
+    """
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id)
+
+    if internship is None:
+        raise HTTPException(status_code=404, detail="Internship not found")
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    exceptions = await service.internship_repository.list_exceptions(internship_id)
+    return [InternshipExceptionResponse.model_validate(e) for e in exceptions]

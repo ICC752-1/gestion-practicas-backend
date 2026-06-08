@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.internships.models.current_state_model import CurrentState
+from app.modules.internships.models.internship_exception_model import InternshipException
 from app.modules.internships.models.internship_model import Internship
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
-)        
+)     
 
 class InternshipRepository:
     """Implementa operaciones de lectura y escritura sobre practicas.
@@ -236,4 +237,81 @@ class InternshipRepository:
 
         return internship
 
-    
+    async def get_exception_by_rule(
+        self,
+        internship_id: int,
+        rule: str,
+    ) -> InternshipException | None:
+        """Obtiene una excepcion existente para una practica y regla dados.
+
+        Se utiliza para evitar registrar excepciones duplicadas sobre la
+        misma regla en la misma practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+            rule: Nombre canonico de la regla exceptuada.
+
+        Returns:
+            La excepcion existente o ``None`` si no existe.
+        """
+        result = await self.db.execute(
+            select(InternshipException)
+            .where(
+                InternshipException.internship_id == internship_id,
+                InternshipException.rule == rule,
+            )
+            .options(selectinload(InternshipException.actor))
+        )
+        return result.scalar_one_or_none()
+
+
+    async def create_exception(
+        self,
+        internship_id: int,
+        rule: str,
+        reason: str,
+        authorized_by: int,
+    ) -> InternshipException:
+        """Persiste una excepcion administrativa para una practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+            rule: Regla de negocio exceptuada.
+            reason: Justificacion del actor.
+            authorized_by: Identificador del usuario autorizador.
+
+        Returns:
+            La excepcion persistida y refrescada.
+        """
+        exception = InternshipException(
+            internship_id=internship_id,
+            rule=rule,
+            reason=reason,
+            authorized_by=authorized_by,
+        )
+        self.db.add(exception)
+        await self.db.commit()
+        await self.db.refresh(exception, ["actor"])
+        return exception
+
+
+    async def list_exceptions(
+        self,
+        internship_id: int,
+    ) -> list[InternshipException]:
+        """Lista todas las excepciones registradas para una practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+
+        Returns:
+            Lista de excepciones ordenadas por fecha de autorizacion.
+        """
+        result = await self.db.execute(
+            select(InternshipException)
+            .where(InternshipException.internship_id == internship_id)
+            .options(selectinload(InternshipException.actor))
+            .order_by(InternshipException.authorized_at.asc())
+        )
+        return list(result.scalars().all())
+        

@@ -23,6 +23,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStudentResponse,
 )
 from app.modules.auth.models.user_model import User
+from app.modules.internships.models.internship_exception_model import InternshipException
 
 DEFAULT_DASHBOARD_STATUS_LABEL = "Pendiente"
 PENDING_STATUS_TITLE = "Pendiente"
@@ -31,7 +32,12 @@ APPROVED_STATUS_TITLE = "Aprobada"
 REJECTED_STATUS_TITLE = "Rechazada"
 LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
 IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
-TERMINAL_STATES = {APPROVED_STATUS_TITLE, REJECTED_STATUS_TITLE, LEGACY_REJECTED_STATUS_TITLE}
+TERMINAL_STATES = {
+    APPROVED_STATUS_TITLE, 
+    REJECTED_STATUS_TITLE, 
+    LEGACY_REJECTED_STATUS_TITLE, }
+
+SEASONAL_PERIODS = {"Verano", "Invierno"}
 
 INITIAL_HISTORY_REASON = "Registro inicial de práctica"
 STATUS_LABEL_TO_DASHBOARD_STATUS: dict[str, DashboardInternshipStatus] = {
@@ -74,10 +80,12 @@ EMPTY_DASHBOARD_STATS = {
 }
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "Encargado de practica": ["approve", "reject"],
-    "Director de carrera": ["approve", "reject"],
+    "Encargado de practica": ["approve", "reject", "grant_exception"],
+    "Director de carrera": ["approve", "reject", "grant_exception"],
     "Secretaria de Carrera": ["derive"]
 }
+
+EXCEPTABLE_RULES = {"school_insurance"}
 
 class InternshipService:
     """Orquesta casos de uso relacionados con practicas.
@@ -459,30 +467,36 @@ class InternshipService:
         comment: str | None,
         skip_review: bool = False,
     ) -> Internship:
-        """Aprueba una práctica sin imponer una cadena Encargado -> Director.
+        """Aprueba una practica adaptando el estado destino segun la matriz de negocio.
 
-        El flujo no es secuencial obligatorio: cualquier actor con permiso
-        `approve` puede aprobar desde ``Pendiente`` o ``En revisión``. El estado
-        ``En revisión`` queda como trazabilidad opcional, no como paso bloqueante.
-        ``En revisión DIRAE`` se conserva solo como compatibilidad con registros
-        existentes.
+        El flujo no es secuencial obligatorio. Encargado de practica y Director
+        de carrera tienen los mismos permisos. El estado destino se determina
+        combinando el estado actual y el flag ``skip_review``:
+
+        - ``Pendiente`` → ``En revisión`` (flujo regular).
+        - ``Pendiente`` → ``Aprobada`` (``skip_review=True`` o Director directo).
+        - ``En revisión`` → ``Aprobada``.
+        - ``En revisión DIRAE`` → ``Aprobada``.
+
+        Para practicas estivales sin seguro escolar, se verifica la existencia
+        de una excepcion administrativa antes de permitir el avance. La excepcion
+        no modifica ``has_school_insurance``; solo habilita el flujo.
 
         Args:
-            internship_id: Identificador único de la práctica a aprobar.
-            actor: Entidad del usuario autenticado que ejecuta la acción.
-            comment: Comentario u observación opcional que se registrará en el historial.
-            skip_review: Bandera conservada por compatibilidad; la aprobación
-                desde ``Pendiente`` ya es directa para roles autorizados.
+            internship_id: Identificador de la practica a aprobar.
+            actor: Usuario autenticado con rol autorizado.
+            comment: Comentario opcional registrado en el historial.
+            skip_review: Si es ``True``, aprueba directamente desde ``Pendiente``
+                omitiendo ``En revisión``.
 
         Returns:
-            La entidad `Internship` actualizada con su nuevo estado y el registro
-            de historial asociado.
+            La entidad ``Internship`` con su nuevo estado.
 
         Raises:
-            HTTPException 403: Si el actor no posee el permiso "approve" en sus roles.
-            HTTPException 404: Si la práctica con el `internship_id` provisto no existe.
-            HTTPException 409: Si el estado actual es terminal o si la transición
-                solicitada no está permitida en `ALLOWED_STATUS_TRANSITIONS`.
+            HTTPException 403: Si el actor no tiene permiso ``approve``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si el estado es terminal, la transicion no esta
+                permitida, o la practica es estival sin seguro ni excepcion.
         """
         self._require_action(actor, "approve")
         internship = await self._get_or_404(internship_id)
@@ -494,11 +508,16 @@ class InternshipService:
                 detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
-        if current_title in (
-            PENDING_STATUS_TITLE,
-            IN_REVIEW_STATUS_TITLE,
-            IN_REVIEW_DIRAE_STATUS_TITLE,
-        ):
+        await self._check_school_insurance_or_exception(internship)
+
+        user_roles = {r.role.name for r in actor.roles}
+
+        if current_title == PENDING_STATUS_TITLE:
+            if skip_review or "Director de carrera" in user_roles:
+                next_title = APPROVED_STATUS_TITLE
+            else:
+                next_title = IN_REVIEW_STATUS_TITLE
+        elif current_title in (IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE):
             next_title = APPROVED_STATUS_TITLE
         else:
             raise HTTPException(
@@ -508,34 +527,43 @@ class InternshipService:
 
         self._validate_status_transition(current_title, next_title)
 
+        await self._check_school_insurance_or_exception(internship)
+
         return await self._do_transition(
             internship=internship,
             new_status_title=next_title,
             actor_id=actor.id,
             reason=comment,
             metadata={"action": "approve", "skip_review": skip_review},
-        )    
+        )
+     
 
-    async def reject(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-        """
-        Rechaza de forma definitiva una solicitud de práctica.
 
-        Valida que el actor posea los permisos de rechazo y exige de manera obligatoria 
-        un motivo en el parámetro `comment`. No permite modificar prácticas en estados terminales.
+    async def reject(
+        self,
+        internship_id: int,
+        actor: User,
+        comment: str | None,
+    ) -> Internship:
+        """Rechaza de forma definitiva una solicitud de practica.
+
+        Valida que el actor posea los permisos de rechazo y exige un motivo
+        obligatorio. No permite modificar practicas en estados terminales.
 
         Args:
-            internship_id: Identificador único de la práctica.
+            internship_id: Identificador unico de la practica.
             actor: Usuario que ejecuta el rechazo.
-            comment: Motivo obligatorio del rechazo de la práctica.
+            comment: Motivo obligatorio del rechazo.
 
         Returns:
-            La entidad `Internship` transicionada al estado 'Rechazada'.
+            La entidad ``Internship`` transicionada al estado ``Rechazada``.
 
         Raises:
-            HTTPException: Con código de estado 409 si la práctica ya se encuentra 
-                en un estado terminal.
+            HTTPException 400: Si no se proporciona comentario.
+            HTTPException 403: Si el actor no tiene permiso ``reject``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si la practica esta en estado terminal.
         """
-        
         self._require_action(actor, "reject")
         self._require_comment(comment, "reject")
         internship = await self._get_or_404(internship_id)
@@ -554,24 +582,31 @@ class InternshipService:
             reason=comment,
             metadata={"action": "reject"},
         )
-    
-    async def derive(self, internship_id: int, actor: User, comment: str | None) -> Internship:
-        """
-        Deriva el flujo de la práctica hacia la Dirección de Registro Académico Estudiantil (DIRAE).
 
-        Requiere que el actor cuente con el permiso de derivación y que argumente la acción 
-        mediante un comentario obligatorio.
+    async def derive(
+        self,
+        internship_id: int,
+        actor: User,
+        comment: str | None,
+    ) -> Internship:
+        """Deriva la practica hacia revision por DIRAE.
+
+        Requiere permiso ``derive`` y comentario obligatorio. No permite
+        derivar practicas en estados terminales.
 
         Args:
-            internship_id: Identificador único de la práctica.
-            actor: Usuario encargado de derivar el caso (ej. Secretaria de Carrera).
-            comment: Comentario u observaciones obligatorias para la derivación.
+            internship_id: Identificador unico de la practica.
+            actor: Usuario encargado de derivar (ej. Secretaria de Carrera).
+            comment: Comentario obligatorio para la derivacion.
 
         Returns:
-            La entidad `Internship` actualizada al estado 'En revisión DIRAE'.
+            La entidad ``Internship`` actualizada al estado ``En revisión DIRAE``.
 
         Raises:
-            HTTPException: Con código de estado 409 si la práctica está en un estado terminal.
+            HTTPException 400: Si no se proporciona comentario.
+            HTTPException 403: Si el actor no tiene permiso ``derive``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si la practica esta en estado terminal.
         """
         self._require_action(actor, "derive")
         self._require_comment(comment, "derive")
@@ -591,24 +626,127 @@ class InternshipService:
             reason=comment,
             metadata={"action": "derive"},
         )
-
+    
     async def _get_or_404(self, internship_id: int) -> Internship:
-        """
-        Busca una práctica por su identificador o lanza un error si no existe.
-
-        Método utilitario interno para asegurar la existencia de la entidad antes de operar.
+        """Busca una practica o lanza 404 si no existe.
 
         Args:
-            internship_id: Identificador de la práctica requerida.
+            internship_id: Identificador de la practica requerida.
 
         Returns:
-            La entidad `Internship` recuperada del repositorio.
+            La entidad ``Internship`` recuperada.
 
         Raises:
-            HTTPException: Con código de estado 404 si el repositorio devuelve `None`.
-        """    
+            HTTPException 404: Si el repositorio devuelve ``None``.
+        """
         internship = await self.internship_repository.get_internship_by_id(internship_id)
         if internship is None:
-            raise HTTPException(status_code=404, detail="Práctica no encontrada (Internship not found)")
+            raise HTTPException(
+                status_code=404,
+                detail="Práctica no encontrada (Internship not found)",
+            )
         return internship
-            
+
+    async def grant_exception(
+        self,
+        internship_id: int,
+        actor: User,
+        rule: str,
+        reason: str,
+    ) -> InternshipException:
+        """Registra una excepcion administrativa sobre una regla de negocio.
+
+        La excepcion permite que una practica continúe su flujo pese a no
+        cumplir la regla indicada. No modifica el valor original del campo
+        (ej. ``has_school_insurance`` permanece ``False``); solo habilita
+        el procesamiento administrativo con trazabilidad completa.
+
+        Solo aplica a practicas en estado no terminal. Una excepcion ya
+        registrada para la misma regla en la misma practica es idempotente:
+        se retorna la existente sin crear un duplicado.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Usuario que autoriza la excepcion.
+            rule: Nombre canonico de la regla a exceptuar
+                (ej. ``"school_insurance"``).
+            reason: Justificacion obligatoria de la excepcion.
+
+        Returns:
+            La entidad ``InternshipException`` creada o existente.
+
+        Raises:
+            HTTPException 400: Si la regla indicada no es exceptuable.
+            HTTPException 403: Si el actor no tiene permiso ``grant_exception``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si la practica esta en estado terminal.
+        """
+        self._require_action(actor, "grant_exception")
+
+        if rule not in EXCEPTABLE_RULES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La regla '{rule}' no admite excepción administrativa.",
+            )
+
+        internship = await self._get_or_404(internship_id)
+        current_title = self._status_title_or_default(internship.status)
+
+        if current_title in TERMINAL_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede registrar una excepción sobre una práctica en estado terminal: {current_title}.",
+            )
+
+        existing = await self.internship_repository.get_exception_by_rule(
+            internship_id=internship_id,
+            rule=rule,
+        )
+        if existing is not None:
+            return existing
+
+        return await self.internship_repository.create_exception(
+            internship_id=internship_id,
+            rule=rule,
+            reason=reason,
+            authorized_by=actor.id,
+        )
+    
+    async def _check_school_insurance_or_exception(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Verifica que la practica cumpla la regla de seguro escolar o tenga excepcion vigente.
+
+        Para practicas en periodo estival (``Verano`` o ``Invierno``) con
+        ``has_school_insurance=False``, el avance solo se permite si existe
+        una excepcion administrativa registrada para la regla
+        ``"school_insurance"``. La excepcion no modifica el valor del campo;
+        solo habilita el flujo.
+
+        Args:
+            internship: Practica a verificar.
+
+        Raises:
+            HTTPException 409: Si la practica es estival, no tiene seguro
+                y tampoco tiene excepcion administrativa registrada.
+        """
+        is_seasonal = str(internship.internship_period) in SEASONAL_PERIODS
+        if not is_seasonal or internship.has_school_insurance:
+            return
+
+        existing = await self.internship_repository.get_exception_by_rule(
+            internship_id=internship.id,
+            rule="school_insurance",
+        )
+        if existing is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "rule": "school_insurance",
+                    "message": (
+                        "La práctica es estival y no cuenta con seguro escolar. "
+                        "Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
+                    ),
+                },
+            )

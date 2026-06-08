@@ -93,30 +93,6 @@ class InternshipCreateRequest(BaseModel):
 
         return self
 
-    @model_validator(mode="after")
-    def validate_school_insurance(self) -> "InternshipCreateRequest":
-        """Valida que el estudiante tenga el seguro escolar
-        Garantiza que no se realicen practicas en el periodo estival ('Verano' o 'Invierno')
-        sin el respaldo del seguro escolar obligatorio (D.S. 313)
-        """
-        is_seasonal_period = self.internship_period in (
-            PracticePeriodEnum.summer,
-            PracticePeriodEnum.winter,
-        )
-        if is_seasonal_period and not self.has_school_insurance:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "field": "has_school_insurance",
-                    "message": (
-                        "No es posible registrar práctica estival sin respaldo "
-                        "de seguro escolar vigente (D.S. 313)"
-                    ),
-                },
-            )
-        return self
-
-
 class CurrentStateResponse(BaseModel):
     """Respuesta con informacion de un estado de practica.
 
@@ -298,3 +274,63 @@ class InternshipActionResponse(BaseModel):
     id: int
     status_id: int | None
     comment: str | None
+
+class InternshipExceptionRequest(BaseModel):
+    """Payload para registrar una excepcion administrativa.
+
+    Attributes:
+        rule: Regla de negocio que se exceptua. Actualmente solo
+            ``"school_insurance"`` esta habilitada.
+        reason: Justificacion obligatoria de la excepcion. No puede
+            estar vacia ni contener solo espacios en blanco.
+    """
+
+    rule: Literal["school_insurance"] = Field(
+        description="Regla de negocio exceptuada."
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Justificacion obligatoria de la excepcion.",
+    )
+
+    @model_validator(mode="after")
+    def validate_reason_not_blank(self) -> "InternshipExceptionRequest":
+        if not self.reason.strip():
+            raise ValueError("El motivo de la excepción no puede estar vacío.")
+        return self
+
+
+class InternshipExceptionActorResponse(BaseModel):
+    """Actor que autorizó la excepción."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    first_name: str
+    last_name: str
+
+
+class InternshipExceptionResponse(BaseModel):
+    """Respuesta tras registrar o consultar una excepcion administrativa.
+
+    Attributes:
+        id: Identificador de la excepcion.
+        internship_id: Practica asociada.
+        rule: Regla exceptuada.
+        reason: Justificacion registrada.
+        authorized_by: Datos del usuario que autorizó la excepción.
+        authorized_at: Timestamp de la autorizacion.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    internship_id: int
+    rule: str
+    reason: str
+    authorized_by: InternshipExceptionActorResponse = Field(
+        validation_alias="actor"
+    )
+    authorized_at: datetime
