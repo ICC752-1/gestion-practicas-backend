@@ -10,8 +10,6 @@ from app.modules.internships.models.internship_model import (
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
 from app.modules.internships.services.internship_service import InternshipService
 
-
-"""FIXTURES Y GENERADORES DE DATOS AUXILIARES (HELPERS)"""
 def _valid_payload() -> InternshipCreateRequest:
     return InternshipCreateRequest(
         org_name="Acme Chile",
@@ -39,6 +37,7 @@ def _valid_payload() -> InternshipCreateRequest:
         internship_type=PracticeTypeEnum.practice_1,
         has_school_insurance=False,
     )
+
 
 def _student() -> SimpleNamespace:
     return SimpleNamespace(
@@ -199,7 +198,7 @@ class FakeInternshipRepository:
     async def list_exceptions(self, internship_id: int):
         return self.exceptions_list
 
-"""Test unitarios de flujo base"""
+"""TESTS UNITARIOS DE FLUJOS BASE"""
 @pytest.mark.asyncio
 async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository = FakeInternshipRepository()
@@ -414,7 +413,7 @@ async def test_get_dashboard_stats_counts_normalized_statuses() -> None:
     assert stats.approved == 1
     assert stats.rejected == 2
 
-"""Test de excepciones administrativas"""
+"""TESTS DE EXCEPCIONES ADMINISTRATIVAS"""
 @pytest.mark.asyncio
 async def test_grant_exception_success_and_idempotency() -> None:
     """[BE1] Evalúa el registro exitoso de excepciones y su idempotencia."""
@@ -428,7 +427,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
         status=_status(1, "Pendiente"),
     )
 
-    """Crear nueva excepción válida"""
+    # 1. Crear nueva excepción válida
     exception = await service.grant_exception(
         internship_id=7,
         actor=actor,
@@ -441,7 +440,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
     assert repository.created_exception_reason == "Póliza física en proceso de firma por el Director de Finanzas."
     assert repository.created_exception_authorized_by == 22
 
-    """Comprobar Idempotencia (Debe retornar la misma sin duplicar en el repositorio)"""
+    # 2. Comprobar Idempotencia (Debe retornar la misma sin duplicar en el repositorio)
     repository.exception_by_rule = exception
     second_call_exception = await service.grant_exception(
         internship_id=7,
@@ -455,7 +454,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
 
 @pytest.mark.asyncio
 async def test_grant_exception_rejects_invalid_rules() -> None:
-    """[BE1] Asegura que reglas no permitidas (ej: inducción bloqueo absoluto) fallen."""
+    """[BE1] Asegura que reglas no permitidas arrojen error 400."""
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     actor = _user(user_id=22, first_name="Ana", last_name="Director", roles=["Director de carrera"])
@@ -464,8 +463,8 @@ async def test_grant_exception_rejects_invalid_rules() -> None:
         await service.grant_exception(
             internship_id=7,
             actor=actor,
-            rule="induction_training",  # Regla excluida de EXCEPTABLE_RULES
-            reason="No asistió a la inducción.",
+            rule="invalid_rule_name",
+            reason="Prueba de fallo.",
         )
     
     assert exc_info.value.status_code == 400
@@ -502,8 +501,10 @@ async def test_approve_seasonal_internship_raises_409_without_insurance_or_excep
         id=7,
         status_id=1,
         status=_status(1, "Pendiente"),
-        internship_period=PracticePeriodEnum.summer,  # Práctica estival
+        internship_period="Verano",                  # Práctica estival
+        internship_type=PracticeTypeEnum.practice_2,  # Usamos Práctica II para no chocar con el bloqueo de inducción
         has_school_insurance=False,                   # Sin seguro escolar básico
+        has_induction=True,
         roles=[]
     )
     repository.exception_by_rule = None
@@ -526,8 +527,10 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
         id=7,
         status_id=1,
         status=_status(1, "Pendiente"),
-        internship_period=PracticePeriodEnum.summer,
-        has_school_insurance=False,  # Permanece en False cumpliendo la regla de la subtarea
+        internship_period="Verano",
+        internship_type=PracticeTypeEnum.practice_2,
+        has_school_insurance=False,  # Permanece en False
+        has_induction=True
     )
     repository.internship_by_id = internship_mock
     repository.exception_by_rule = SimpleNamespace(id=1, rule="school_insurance")
@@ -536,4 +539,59 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
 
     assert updated_internship is internship_mock
     assert repository.updated_new_status.title == "En revisión"
-    assert repository.updated_reason == "Aprobado con bypass de excepción"
+
+
+"""REGLA DE NEGOCIO PARA INDUCCIÓN OBLIGATORIA (PRÁCTICA I VS II)"""
+@pytest.mark.asyncio
+async def test_approve_practice_1_without_induction_raises_409_absolute_block() -> None:
+    """[BE1] Valida el bloqueo absoluto (409) por falta de inducción en la Práctica de Estudio I."""
+    # Arrange
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    
+    # Práctica de Estudio I, sin inducción realizada (has_induction=False)
+    repository.internship_by_id = SimpleNamespace(
+        id=8,
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_1,  # <-- Práctica I (Obligatoria)
+        has_school_insurance=True,                    # Seguro OK para aislar el test de la inducción
+        has_induction=False                           # <-- NO asistió
+    )
+
+   
+    with pytest.raises(HTTPException) as exc_info:
+        await service.approve(internship_id=8, actor=actor, comment="Procesando Práctica I")
+        
+    assert exc_info.value.status_code == 409
+    assert "La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_2_without_induction_allows_advance() -> None:
+    """[BE1] Comprueba que la Práctica de Estudio II no se bloquea por falta de inducción."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    
+    # Práctica de Estudio II, sin inducción realizada
+    internship_mock = SimpleNamespace(
+        id=9,
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_2,  # <-- Práctica II (Opcional/Manual)
+        has_school_insurance=True,
+        has_induction=False                           # <-- No asistió, pero el sistema ignora el bloqueo duro
+    )
+    repository.internship_by_id = internship_mock
+
+    # Act
+    updated_internship = await service.approve(internship_id=9, actor=actor, comment="Procesando Práctica II")
+
+    # Assert
+    assert updated_internship is internship_mock
+    assert repository.updated_new_status.title == "En revisión"
+    assert repository.updated_reason == "Procesando Práctica II"

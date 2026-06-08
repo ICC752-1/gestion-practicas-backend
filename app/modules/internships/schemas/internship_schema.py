@@ -257,7 +257,7 @@ class InternshipResponse(BaseModel):
     internship_type: PracticeTypeEnum
     has_school_insurance: bool
 
-    exceptions: list[InternshipExceptionResponse] = []
+    exceptions: list["InternshipExceptionResponse"] = []
 
 class InternshipActionRequest(BaseModel):
     """Payload para acciones de transición de estado.
