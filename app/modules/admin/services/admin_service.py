@@ -24,6 +24,12 @@ from app.modules.admin.schemas.admin_schema import (
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_requirement_status_changed_notification,
+)
 
 
 
@@ -36,19 +42,29 @@ class AdminService:
     """Orquesta casos de uso administrativos de solo lectura.
 
     Attributes:
-        db         : Sesion asincrona utilizada durante el request.
+        db : Sesion asincrona utilizada durante el request.
         repository : Repositorio de acceso a datos administrativos.
+        notification_service : Servicio de notificaciones para despachar
+            eventos de cambio de estado de requisitos (opcional).
     """
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        notification_service: NotificationService | None = None,
+    ) -> None:
         """Inicializa el servicio con su sesion y repositorio.
 
         Args:
             db: Sesion asincrona de SQLAlchemy.
+            notification_service: Servicio de notificaciones para despachar
+                eventos tras cambios de estado de requisitos. Si es `None`,
+                no se generan notificaciones.
         """
 
         self.db = db
         self.repository = AdminRepository(db)
+        self.notification_service = notification_service
 
     async def get_summary(self) -> AdminSummaryResponse:
         """Obtiene el resumen administrativo del sistema.
@@ -220,12 +236,21 @@ class AdminService:
             new_status=payload.status,
         )
 
+        previous_status = requirement.status
         requirement.status = payload.status
         requirement.status_updated_at = datetime.now(timezone.utc)
         requirement.status_updated_by = updated_by_user_id
 
         updated_requirement = (
             await self.repository.update_student_internship_requirement(requirement)
+        )
+
+        await self._dispatch_requirement_notification(
+            recipient_user_id=updated_requirement.user_id,
+            requirement_id=updated_requirement.id,
+            requirement_type=updated_requirement.type,
+            new_status=updated_requirement.status,
+            previous_status=previous_status,
         )
 
         return AdminStudentInternshipRequirementItem(
@@ -365,4 +390,48 @@ class AdminService:
         if new_status not in allowed_transitions.get(current_status, set()):
             raise ValueError(
                 f"Invalid status transition from {current_status} to {new_status}"
+            )
+
+    async def _dispatch_requirement_notification(
+        self,
+        recipient_user_id: int,
+        requirement_id: int,
+        requirement_type: str,
+        new_status: str,
+        previous_status: str | None = None,
+    ) -> None:
+        """Despacha una notificacion de cambio de estado de requisito.
+
+        Si el servicio de notificaciones no esta configurado, la operacion se
+        ignora silenciosamente. Los errores de notificacion no interrumpen el
+        flujo principal de negocio.
+
+        Args:
+            recipient_user_id: Identificador del usuario destinatario.
+            requirement_id: Identificador del requisito actualizado.
+            requirement_type: Tipo/nombre del requisito.
+            new_status: Nuevo estado asignado al requisito.
+            previous_status: Estado anterior del requisito.
+        """
+
+        if self.notification_service is None:
+            return
+
+        notification = build_requirement_status_changed_notification(
+            recipient_user_id=recipient_user_id,
+            recipient_email=None,
+            requirement_id=requirement_id,
+            requirement_type=requirement_type,
+            new_status=new_status,
+            previous_status=previous_status,
+        )
+
+        try:
+            await self.notification_service.create_and_dispatch(notification)
+        except Exception:
+            logger.warning(
+                "Fallo al despachar notificacion de requisito (id=%s). "
+                "El flujo de negocio continua normalmente.",
+                requirement_id,
+                exc_info=True,
             )

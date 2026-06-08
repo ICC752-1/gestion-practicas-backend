@@ -23,6 +23,7 @@ FROM base AS runtime
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY --from=builder /app /app
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
 EXPOSE 8000
 

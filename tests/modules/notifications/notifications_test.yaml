@@ -1,55 +1,107 @@
-type: collection.insomnia.rest/5.0
-schema_version: "5.1"
-name: Scratch Pad
-meta:
-  id: wrk_scratchpad
-  created: 1764685246577
-  modified: 1764685246577
-  description: ""
-collection:
-  - url: http://127.0.0.1:8000/notifications/send-email
-    name: Test_notifications
-    meta:
-      id: req_06898b8ea53847088f5c75faa2cae430
-      created: 1778721818770
-      modified: 1778722333699
-      isPrivate: false
-      description: ""
-      sortKey: -1778721818770
+type: insomnia.rest
+specName: Gestion Practicas - Notifications
+__ dangerouslyForceUpdate: true
+
+# ---- Setup ----
+
+# ---- Happy path ----
+- request:
+    name: Listar notificaciones del usuario autenticado
+    method: GET
+    url: "{{ _.base_url }}/notifications"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+- request:
+    name: Obtener detalle de notificacion
+    method: GET
+    url: "{{ _.base_url }}/notifications/1"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+- request:
+    name: Enviar correo electronico
     method: POST
-    body:
-      mimeType: application/json
-      text: >-
-        {
-          "to_emails": ["gestor.practica@gmail.com"],
-          "subject": "Prueba desde Insomnia",
-          "body": "<h1>¡Hola!</h1><p>Esto es un correo de prueba con <b>HTML</b>.</p>"
-        }
+    url: "{{ _.base_url }}/notifications/send-email"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+      - name: Content-Type
+        value: application/json
+    body: |-
+      {
+        "to_emails": ["gestor.practica@gmail.com"],
+        "subject": "Prueba desde Insomnia",
+        "body": "<h1>Hola!</h1><p>Esto es un correo de prueba con <b>HTML</b>.</p>"
+      }
+  response:
+    statuscode: 200
+
+- request:
+    name: Reintentar envio de notificacion fallida
+    method: POST
+    url: "{{ _.base_url }}/notifications/1/retry"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+# ---- Errors ----
+
+- request:
+    name: Listar notificaciones sin autenticacion
+    method: GET
+    url: "{{ _.base_url }}/notifications"
+  response:
+    statuscode: 401
+
+- request:
+    name: Enviar correo sin autenticacion
+    method: POST
+    url: "{{ _.base_url }}/notifications/send-email"
     headers:
       - name: Content-Type
         value: application/json
-      - name: User-Agent
-        value: insomnia/12.5.0
-        description: ""
-        disabled: false
-    settings:
-      renderRequestBody: true
-      encodeUrl: true
-      followRedirects: global
-      cookies:
-        send: true
-        store: true
-      rebuildPath: true
-cookieJar:
-  name: Default Jar
-  meta:
-    id: jar_99d30891da4bdcebc63947a8fc17f076de878684
-    created: 1764685306385
-    modified: 1764685306385
-environments:
-  name: Base Environment
-  meta:
-    id: env_99d30891da4bdcebc63947a8fc17f076de878684
-    created: 1764685306380
-    modified: 1764685306380
-    isPrivate: false
+    body: |-
+      {
+        "to_emails": ["test@test.com"],
+        "subject": "No auth",
+        "body": "<p>Sin auth</p>"
+      }
+  response:
+    statuscode: 401
+
+- request:
+    name: Enviar correo con rol estudiante
+    method: POST
+    url: "{{ _.base_url }}/notifications/send-email"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.student_token }}"
+      - name: Content-Type
+        value: application/json
+    body: |-
+      {
+        "to_emails": ["test@test.com"],
+        "subject": "Wrong role",
+        "body": "<p>Rol incorrecto</p>"
+      }
+  response:
+    statuscode: 403
+
+- request:
+    name: Obtener notificacion inexistente
+    method: GET
+    url: "{{ _.base_url }}/notifications/99999"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 404

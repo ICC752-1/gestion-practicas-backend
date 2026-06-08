@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import get_db
+from app.core.config import config
 from app.modules.admin.schemas.admin_schema import (
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
@@ -22,6 +23,12 @@ from app.modules.admin.schemas.admin_schema import (
 from app.modules.admin.services.admin_service import AdminService
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
+from app.modules.notifications.repositories.notification_repository import (
+    NotificationRepository,
+)
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
 
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -40,7 +47,12 @@ def _build_service(db: AsyncSession) -> AdminService:
         Instancia de `AdminService` configurada para el request actual.
     """
 
-    return AdminService(db)
+    notification_service = NotificationService(
+        notification_repository=NotificationRepository(db),
+        app_config=config,
+    )
+
+    return AdminService(db, notification_service=notification_service)
 
 
 @router.get("/summary", response_model=AdminSummaryResponse)
