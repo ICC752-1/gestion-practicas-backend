@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from typing import Any
 
 from app.modules.internships.models.current_state_model import CurrentState
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import Internship, PracticeTypeEnum
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
@@ -508,6 +508,13 @@ class InternshipService:
                 detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
+        if internship.internship_type == PracticeTypeEnum.practice_1 and not getattr(internship, "has_induction", False):
+            raise HTTPException(
+                status_code=409,
+                detail="La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. "
+                       "No se puede tramitar la aprobación administrativa sin este prerrequisito.",
+            )
+
         await self._check_school_insurance_or_exception(internship)
 
         user_roles = {r.role.name for r in actor.roles}
@@ -536,9 +543,7 @@ class InternshipService:
             reason=comment,
             metadata={"action": "approve", "skip_review": skip_review},
         )
-     
-
-
+    
     async def reject(
         self,
         internship_id: int,
