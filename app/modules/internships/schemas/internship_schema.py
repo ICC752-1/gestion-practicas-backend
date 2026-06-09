@@ -8,7 +8,6 @@ instancias ORM.
 from datetime import date, datetime
 from typing import Any, Literal
 
-from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (

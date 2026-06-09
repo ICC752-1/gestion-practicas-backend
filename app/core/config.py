@@ -27,6 +27,9 @@ class Config(BaseSettings):
     LOG_MAX_BYTES: int = 10485760
     LOG_BACKUP_COUNT: int = 5
 
+    # notificaciones
+    NOTIFICATION_MODE: str = "simulated"
+
     # correo electronico
     MAIL_USERNAME: str = "test@example.com"
     MAIL_PASSWORD: str = "password"

@@ -14,6 +14,9 @@ CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Prá
 CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
 CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
 
+CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
+CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
+
 -- 2. Creación de Tablas
 
 CREATE TABLE Roles (
@@ -152,15 +155,28 @@ CREATE TABLE Presentation (
 );
 
 CREATE TABLE LogAction (
-    id SERIAL PRIMARY KEY,
-    action "enumAction" NOT NULL,
-    entity "enumEntity" NOT NULL,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    description TEXT NOT NULL,
-    old_value JSONB,
-    new_value JSONB,
-    entity_id INTEGER NOT NULL,
-    user_id INTEGER REFERENCES Users(id)
+id SERIAL PRIMARY KEY,
+action "enumAction" NOT NULL,
+entity "enumEntity" NOT NULL,
+timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+description TEXT NOT NULL,
+old_value JSONB,
+new_value JSONB,
+entity_id INTEGER NOT NULL,
+user_id INTEGER REFERENCES Users(id)
+);
+
+CREATE TABLE notification (
+id SERIAL PRIMARY KEY,
+recipient_user_id INTEGER REFERENCES Users(id),
+recipient_email VARCHAR(255),
+event_type "enumNotificationEventType" NOT NULL,
+subject VARCHAR(255) NOT NULL,
+content TEXT NOT NULL,
+status "enumNotificationStatus" NOT NULL,
+payload JSONB,
+created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+sent_at TIMESTAMP
 );
 
 CREATE TABLE internship_exceptions (

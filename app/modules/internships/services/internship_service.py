@@ -3,6 +3,8 @@
 Este modulo define `InternshipService`, encargado de coordinar los casos de uso
 del modulo `internships` y delegar operaciones de persistencia al repositorio.
 """
+import logging
+
 from fastapi import HTTPException
 
 from typing import Any
@@ -24,6 +26,17 @@ from app.modules.internships.schemas.internship_schema import (
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_exception_model import InternshipException
+
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_internship_approved_notification,
+    build_internship_derived_notification,
+    build_internship_rejected_notification,
+)
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DASHBOARD_STATUS_LABEL = "Pendiente"
 PENDING_STATUS_TITLE = "Pendiente"
@@ -92,17 +105,27 @@ class InternshipService:
 
     Attributes:
         internship_repository: Repositorio de acceso a datos para practicas.
+        notification_service: Servicio de notificaciones para despachar
+            eventos administrativos (opcional).
     """
 
-    def __init__(self, internship_repository: InternshipRepository) -> None:
+    def __init__(
+        self,
+        internship_repository: InternshipRepository,
+        notification_service: NotificationService | None = None,
+    ) -> None:
         """Inicializa el servicio con sus dependencias.
 
         Args:
             internship_repository: Repositorio para consultar y persistir
                 practicas.
+            notification_service: Servicio de notificaciones para despachar
+                eventos tras acciones administrativas. Si es `None`, no se
+                generan notificaciones.
         """
 
         self.internship_repository = internship_repository
+        self.notification_service = notification_service
 
     async def create_internship(
         self,
@@ -534,15 +557,25 @@ class InternshipService:
 
         self._validate_status_transition(current_title, next_title)
 
-        await self._check_school_insurance_or_exception(internship)
+        result = await self._do_transition(
 
-        return await self._do_transition(
             internship=internship,
             new_status_title=next_title,
             actor_id=actor.id,
             reason=comment,
             metadata={"action": "approve", "skip_review": skip_review},
         )
+
+        await self._dispatch_notification(
+            build_internship_approved_notification(
+                recipient_user_id=result.user_id,
+                recipient_email=result.student.email if result.student else None,
+                internship_id=result.id,
+                org_name=result.org_name,
+            ),
+        )
+
+        return result
     
     async def reject(
         self,
@@ -551,6 +584,17 @@ class InternshipService:
         comment: str | None,
     ) -> Internship:
         """Rechaza de forma definitiva una solicitud de practica.
+
+        await self._dispatch_notification(
+            build_internship_approved_notification(
+                recipient_user_id=result.user_id,
+                recipient_email=result.student.email if result.student else None,
+                internship_id=result.id,
+                org_name=result.org_name,
+            ),
+        )
+
+        return result
 
         Valida que el actor posea los permisos de rechazo y exige un motivo
         obligatorio. No permite modificar practicas en estados terminales.
@@ -580,7 +624,7 @@ class InternshipService:
                 detail=f"No se puede rechazar una práctica en estado terminal: {current_title}.",
             )
 
-        return await self._do_transition(
+        result = await self._do_transition(
             internship=internship,
             new_status_title=REJECTED_STATUS_TITLE,
             actor_id=actor.id,
@@ -588,13 +632,25 @@ class InternshipService:
             metadata={"action": "reject"},
         )
 
+        await self._dispatch_notification(
+            build_internship_rejected_notification(
+                recipient_user_id=result.user_id,
+                recipient_email=result.student.email if result.student else None,
+                internship_id=result.id,
+                org_name=result.org_name,
+                reason=comment,
+            ),
+        )
+
+        return result
+
     async def derive(
-        self,
-        internship_id: int,
-        actor: User,
-        comment: str | None,
-    ) -> Internship:
-        """Deriva la practica hacia revision por DIRAE.
+            self, 
+            internship_id: int, 
+            actor: User, comment: str | None
+        ) -> Internship:
+     
+       """Deriva el flujo de la práctica hacia la Dirección de Registro Académico Estudiantil (DIRAE).
 
         Requiere permiso ``derive`` y comentario obligatorio. No permite
         derivar practicas en estados terminales.
@@ -613,25 +669,37 @@ class InternshipService:
             HTTPException 404: Si la practica no existe.
             HTTPException 409: Si la practica esta en estado terminal.
         """
-        self._require_action(actor, "derive")
-        self._require_comment(comment, "derive")
-        internship = await self._get_or_404(internship_id)
-        current_title = self._status_title_or_default(internship.status)
+       self._require_action(actor, "derive")
+       self._require_comment(comment, "derive")
+       internship = await self._get_or_404(internship_id)
+       current_title = self._status_title_or_default(internship.status)
 
-        if current_title in TERMINAL_STATES:
+       if current_title in TERMINAL_STATES:
             raise HTTPException(
                 status_code=409,
                 detail=f"No se puede derivar una práctica en estado terminal: {current_title}.",
             )
-
-        return await self._do_transition(
+       
+       result = await self._do_transition(
             internship=internship,
             new_status_title=IN_REVIEW_DIRAE_STATUS_TITLE,
             actor_id=actor.id,
             reason=comment,
             metadata={"action": "derive"},
         )
-    
+
+       await self._dispatch_notification(
+            build_internship_derived_notification(
+                recipient_user_id=result.user_id,
+                recipient_email=result.student.email if result.student else None,
+                internship_id=result.id,
+                org_name=result.org_name,
+                reason=comment,
+            ),
+        )
+
+       return result
+
     async def _get_or_404(self, internship_id: int) -> Internship:
         """Busca una practica o lanza 404 si no existe.
 
@@ -755,3 +823,28 @@ class InternshipService:
                     ),
                 },
             )
+        
+    async def _dispatch_notification(self, notification) -> None:
+        """Despacha una notificacion a traves del servicio de notificaciones.
+
+        Si el servicio de notificaciones no esta configurado, la operacion se
+        ignora silenciosamente. Los errores de notificacion no interrumpen el
+        flujo principal de negocio.
+
+        Args:
+            notification: Entidad `Notification` construida por un helper de eventos.
+        """
+
+        if self.notification_service is None:
+            return
+
+        try:
+            await self.notification_service.create_and_dispatch(notification)
+        except Exception:
+            logger.warning(
+                "Fallo al despachar notificacion (event=%s). "
+                "El flujo de negocio continua normalmente.",
+                notification.event_type,
+                exc_info=True,
+            )
+            
