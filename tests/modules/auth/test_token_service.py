@@ -50,6 +50,27 @@ def test_decode_token_returns_payload() -> None:
     assert payload["email"] == "user@example.com"
 
 
+def test_create_oauth_state_token_contains_expected_claims() -> None:
+    service = _service()
+
+    token = service.create_oauth_state_token()
+    payload = jwt.decode(token, options={"verify_signature": False})
+
+    assert payload["sub"] == "google_oauth"
+    assert payload["typ"] == "oauth_state"
+    assert "nonce" in payload
+    assert "exp" in payload
+
+
+def test_decode_oauth_state_token_returns_payload() -> None:
+    service = _service()
+
+    token = service.create_oauth_state_token()
+    payload = service.decode_oauth_state_token(token)
+
+    assert payload["typ"] == "oauth_state"
+
+
 def test_decode_token_raises_for_invalid_token() -> None:
     service = _service()
 

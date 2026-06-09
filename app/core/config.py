@@ -42,6 +42,20 @@ class Config(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_AUTH_URI: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    GOOGLE_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
+    GOOGLE_JWKS_URI: str = "https://www.googleapis.com/oauth2/v3/certs"
+    GOOGLE_REDIRECT_URI: str = ""
+    GOOGLE_ALLOWED_DOMAINS: str = ""
+    GOOGLE_FRONTEND_SUCCESS_URL: str = ""
+    GOOGLE_FRONTEND_ERROR_URL: str = ""
+    GOOGLE_STATE_EXPIRE_MINUTES: int = 10
+    GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
+    GOOGLE_COOKIE_SECURE: bool = False
+
     @property
     def DATABASE_URL(self) -> str:
         return (
@@ -55,6 +69,14 @@ class Config(BaseSettings):
             origin.strip()
             for origin in self.CORS_ORIGINS.split(",")
             if origin.strip()
+        ]
+
+    @property
+    def GOOGLE_ALLOWED_DOMAIN_LIST(self) -> list[str]:
+        return [
+            domain.strip().lower()
+            for domain in self.GOOGLE_ALLOWED_DOMAINS.split(",")
+            if domain.strip()
         ]
 
     model_config = SettingsConfigDict(
