@@ -113,14 +113,43 @@ jobs:
 
       - name: Upload Image Archive And Database Init
         run: |
-          ssh -i ~/.ssh/vps_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+          SSH_OPTS=(-i ~/.ssh/vps_key -p "$VPS_PORT" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          SCP_OPTS=(-i ~/.ssh/vps_key -P "$VPS_PORT" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+
+          retry() {
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" = "5" ]; then
+                return 1
+              fi
+              sleep 15
+            done
+          }
+
+          retry ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" \
             "mkdir -p '$APP_DIR' '$RELEASES_DIR'"
-          scp -i ~/.ssh/vps_key -P "$VPS_PORT" "$IMAGE_ARCHIVE" \
+          retry scp "${SCP_OPTS[@]}" "$IMAGE_ARCHIVE" \
             "$VPS_USER@$VPS_HOST:$RELEASES_DIR/$IMAGE_ARCHIVE"
-          scp -i ~/.ssh/vps_key -P "$VPS_PORT" app/core/database/init.sql \
+          retry scp "${SCP_OPTS[@]}" app/core/database/init.sql \
             "$VPS_USER@$VPS_HOST:$APP_DIR/init.sql"
 
       - name: Deploy Backend
         run: |
-          ssh -i ~/.ssh/vps_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+          SSH_OPTS=(-i ~/.ssh/vps_key -p "$VPS_PORT" -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+
+          retry() {
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" = "5" ]; then
+                return 1
+              fi
+              sleep 15
+            done
+          }
+
+          retry ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" \
             "APP_DIR='$APP_DIR' RELEASES_DIR='$RELEASES_DIR' '$APP_DIR/scripts/deploy-loaded-image.sh' backend '$IMAGE_NAME:${{ github.sha }}' '$RELEASES_DIR/$IMAGE_ARCHIVE'"
