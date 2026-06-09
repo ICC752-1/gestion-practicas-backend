@@ -427,8 +427,9 @@ class InternshipService:
             con la acción permitidad en sus roles.
         """
         if action not in self._get_user_actions(user):
+            logger.warning("Usuario ID: %s intentó realizar acción '%s' sin permisos suficientes", user.id, action)
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
+        
     def _require_comment(self, comment: str | None, action: str) -> None:
         """
         Verifica la obligatoriedad de un comentario/motivo para ciertas acciones.
@@ -446,6 +447,7 @@ class InternshipService:
         """
 
         if action in ("reject", "derive") and (not comment or not comment.strip()):
+            logger.warning("Intento de ejecutar '%s' sin proporcionar el comentario obligatorio requerido", action)
             raise HTTPException(
                 status_code=400, 
                 detail=f"El motivo/comentario es obligatorio para la acción: {action}"
@@ -521,17 +523,21 @@ class InternshipService:
             HTTPException 409: Si el estado es terminal, la transicion no esta
                 permitida, o la practica es estival sin seguro ni excepcion.
         """
+        logger.info("Procesando aprobación para práctica ID: %s por actor ID: %s (skip_review=%s)", 
+                    internship_id, actor.id, skip_review)
         self._require_action(actor, "approve")
         internship = await self._get_or_404(internship_id)
         current_title = self._status_title_or_default(internship.status)
 
         if current_title in TERMINAL_STATES:
+            logger.warning("Intento de aprobar práctica ID: %s fallido. Ya está en estado terminal: %s", internship_id, current_title)
             raise HTTPException(
                 status_code=409,
                 detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
         if internship.internship_type == PracticeTypeEnum.practice_1 and not getattr(internship, "has_induction", False):
+            logger.warning("Bloqueo de aprobación: Práctica ID: %s de tipo I no registra inducción obligatoria", internship_id)
             raise HTTPException(
                 status_code=409,
                 detail="La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. "
@@ -550,15 +556,19 @@ class InternshipService:
         elif current_title in (IN_REVIEW_STATUS_TITLE, IN_REVIEW_DIRAE_STATUS_TITLE):
             next_title = APPROVED_STATUS_TITLE
         else:
+            logger.warning("El estado actual '%s' de la práctica ID: %s no acepta transicionar hacia aprobación", current_title, internship_id)
             raise HTTPException(
                 status_code=409,
                 detail=f"El estado actual '{current_title}' no permite aprobación.",
             )
 
-        self._validate_status_transition(current_title, next_title)
+        try:
+            self._validate_status_transition(current_title, next_title)
+        except ValueError as e:
+            logger.error("Transición inválida en flujo de aprobación: %s", str(e))
+            raise HTTPException(status_code=409, detail=str(e))
 
         result = await self._do_transition(
-
             internship=internship,
             new_status_title=next_title,
             actor_id=actor.id,
@@ -566,6 +576,7 @@ class InternshipService:
             metadata={"action": "approve", "skip_review": skip_review},
         )
 
+        logger.info("Práctica ID: %s transicionada con éxito a '%s'. Despachando notificación...", result.id, next_title)
         await self._dispatch_notification(
             build_internship_approved_notification(
                 recipient_user_id=result.user_id,
@@ -613,12 +624,14 @@ class InternshipService:
             HTTPException 404: Si la practica no existe.
             HTTPException 409: Si la practica esta en estado terminal.
         """
+        logger.info("Procesando rechazo para práctica ID: %s por actor ID: %s", internship_id, actor.id)
         self._require_action(actor, "reject")
         self._require_comment(comment, "reject")
         internship = await self._get_or_404(internship_id)
         current_title = self._status_title_or_default(internship.status)
 
         if current_title in TERMINAL_STATES:
+            logger.warning("Intento de rechazar práctica ID: %s fallido. Ya está en estado terminal: %s", internship_id, current_title)
             raise HTTPException(
                 status_code=409,
                 detail=f"No se puede rechazar una práctica en estado terminal: {current_title}.",
@@ -632,6 +645,7 @@ class InternshipService:
             metadata={"action": "reject"},
         )
 
+        logger.info("Práctica ID: %s rechazada de forma definitiva. Despachando notificación...", result.id)
         await self._dispatch_notification(
             build_internship_rejected_notification(
                 recipient_user_id=result.user_id,
@@ -643,14 +657,15 @@ class InternshipService:
         )
 
         return result
-
+    
+    
     async def derive(
-            self, 
-            internship_id: int, 
-            actor: User, comment: str | None
-        ) -> Internship:
-     
-       """Deriva el flujo de la práctica hacia la Dirección de Registro Académico Estudiantil (DIRAE).
+        self,
+        internship_id: int,
+        actor: User,
+        comment: str | None,
+    ) -> Internship:
+        """Deriva la practica hacia revision por DIRAE.
 
         Requiere permiso ``derive`` y comentario obligatorio. No permite
         derivar practicas en estados terminales.
@@ -669,18 +684,20 @@ class InternshipService:
             HTTPException 404: Si la practica no existe.
             HTTPException 409: Si la practica esta en estado terminal.
         """
-       self._require_action(actor, "derive")
-       self._require_comment(comment, "derive")
-       internship = await self._get_or_404(internship_id)
-       current_title = self._status_title_or_default(internship.status)
+        logger.info("Procesando derivación a DIRAE para práctica ID: %s por actor ID: %s", internship_id, actor.id)
+        self._require_action(actor, "derive")
+        self._require_comment(comment, "derive")
+        internship = await self._get_or_404(internship_id)
+        current_title = self._status_title_or_default(internship.status)
 
-       if current_title in TERMINAL_STATES:
+        if current_title in TERMINAL_STATES:
+            logger.warning("Intento de derivar práctica ID: %s fallido. Ya está en estado terminal: %s", internship_id, current_title)
             raise HTTPException(
                 status_code=409,
                 detail=f"No se puede derivar una práctica en estado terminal: {current_title}.",
             )
-       
-       result = await self._do_transition(
+
+        result = await self._do_transition(
             internship=internship,
             new_status_title=IN_REVIEW_DIRAE_STATUS_TITLE,
             actor_id=actor.id,
@@ -688,7 +705,8 @@ class InternshipService:
             metadata={"action": "derive"},
         )
 
-       await self._dispatch_notification(
+        logger.info("Práctica ID: %s derivada correctamente a DIRAE. Despachando notificación...", result.id)
+        await self._dispatch_notification(
             build_internship_derived_notification(
                 recipient_user_id=result.user_id,
                 recipient_email=result.student.email if result.student else None,
@@ -698,7 +716,7 @@ class InternshipService:
             ),
         )
 
-       return result
+        return result
 
     async def _get_or_404(self, internship_id: int) -> Internship:
         """Busca una practica o lanza 404 si no existe.
@@ -714,6 +732,7 @@ class InternshipService:
         """
         internship = await self.internship_repository.get_internship_by_id(internship_id)
         if internship is None:
+            logger.warning("Recuperación fallida: Práctica con ID %s no existe", internship_id)
             raise HTTPException(
                 status_code=404,
                 detail="Práctica no encontrada (Internship not found)",
@@ -754,9 +773,12 @@ class InternshipService:
             HTTPException 404: Si la practica no existe.
             HTTPException 409: Si la practica esta en estado terminal.
         """
+        logger.info("Solicitud para conceder excepción sobre regla '%s' en práctica ID: %s por actor ID: %s", 
+                    rule, internship_id, actor.id)
         self._require_action(actor, "grant_exception")
 
         if rule not in EXCEPTABLE_RULES:
+            logger.warning("La regla '%s' no pertenece al conjunto de reglas exceptuables", rule)
             raise HTTPException(
                 status_code=400,
                 detail=f"La regla '{rule}' no admite excepción administrativa.",
@@ -766,6 +788,7 @@ class InternshipService:
         current_title = self._status_title_or_default(internship.status)
 
         if current_title in TERMINAL_STATES:
+            logger.warning("Imposible aplicar excepción. Práctica ID: %s se encuentra en estado terminal (%s)", internship_id, current_title)
             raise HTTPException(
                 status_code=409,
                 detail=f"No se puede registrar una excepción sobre una práctica en estado terminal: {current_title}.",
@@ -776,14 +799,17 @@ class InternshipService:
             rule=rule,
         )
         if existing is not None:
+            logger.info("Excepción para la regla '%s' en la práctica ID: %s ya existía (Idempotencia)", rule, internship_id)
             return existing
 
-        return await self.internship_repository.create_exception(
+        result = await self.internship_repository.create_exception(
             internship_id=internship_id,
             rule=rule,
             reason=reason,
             authorized_by=actor.id,
         )
+        logger.info("Excepción '%s' creada con éxito para práctica ID: %s", rule, internship_id)
+        return result
     
     async def _check_school_insurance_or_exception(
         self,
@@ -808,11 +834,14 @@ class InternshipService:
         if not is_seasonal or internship.has_school_insurance:
             return
 
+        logger.info("Evaluando seguro escolar estival requerido para práctica ID: %s en periodo: %s", 
+                    internship.id, internship.internship_period)
         existing = await self.internship_repository.get_exception_by_rule(
             internship_id=internship.id,
             rule="school_insurance",
         )
         if existing is None:
+            logger.warning("Bloqueo por matriz de riesgo: Práctica estival ID: %s no cuenta con seguro ni excepción registrada", internship.id)
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -823,6 +852,7 @@ class InternshipService:
                     ),
                 },
             )
+        logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
         
     async def _dispatch_notification(self, notification) -> None:
         """Despacha una notificacion a traves del servicio de notificaciones.

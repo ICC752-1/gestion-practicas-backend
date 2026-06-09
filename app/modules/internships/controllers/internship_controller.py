@@ -5,6 +5,7 @@ practicas profesionales. El controlador coordina dependencias de autenticacion,
 sesion de base de datos y servicios de dominio, manteniendo la logica de negocio
 principal en `InternshipService`.
 """
+import logging
 
 from typing import Annotated
 
@@ -45,6 +46,7 @@ from app.modules.notifications.services.notification_service import (
 
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internships", tags=["Internships"])
 
 STUDENT_ROLE = "Estudiante"
@@ -350,10 +352,14 @@ async def approve_internship(
         HTTPException 409: Si la practica ya esta en estado terminal o el estado
             actual no es apto para aprobacion.
     """
+    logger.info("HTTP POST /internships/%s/approve - Petición de aprobación administrativa recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.approve(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s aprobada administrativamente con éxito por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
@@ -391,10 +397,14 @@ async def reject_internship(
         HTTPException 404: Si la practica no existe.
         HTTPException 409: Si la practica ya fue rechazada o aprobada.
     """
+    logger.info("HTTP POST /internships/%s/reject - Petición de rechazo definitivo recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.reject(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s rechazada de forma definitiva por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
@@ -433,15 +443,20 @@ async def derive_internship(
         HTTPException 404: Si la practica no existe.
         HTTPException 409: Si la practica ya esta en estado terminal.
     """
+    logger.info("HTTP POST /internships/%s/derive - Petición de derivación a DIRAE recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.derive(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s derivada exitosamente a DIRAE por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
         comment=payload.comment,
     )
+
 
 @router.post(
     "/{internship_id}/exceptions",
@@ -475,6 +490,9 @@ async def grant_internship_exception(
         HTTPException 404: Si la practica no existe.
         HTTPException 409: Si la practica esta en estado terminal.
     """
+    logger.info("HTTP POST /internships/%s/exceptions - Solicitud para conceder excepción sobre regla '%s' recibida del actor ID: %s", 
+                internship_id, payload.rule, current_user.id)
+    
     service = _build_service(db)
     exception = await service.grant_exception(
         internship_id=internship_id,
@@ -482,7 +500,10 @@ async def grant_internship_exception(
         rule=payload.rule,
         reason=payload.reason,
     )
+    
+    logger.info("HTTP 201 Created - Excepción sobre regla '%s' creada con éxito para práctica ID: %s", payload.rule, internship_id)
     return InternshipExceptionResponse.model_validate(exception)
+
 
 @router.get(
     "/{internship_id}/exceptions",
@@ -509,13 +530,19 @@ async def list_internship_exceptions(
         HTTPException 403: Si el usuario no tiene acceso a la practica.
         HTTPException 404: Si la practica no existe.
     """
+    logger.info("HTTP GET /internships/%s/exceptions - Solicitud de listado de excepciones por usuario ID: %s", 
+                internship_id, current_user.id)
+                
     service = _build_service(db)
     internship = await service.get_internship(internship_id)
 
     if internship is None:
+        logger.warning("HTTP 404 Not Found - Consulta de excepciones fallida: No se encontró la práctica con ID: %s", internship_id)
         raise HTTPException(status_code=404, detail="Internship not found")
 
     if not _can_read_internship(user=current_user, internship=internship):
+        logger.warning("HTTP 403 Forbidden - Intento no autorizado de listar excepciones de la práctica ID: %s por usuario ID: %s", 
+                       internship_id, current_user.id)
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     exceptions = await service.internship_repository.list_exceptions(internship_id)
