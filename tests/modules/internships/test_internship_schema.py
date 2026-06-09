@@ -150,19 +150,19 @@ def test_register_semester_ok() -> None:
 
 
 def test_register_summer_no_insurance() -> None:
-    """Test: Practica de Verano sin seguro escolar debe arrojar HTTPException"""
-
+    """Test: El esquema debe aceptar el payload de verano con seguro en False.
+    
+    La validación restrictiva y el bloqueo se ejecutan en la capa de servicio.
+    """
     payload = _valid_payload()
     payload["internship_period"] = PracticePeriodEnum.summer
     payload["has_school_insurance"] = False
 
-    with pytest.raises(HTTPException) as exc_info:
-        InternshipCreateRequest(**payload)
+    # El esquema debe ser capaz de construir el objeto sin caerse
+    internship = InternshipCreateRequest(**payload)
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail["field"] == "has_school_insurance"
-    assert "No es posible registrar práctica estival" in exc_info.value.detail["message"]
-
+    assert internship.internship_period == "Verano"
+    assert internship.has_school_insurance is False
 
 def test_register_summer_with_insurance() -> None:
     """Test: Práctica en Verano con seguro debe ser aceptada (Retorna 201)"""
