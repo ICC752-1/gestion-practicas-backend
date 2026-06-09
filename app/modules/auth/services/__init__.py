@@ -5,6 +5,12 @@ from app.modules.auth.services.password_service import PasswordService as Passwo
 from app.modules.auth.services.role_service import RoleService as RoleService
 from app.modules.auth.services.token_service import TokenService as TokenService
 from app.modules.auth.services.user_service import UserService as UserService
+from app.modules.auth.services.google_oauth_service import (
+    GoogleOAuthError as GoogleOAuthError,
+)
+from app.modules.auth.services.google_oauth_service import (
+    GoogleOAuthService as GoogleOAuthService,
+)
 
 __all__ = [
     "AuthService",
@@ -12,4 +18,6 @@ __all__ = [
     "RoleService",
     "TokenService",
     "UserService",
+    "GoogleOAuthError",
+    "GoogleOAuthService",
 ]
