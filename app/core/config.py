@@ -48,10 +48,10 @@ class Config(BaseSettings):
     GOOGLE_AUTH_URI: str = "https://accounts.google.com/o/oauth2/v2/auth"
     GOOGLE_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
     GOOGLE_JWKS_URI: str = "https://www.googleapis.com/oauth2/v3/certs"
-    GOOGLE_REDIRECT_URI: str = ""
-    GOOGLE_ALLOWED_DOMAINS: str = ""
-    GOOGLE_FRONTEND_SUCCESS_URL: str = ""
-    GOOGLE_FRONTEND_ERROR_URL: str = ""
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
+    GOOGLE_ALLOWED_DOMAINS: str = "ufromail.cl,ufrontera.cl"
+    GOOGLE_FRONTEND_SUCCESS_URL: str = "http://localhost:5173/auth/callback"
+    GOOGLE_FRONTEND_ERROR_URL: str = "http://localhost:5173/auth/callback"
     GOOGLE_STATE_EXPIRE_MINUTES: int = 10
     GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
     GOOGLE_COOKIE_SECURE: bool = False
