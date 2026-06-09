@@ -1,7 +1,6 @@
 from datetime import date
 
 import pytest
-from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.modules.internships.models.internship_model import (
