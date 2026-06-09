@@ -499,6 +499,9 @@ async def test_approve_seasonal_internship_raises_409_without_insurance_or_excep
     
     repository.internship_by_id = SimpleNamespace(
         id=7,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
         status_id=1,
         status=_status(1, "Pendiente"),
         internship_period="Verano",                  # Práctica estival
@@ -525,6 +528,9 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
     
     internship_mock = SimpleNamespace(
         id=7,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
         status_id=1,
         status=_status(1, "Pendiente"),
         internship_period="Verano",
@@ -579,12 +585,15 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
     # Práctica de Estudio II, sin inducción realizada
     internship_mock = SimpleNamespace(
         id=9,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
         status_id=1,
         status=_status(1, "Pendiente"),
         internship_period=PracticePeriodEnum.semester,
-        internship_type=PracticeTypeEnum.practice_2,  # <-- Práctica II (Opcional/Manual)
+        internship_type=PracticeTypeEnum.practice_2,  
         has_school_insurance=True,
-        has_induction=False                           # <-- No asistió, pero el sistema ignora el bloqueo duro
+        has_induction=False                          
     )
     repository.internship_by_id = internship_mock
 
