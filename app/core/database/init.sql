@@ -7,6 +7,7 @@ CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
+CREATE TYPE "exceptable_rule_enum" AS ENUM ('school_insurance');
 
 CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
@@ -162,6 +163,15 @@ CREATE TABLE LogAction (
     user_id INTEGER REFERENCES Users(id)
 );
 
+CREATE TABLE internship_exceptions (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    rule "exceptable_rule_enum" NOT NULL,
+    reason TEXT NOT NULL,
+    authorized_by INTEGER NOT NULL REFERENCES Users(id) ON DELETE SET NULL,
+    authorized_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);    
+
 CREATE OR REPLACE FUNCTION fn_create_student_internship_requirements()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -217,6 +227,7 @@ BEGIN
     entity_enum := CASE lower(TG_TABLE_NAME)
         WHEN 'users' THEN 'Usuario'::"enumEntity"
         WHEN 'internship' THEN 'Práctica'::"enumEntity"
+        WHEN 'internship_exceptions' THEN 'Práctica':: "enumEntity"
         WHEN 'document' THEN 'Documento'::"enumEntity"
         WHEN 'presentation' THEN 'Presentación'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
@@ -258,3 +269,5 @@ CREATE TRIGGER tr_audit_user AFTER INSERT OR UPDATE OR DELETE ON Users FOR EACH 
 CREATE TRIGGER tr_audit_internship AFTER INSERT OR UPDATE OR DELETE ON Internship FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_document AFTER INSERT OR UPDATE OR DELETE ON Document FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Presentation FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+

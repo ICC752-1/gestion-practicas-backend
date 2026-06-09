@@ -159,5 +159,6 @@ class Internship(Base):
         back_populates="internship",
         cascade="all, delete-orphan",
         order_by="InternshipException.authorized_at",
+        lazy="selectin",
     )
 
