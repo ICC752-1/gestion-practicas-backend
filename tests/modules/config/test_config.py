@@ -39,6 +39,30 @@ def test_google_allowed_domains_parses_comma_separated_values() -> None:
     ]
 
 
+def test_google_oauth_has_local_non_sensitive_defaults() -> None:
+    config = Config(
+        GOOGLE_CLIENT_ID="client-id",
+        GOOGLE_CLIENT_SECRET="client-secret",
+        _env_file=None,
+    )
+
+    assert config.GOOGLE_REDIRECT_URI == (
+        "http://localhost:8000/auth/google/callback"
+    )
+    assert config.GOOGLE_ALLOWED_DOMAINS == "ufromail.cl,ufrontera.cl"
+    assert config.GOOGLE_ALLOWED_DOMAIN_LIST == [
+        "ufromail.cl",
+        "ufrontera.cl",
+    ]
+    assert config.GOOGLE_FRONTEND_SUCCESS_URL == (
+        "http://localhost:5173/auth/callback"
+    )
+    assert config.GOOGLE_FRONTEND_ERROR_URL == (
+        "http://localhost:5173/auth/callback"
+    )
+    assert config.GOOGLE_COOKIE_SECURE is False
+
+
 def test_google_canonical_settings_are_read_directly() -> None:
     config = Config(
         GOOGLE_CLIENT_ID="client-id",

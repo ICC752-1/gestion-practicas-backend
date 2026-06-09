@@ -31,11 +31,16 @@ inicio el login.
 Google, valida el `id_token`, verifica que el correo este confirmado y exige
 que el dominio pertenezca a `GOOGLE_ALLOWED_DOMAINS`.
 
-Variables requeridas:
+Variables sensibles requeridas:
 
 ```env
 GOOGLE_CLIENT_ID=<client-id-web>
 GOOGLE_CLIENT_SECRET=<client-secret-web>
+```
+
+Defaults locales no sensibles definidos por el backend:
+
+```env
 GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 GOOGLE_ALLOWED_DOMAINS=ufromail.cl,ufrontera.cl
 GOOGLE_FRONTEND_SUCCESS_URL=http://localhost:5173/auth/callback
@@ -47,6 +52,10 @@ En produccion `GOOGLE_REDIRECT_URI` debe ser el callback HTTPS publico
 registrado en Google Cloud, por ejemplo
 `https://gestion-practicas-team-b.duckdns.org/api/auth/google/callback`, y
 `GOOGLE_COOKIE_SECURE=True`.
+
+En el despliegue Docker de produccion, `compose.prod.yml` define esos defaults
+publicos de produccion. La `.env` del host solo necesita sobrescribirlos si
+cambia el dominio o el callback autorizado.
 
 Regla de usuario:
 
