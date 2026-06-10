@@ -82,6 +82,7 @@ Esta sección reúne documentación propia del funcionamiento interno del sistem
 > Para un alcance mayor y otros dominios, revise el repositorio de documentación.
 
 - [Logging](docs/logging.md)
+- [Convención de nombres BD/ORM](docs/database-naming.md)
 
 ### CI/CD
 El repositorio cuenta con workflows automatizados:

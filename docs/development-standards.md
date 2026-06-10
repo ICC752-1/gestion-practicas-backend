@@ -142,7 +142,7 @@ Interpretación:
 * Clases: **PascalCase** en inglés. Ejemplo: `AuthService`, `InternshipRepository`.
 * Constantes: **UPPER_CASE** en inglés. Ejemplo: `ACCESS_TOKEN_EXPIRE_MINUTES`.
 * Rutas de API: minúsculas, plurales y en inglés cuando representen recursos. Ejemplo: `/internships`, `/documents/types`.
-* Tablas y modelos ORM: nombres en inglés, alineados con el esquema relacional vigente cuando sea posible.
+* Tablas y modelos ORM: `__tablename__` debe coincidir con el nombre real almacenado por PostgreSQL. Para tablas nuevas, usar identificadores no citados en `lower_snake_case`, sin tildes ni mayúsculas significativas. La matriz vigente está en [`docs/database-naming.md`](database-naming.md).
 
 ### 5.3 Docstrings en Python
 
