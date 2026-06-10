@@ -306,7 +306,7 @@ class TestInductionAttempt:
         service = InternshipService(internship_repository=repo)
 
         payload = InductionAttemptRequest(answers={1: "a"})
-        result = await service.submit_induction_attempt(user_id=10, payload=payload)
+        await service.submit_induction_attempt(user_id=10, payload=payload)
 
         assert len(repo._created_attempts) == 1
         assert repo._created_attempts[0].user_id == 10
