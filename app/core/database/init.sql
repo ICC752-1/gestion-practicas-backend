@@ -7,6 +7,7 @@ CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
+CREATE TYPE "enumDocumentStatus" AS ENUM ('uploaded', 'observed', 'approved', 'deleted');
 
 CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
@@ -140,7 +141,8 @@ CREATE TABLE DocumentType (
     name VARCHAR(255) NOT NULL,
     description VARCHAR(255) NOT NULL,
     is_required BOOLEAN NOT NULL,
-    category "enumCategory"
+    category "enumCategory",
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE Document (
@@ -148,12 +150,29 @@ CREATE TABLE Document (
     file_name VARCHAR(255) NOT NULL,
     file_path VARCHAR(255) NOT NULL,
     extension "enumExtension" NOT NULL,
+    status "enumDocumentStatus" NOT NULL DEFAULT 'uploaded',
+    size_bytes INTEGER NOT NULL,
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    internship_id INTEGER REFERENCES Internship(id),
-    type_id INTEGER REFERENCES DocumentType(id),
-    user_id INTEGER REFERENCES Users(id)
+    internship_id INTEGER NOT NULL REFERENCES Internship(id),
+    type_id INTEGER NOT NULL REFERENCES DocumentType(id),
+    user_id INTEGER NOT NULL REFERENCES Users(id),
+    reviewed_at TIMESTAMP,
+    reviewed_by INTEGER REFERENCES Users(id),
+    review_comment TEXT,
+    deleted_at TIMESTAMP,
+    deleted_by INTEGER REFERENCES Users(id)
 );
+
+CREATE INDEX ix_document_internship_id ON Document(internship_id);
+CREATE INDEX ix_document_user_id ON Document(user_id);
+CREATE INDEX ix_document_status ON Document(status);
+
+INSERT INTO DocumentType (name, description, is_required, category) VALUES
+    ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', TRUE, 'Académico'),
+    ('Carta de aceptación', 'Documento emitido por la organización receptora.', TRUE, 'Administrativo'),
+    ('Seguro escolar', 'Respaldo administrativo de cobertura cuando corresponda.', FALSE, 'Administrativo'),
+    ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo');
 
 CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,

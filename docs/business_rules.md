@@ -136,3 +136,55 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 > **Criterio de Restricción Terminal:** Los estados `Aprobada`, `Rechazada` y `Reprobada (Legacy)` son estrictamente **terminales**. Cualquier intento de aplicar una acción administrativa sobre ellos gatillará un rechazo inmediato por consistencia de datos (`409 Conflict`).
 
 ---
+
+## RN-03: Gestión Documental por Propiedad, Rol y Estado
+
+### Descripción
+
+La gestión documental centraliza los respaldos de práctica dentro de la
+plataforma para reducir correos, proteger la privacidad del estudiante y dejar
+base para Secretaría y DIRAE. El backend es responsable de validar que cada
+archivo pertenezca a una práctica real y que solo usuarios autorizados puedan
+consultarlo, revisarlo o eliminarlo.
+
+### Definición de la Regla
+
+1. **Propiedad estudiantil:** Un estudiante solo puede cargar, listar, descargar
+   o eliminar documentos asociados a sus propias prácticas.
+2. **Roles documentales:** `Encargado de practica`, `Director de carrera` y
+   `Secretaria de Carrera` pueden listar, descargar, observar y aprobar
+   documentos de una práctica.
+3. **Separación funcional de Secretaría:** Secretaría puede gestionar documentos
+   y preparar el flujo documental, pero no obtiene por esta regla permisos para
+   aprobar o rechazar la práctica.
+4. **Bloqueo por estado terminal:** No se permite cargar documentos nuevos si la
+   práctica está `Aprobada`, `Rechazada` o `Reprobada`.
+5. **Corrección documental:** Se permite cargar documentos en `Pendiente`,
+   `En revisión` y `En revisión DIRAE`.
+6. **Eliminación lógica:** Los documentos no se borran de la base de datos. La
+   eliminación registra `deleted_at`, `deleted_by` y estado `deleted`.
+7. **Documento aprobado:** Un estudiante no puede eliminar un documento aprobado;
+   un rol documental autorizado sí puede marcarlo como eliminado.
+
+### Matriz de Permisología Documental
+
+| Acción | Estudiante propietario | Otro estudiante | Encargado | Director | Secretaría |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Cargar documento | Sí, si práctica no terminal | No | No | No | No |
+| Listar documentos | Sí | No | Sí | Sí | Sí |
+| Descargar documento | Sí | No | Sí | Sí | Sí |
+| Observar documento | No | No | Sí | Sí | Sí |
+| Aprobar documento | No | No | Sí | Sí | Sí |
+| Eliminar documento no aprobado | Sí | No | Sí | Sí | Sí |
+| Eliminar documento aprobado | No | No | Sí | Sí | Sí |
+
+### Restricciones Técnicas
+
+- Extensiones permitidas: `pdf`, `docx`, `jpg`, `png`, `zip`.
+- Tamaño máximo inicial: `10485760` bytes por archivo.
+- El campo `file_path` es una clave interna de storage privado y no debe
+  exponerse en respuestas JSON.
+- Las descargas siempre pasan por `GET /documents/{document_id}/download` con
+  autenticación y autorización.
+
+---

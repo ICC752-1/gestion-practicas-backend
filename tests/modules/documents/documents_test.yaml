@@ -1,0 +1,504 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Documents API tests
+meta:
+  id: wrk_documents_api_tests
+  created: 1781050000000
+  modified: 1781050000000
+  description: "Coleccion para probar endpoints del modulo documents."
+collection:
+  - name: Setup
+    meta:
+      id: fld_documents_setup
+      created: 1781050000100
+      modified: 1781050000100
+      sortKey: -1781050000100
+      description: ""
+    children:
+      - name: POST Login estudiante
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_documents_login_student
+          created: 1781050000001
+          modified: 1781050000001
+          isPrivate: false
+          description: "Ejecutar primero. Guarda access_token en student_access_token."
+          sortKey: -1781050000001
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "email": "{{ _.test_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("student_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("student_refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Login rol documental
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_documents_login_admin
+          created: 1781050000002
+          modified: 1781050000002
+          isPrivate: false
+          description: "Usar usuario con rol Encargado, Director o Secretaria. Guarda access_token en access_token."
+          sortKey: -1781050000002
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "email": "{{ _.admin_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Create Internship
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_documents_create_internship
+          created: 1781050000013
+          modified: 1781050000013
+          isPrivate: false
+          description: "Crea una practica cargable y guarda el id en internship_id."
+          sortKey: -1781050000013
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Demo SpA",
+              "sector": "Tecnologia",
+              "address": "Av. Siempre Viva 123",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa-demo.cl",
+              "supervisor_name": "Ana Perez",
+              "supervisor_profession": "Ingeniera Civil Informatica",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnologia",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miercoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 123, Temuco",
+              "act_description": "Desarrollo y apoyo en mantencion de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I",
+              "has_school_insurance": false
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("internship_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+  - name: Happy path
+    meta:
+      id: fld_documents_happy_path
+      created: 1781050000200
+      modified: 1781050000200
+      sortKey: -1781050000200
+      description: ""
+    children:
+      - name: GET Document Types
+        url: "{{ _.base_url }}/documents/types"
+        meta:
+          id: req_documents_get_types
+          created: 1781050000003
+          modified: 1781050000003
+          isPrivate: false
+          description: "Lista tipos documentales activos."
+          sortKey: -1781050000003
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (Array.isArray(body) && body.length > 0 && body[0].id) {
+              insomnia.environment.set("document_type_id", body[0].id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Upload Document
+        url: "{{ _.base_url }}/internships/{{ _.internship_id }}/documents"
+        meta:
+          id: req_documents_upload
+          created: 1781050000004
+          modified: 1781050000004
+          isPrivate: false
+          description: "Requiere student_access_token del estudiante propietario de la practica."
+          sortKey: -1781050000004
+        method: POST
+        body:
+          mimeType: multipart/form-data
+          params:
+            - name: document_type_id
+              value: "{{ _.document_type_id }}"
+              disabled: false
+            - name: file
+              fileName: "{{ _.document_fixture_path }}"
+              type: file
+              disabled: false
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("document_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET Internship Documents
+        url: "{{ _.base_url }}/internships/{{ _.internship_id }}/documents"
+        meta:
+          id: req_documents_list_by_internship
+          created: 1781050000005
+          modified: 1781050000005
+          isPrivate: false
+          description: "Lista documentos vigentes de una practica."
+          sortKey: -1781050000005
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET Download Document
+        url: "{{ _.base_url }}/documents/{{ _.document_id }}/download"
+        meta:
+          id: req_documents_download
+          created: 1781050000006
+          modified: 1781050000006
+          isPrivate: false
+          description: "Descarga archivo mediante endpoint autenticado."
+          sortKey: -1781050000006
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: PATCH Observe Document
+        url: "{{ _.base_url }}/documents/{{ _.document_id }}/status"
+        meta:
+          id: req_documents_observe
+          created: 1781050000007
+          modified: 1781050000007
+          isPrivate: false
+          description: "Observa un documento; exige comentario."
+          sortKey: -1781050000007
+        method: PATCH
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "status": "observed",
+              "comment": "Falta firma del estudiante"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: PATCH Approve Document
+        url: "{{ _.base_url }}/documents/{{ _.document_id }}/status"
+        meta:
+          id: req_documents_approve
+          created: 1781050000008
+          modified: 1781050000008
+          isPrivate: false
+          description: "Aprueba un documento; comentario opcional."
+          sortKey: -1781050000008
+        method: PATCH
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "status": "approved",
+              "comment": "Documento revisado"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: DELETE Document
+        url: "{{ _.base_url }}/documents/{{ _.document_id }}"
+        meta:
+          id: req_documents_delete
+          created: 1781050000009
+          modified: 1781050000009
+          isPrivate: false
+          description: "Eliminacion logica del documento."
+          sortKey: -1781050000009
+        method: DELETE
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+  - name: Errores esperados
+    meta:
+      id: fld_documents_expected_errors
+      created: 1781050000300
+      modified: 1781050000300
+      sortKey: -1781050000300
+      description: ""
+    children:
+      - name: GET Document Types sin token
+        url: "{{ _.base_url }}/documents/types"
+        meta:
+          id: req_documents_types_without_token
+          created: 1781050000010
+          modified: 1781050000010
+          isPrivate: false
+          description: "Debe responder 401."
+          sortKey: -1781050000010
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET Internship Documents no existe
+        url: "{{ _.base_url }}/internships/999/documents"
+        meta:
+          id: req_documents_list_missing_internship
+          created: 1781050000011
+          modified: 1781050000011
+          isPrivate: false
+          description: "Debe responder 404 si la practica no existe."
+          sortKey: -1781050000011
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: PATCH Observe Document sin comentario
+        url: "{{ _.base_url }}/documents/{{ _.document_id }}/status"
+        meta:
+          id: req_documents_observe_without_comment
+          created: 1781050000012
+          modified: 1781050000012
+          isPrivate: false
+          description: "Debe responder 400 porque observed exige comentario."
+          sortKey: -1781050000012
+        method: PATCH
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "status": "observed"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_documents_api_tests
+    created: 1781050000400
+    modified: 1781050000400
+environments:
+  name: Base Environment
+  meta:
+    id: env_documents_api_tests
+    created: 1781050000401
+    modified: 1781050000401
+    isPrivate: false
+  data:
+    base_url: http://127.0.0.1:8000
+    test_email: juan.perez@correo.cl
+    admin_email: claudio.navarro@ufrontera.cl
+    test_password: my_secure_password
+    access_token: paste_privileged_access_token_here
+    student_access_token: paste_student_access_token_here
+    refresh_token: paste_privileged_refresh_token_here
+    student_refresh_token: paste_student_refresh_token_here
+    internship_id: 1
+    document_type_id: 1
+    document_id: 1
+    document_fixture_path: tests/fixtures/documents/formulario.pdf
