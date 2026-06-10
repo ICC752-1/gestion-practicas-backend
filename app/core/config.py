@@ -19,6 +19,18 @@ class Config(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # OAuth Google
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
+    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
+    GOOGLE_OAUTH_REDIRECT_URI: str = ""
+    GOOGLE_OAUTH_ALLOWED_DOMAIN: str = "ufromail.cl"
+    FRONTEND_AUTH_SUCCESS_URL: str = "http://localhost:5173/dashboard"
+
+    # Auth cookies
+    AUTH_COOKIE_SECURE: bool = False
+    AUTH_COOKIE_SAMESITE: str = "lax"
+    AUTH_COOKIE_DOMAIN: str | None = None
+
     # Logging
     LOG_DIR: str = "logs"
     LOG_FILE_NAME: str = "gestion_practicas.jsonl"

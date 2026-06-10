@@ -22,6 +22,7 @@ def test_create_access_token_contains_expected_claims() -> None:
     assert payload["sub"] == "1"
     assert payload["email"] == "user@example.com"
     assert payload["roles"] == ["Estudiante"]
+    assert payload["type"] == "access"
     assert "exp" in payload
 
 
@@ -32,7 +33,53 @@ def test_create_refresh_token_contains_expected_claims() -> None:
     payload = jwt.decode(token, options={"verify_signature": False})
 
     assert payload["sub"] == "1"
+    assert isinstance(payload["jti"], str)
+    assert payload["jti"]
+    assert payload["type"] == "refresh"
     assert "exp" in payload
+
+
+def test_create_refresh_token_uses_provided_jti() -> None:
+    service = _service()
+
+    token = service.create_refresh_token(subject="1", jti="known-jti")
+    payload = jwt.decode(token, options={"verify_signature": False})
+
+    assert payload["jti"] == "known-jti"
+
+
+def test_generate_token_jti_returns_unique_values() -> None:
+    service = _service()
+
+    first_jti = service.generate_token_jti()
+    second_jti = service.generate_token_jti()
+
+    assert first_jti != second_jti
+
+
+def test_hash_token_returns_stable_hash() -> None:
+    service = _service()
+
+    first_hash = service.hash_token("refresh-token")
+    second_hash = service.hash_token("refresh-token")
+
+    assert first_hash == second_hash
+    assert first_hash != "refresh-token"
+
+
+def test_verify_token_hash_returns_true_for_matching_token() -> None:
+    service = _service()
+    token_hash = service.hash_token("refresh-token")
+
+    assert service.verify_token_hash("refresh-token", token_hash) is True
+
+
+def test_verify_token_hash_returns_false_for_different_token() -> None:
+    service = _service()
+    token_hash = service.hash_token("refresh-token")
+
+    assert service.verify_token_hash("other-token", token_hash) is False
+
 
 
 def test_decode_token_returns_payload() -> None:

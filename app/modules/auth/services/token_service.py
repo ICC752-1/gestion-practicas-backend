@@ -6,7 +6,10 @@ aplicación.
 """
 
 from datetime import datetime, UTC, timedelta
+import hashlib
+import hmac
 from typing import Any
+from uuid import uuid4
 import jwt
 
 from app.core.config import config
@@ -38,18 +41,35 @@ class TokenService:
             "sub": subject,
             "email": email,
             "roles": roles,
+            "type": "access",
             "exp": expire,
         }
         
         return jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)  # pyright: ignore[reportUnknownMemberType]
     
-    def create_refresh_token(self, subject:str) -> str:
+    def generate_token_jti(self) -> str:
+        """Genera un identificador unico para un refresh token."""
+
+        return str(uuid4())
+
+    def hash_token(self, token: str) -> str:
+        """Genera un hash deterministico para almacenar un token."""
+
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def verify_token_hash(self, token: str, token_hash: str) -> bool:
+        """Compara un token recibido contra su hash almacenado."""
+
+        return hmac.compare_digest(self.hash_token(token), token_hash)
+
+    def create_refresh_token(self, subject:str, jti: str | None = None) -> str:
         """Crea un refresh token (JWT) para renovar tokens de acceso.
 
-        El token incluye los claims: `sub` y `exp`.
+        El token incluye los claims: `sub`, `jti`, `type` y `exp`.
 
         Args:
             subject: Identificador del sujeto (normalmente el ID del usuario).
+            jti: Identificador unico del token. Si no se entrega, se genera.
 
         Returns:
             Token JWT codificado como cadena.
@@ -59,6 +79,8 @@ class TokenService:
 
         payload: dict[str, Any] = {
             "sub": subject,
+            "jti": jti or self.generate_token_jti(),
+            "type": "refresh",
             "exp": expire,
         }
         
