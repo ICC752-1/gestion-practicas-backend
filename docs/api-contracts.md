@@ -284,3 +284,106 @@ Valores validos relevantes:
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
 `internship_period`, `internship_type` y `has_school_insurance`.
+
+## Documentos
+
+El modulo `documents` centraliza la carga y revision de archivos asociados a
+practicas. Los archivos se guardan en storage privado local y nunca se exponen
+como URL publica; toda descarga pasa por endpoint autenticado.
+
+| Metodo | Ruta | Acceso | Request | Response |
+| --- | --- | --- | --- | --- |
+| GET | `/documents/types` | Bearer token | - | `list[DocumentTypeResponse]` |
+| POST | `/internships/{internship_id}/documents` | Estudiante propietario | `multipart/form-data` con `document_type_id` y `file` | `DocumentResponse` |
+| GET | `/internships/{internship_id}/documents` | Propietario o rol documental | Path `internship_id` | `list[DocumentResponse]` |
+| GET | `/documents/{document_id}/download` | Propietario o rol documental | Path `document_id` | Archivo binario |
+| PATCH | `/documents/{document_id}/status` | Rol documental | `DocumentStatusUpdateRequest` | `DocumentResponse` |
+| DELETE | `/documents/{document_id}` | Propietario si no esta aprobado, o rol documental | Path `document_id` | `204 No Content` |
+
+Roles documentales autorizados:
+
+- `Encargado de practica`
+- `Director de carrera`
+- `Secretaria de Carrera`
+
+### Carga documental
+
+`POST /internships/{internship_id}/documents` usa `multipart/form-data`:
+
+```text
+document_type_id=1
+file=<archivo>
+```
+
+Restricciones:
+
+- extensiones permitidas: `pdf`, `docx`, `jpg`, `png`, `zip`;
+- tamano maximo por defecto: `10485760` bytes;
+- la practica debe existir y pertenecer al estudiante autenticado;
+- no se permite cargar en practicas con estado terminal `Aprobada`, `Rechazada`
+  o `Reprobada`.
+
+### Revision documental
+
+`PATCH /documents/{document_id}/status` acepta:
+
+```json
+{
+  "status": "observed",
+  "comment": "Falta firma del estudiante"
+}
+```
+
+Valores validos:
+
+- `observed`: exige `comment`.
+- `approved`: permite `comment` opcional.
+
+### Respuesta documental
+
+`DocumentResponse` no incluye `file_path`, porque esa clave pertenece al storage
+interno.
+
+```json
+{
+  "id": 15,
+  "file_name": "formulario.pdf",
+  "extension": "pdf",
+  "status": "uploaded",
+  "size_bytes": 120440,
+  "upload_date": "2026-06-09T10:00:00",
+  "update_date": "2026-06-09T10:00:00",
+  "internship_id": 7,
+  "type_id": 1,
+  "user_id": 3,
+  "reviewed_at": null,
+  "reviewed_by": null,
+  "review_comment": null,
+  "deleted_at": null,
+  "deleted_by": null,
+  "document_type": {
+    "id": 1,
+    "name": "Formulario de inscripción",
+    "description": "Formulario de inscripción de práctica firmado o respaldado.",
+    "is_required": true,
+    "category": "Académico",
+    "is_active": true
+  }
+}
+```
+
+Estados documentales:
+
+- `uploaded`
+- `observed`
+- `approved`
+- `deleted`
+
+Errores esperados:
+
+- `400 Bad Request`: extension invalida, archivo vacio, tamano excedido o
+  observacion sin comentario.
+- `403 Forbidden`: acceso cruzado o rol insuficiente.
+- `404 Not Found`: practica, tipo documental, documento o archivo inexistente.
+- `409 Conflict`: carga en practica terminal o estudiante intentando eliminar
+  un documento aprobado.
