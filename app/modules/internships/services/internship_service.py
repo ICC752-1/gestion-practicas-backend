@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from typing import Any
 
 from app.modules.internships.models.current_state_model import CurrentState
+from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import Internship, PracticeTypeEnum
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -19,10 +20,14 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InductionAttemptRequest,
+    InductionAttemptResponse,
+    InductionContentVersionResponse,
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
+    RegistrationEligibilityResponse,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_exception_model import InternshipException
@@ -134,8 +139,11 @@ class InternshipService:
     ) -> Internship:
         """Crea una practica asociada a un usuario.
 
-        Convierte el schema de entrada en una entidad ORM y asigna el
-        identificador del estudiante autenticado como propietario.
+        El campo ``has_school_insurance`` se computa internamente a partir
+        de los registros de prerrequisitos del estudiante, no desde el
+        frontend. Si el estudiante tiene registrado el cumplimiento del
+        seguro escolar en ``StudentRegistrationRequirement``, se asigna
+        como ``True``; en caso contrario, ``False``.
 
         Args:
             internship_data: Datos validados para crear la practica.
@@ -146,8 +154,15 @@ class InternshipService:
         """
 
         initial_status = await self._get_required_state(PENDING_STATUS_TITLE)
+        data = internship_data.model_dump()
+        insurance_req = await self.internship_repository.get_student_requirement(
+            user_id=user_id,
+            requirement="school_insurance",
+        )
+        data["has_school_insurance"] = insurance_req.is_completed if insurance_req else False
+
         internship = Internship(
-            **internship_data.model_dump(),
+            **data,
             user_id=user_id,
             status_id=initial_status.id,
         )
@@ -536,13 +551,15 @@ class InternshipService:
                 detail=f"No se puede operar sobre una práctica en estado terminal: {current_title}.",
             )
 
-        if internship.internship_type == PracticeTypeEnum.practice_1 and not getattr(internship, "has_induction", False):
-            logger.warning("Bloqueo de aprobación: Práctica ID: %s de tipo I no registra inducción obligatoria", internship_id)
-            raise HTTPException(
-                status_code=409,
-                detail="La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. "
-                       "No se puede tramitar la aprobación administrativa sin este prerrequisito.",
-            )
+        if internship.internship_type == PracticeTypeEnum.practice_1:
+            passed = await self._has_passed_induction(internship.user_id)
+            if not passed:
+                logger.warning("Bloqueo de aprobación: Práctica ID: %s de tipo I no registra inducción obligatoria", internship_id)
+                raise HTTPException(
+                    status_code=409,
+                    detail="La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. "
+                           "No se puede tramitar la aprobación administrativa sin este prerrequisito.",
+                )
 
         await self._check_school_insurance_or_exception(internship)
 
@@ -877,4 +894,152 @@ class InternshipService:
                 notification.event_type,
                 exc_info=True,
             )
-            
+
+    async def get_active_induction_content(
+        self,
+    ) -> InductionContentVersionResponse | None:
+        """Retorna la versión activa y publicada del contenido de inducción.
+
+        Returns:
+            ``InductionContentVersionResponse`` con videos y preguntas,
+            o ``None`` si no hay contenido publicado activo.
+        """
+        content = await self.internship_repository.get_active_induction_content()
+        if content is None:
+            return None
+        return InductionContentVersionResponse.model_validate(content)
+
+    async def submit_induction_attempt(
+        self,
+        user_id: int,
+        payload: InductionAttemptRequest,
+    ) -> InductionAttemptResponse:
+        """Evalúa y registra un intento de cuestionario de inducción.
+
+        Recupera la versión activa de contenido, compara las respuestas
+        del estudiante contra las correctas, calcula el puntaje y
+        persiste el resultado. Si el puntaje es igual o superior al
+        mínimo configurado, el intento se marca como aprobado.
+
+        Args:
+            user_id: Identificador del estudiante.
+            payload: Respuestas del cuestionario.
+
+        Returns:
+            ``InductionAttemptResponse`` con el resultado del intento.
+
+        Raises:
+            HTTPException 409: Si no hay contenido activo publicado.
+        """
+        content = await self.internship_repository.get_active_induction_content()
+        if content is None:
+            raise HTTPException(
+                status_code=409,
+                detail="No hay contenido de inducción activo publicado.",
+            )
+
+        questions = {q.id: q for q in content.questions}
+        score = 0
+        for question_id, answer in payload.answers.items():
+            question = questions.get(question_id)
+            if question is None:
+                continue
+            if question.correct_answer == answer:
+                score += 1
+
+        passed = score >= content.min_score
+        attempt = InductionAttempt(
+            user_id=user_id,
+            content_version_id=content.id,
+            answers=payload.answers,
+            score=score,
+            passed=passed,
+        )
+        created = await self.internship_repository.create_induction_attempt(attempt)
+        return InductionAttemptResponse.model_validate(created)
+
+    async def _has_passed_induction(
+        self,
+        user_id: int | None,
+    ) -> bool:
+        """Verifica si un estudiante ha aprobado la inducción obligatoria.
+
+        Primero consulta ``StudentRegistrationRequirement``; si no existe
+        o está marcado como no completado, consulta el último intento
+        aprobado en ``InductionAttempt``.
+
+        Args:
+            user_id: Identificador del estudiante.
+
+        Returns:
+            ``True`` si el estudiante cumple con la inducción.
+        """
+        if user_id is None:
+            return False
+
+        req = await self.internship_repository.get_student_requirement(
+            user_id=user_id,
+            requirement="induction",
+        )
+        if req is not None and req.is_completed:
+            return True
+
+        passed_attempt = await self.internship_repository.get_passed_induction_attempt(
+            user_id=user_id,
+        )
+        return passed_attempt is not None
+
+    async def get_registration_eligibility(
+        self,
+        user_id: int,
+    ) -> RegistrationEligibilityResponse:
+        """Evalúa la elegibilidad del estudiante para registrar prácticas.
+
+        Considera el estado del seguro escolar, inducción obligatoria,
+        excepciones vigentes y bloqueos activos.
+
+        Args:
+            user_id: Identificador del estudiante.
+
+        Returns:
+            ``RegistrationEligibilityResponse`` con el estado de cada
+            prerrequisito y el siguiente paso sugerido.
+        """
+        insurance_req = await self.internship_repository.get_student_requirement(
+            user_id=user_id,
+            requirement="school_insurance",
+        )
+        has_insurance = insurance_req is not None and insurance_req.is_completed
+
+        has_induction = await self._has_passed_induction(user_id)
+
+        internships = await self.internship_repository.list_internships_by_user(user_id)
+        has_exception = any(
+            internship.exceptions
+            for internship in internships
+        )
+
+        blocked = False
+        next_step = "Puede registrar una nueva práctica."
+
+        if not has_insurance:
+            blocked = True
+            next_step = (
+                "Debe registrar el seguro escolar ante la unidad correspondiente "
+                "antes de iniciar una práctica en periodo estival."
+            )
+
+        if not has_induction:
+            blocked = True
+            next_step = (
+                "Debe completar la inducción obligatoria y aprobar el cuestionario "
+                "antes de tramitar la aprobación de la Práctica de Estudio I."
+            )
+
+        return RegistrationEligibilityResponse(
+            has_school_insurance=has_insurance,
+            has_induction=has_induction,
+            has_school_insurance_exception=has_exception,
+            blocked=blocked,
+            next_step=next_step,
+        )

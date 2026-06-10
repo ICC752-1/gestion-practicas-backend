@@ -35,7 +35,6 @@ def _valid_payload() -> InternshipCreateRequest:
         amount=120000,
         internship_period=PracticePeriodEnum.semester,
         internship_type=PracticeTypeEnum.practice_1,
-        has_school_insurance=False,
     )
 
 
@@ -112,7 +111,11 @@ class FakeInternshipRepository:
         self.created_exception_authorized_by = None
         self.exception_by_rule = None
         self.exceptions_list = []
-        
+
+        self._student_requirements = {}
+        self._passed_induction_for_user = {}
+        self._active_induction_content = None
+
         self.states = {
             "Pendiente": _status(1, "Pendiente"),
             "En revisión": _status(2, "En revisión"),
@@ -198,10 +201,23 @@ class FakeInternshipRepository:
     async def list_exceptions(self, internship_id: int):
         return self.exceptions_list
 
+    async def get_student_requirement(self, user_id: int, requirement: str):
+        return self._student_requirements.get((user_id, requirement))
+
+    async def get_passed_induction_attempt(self, user_id: int):
+        return self._passed_induction_for_user.get(user_id)
+
+    async def get_active_induction_content(self):
+        return self._active_induction_content
+
 """TESTS UNITARIOS DE FLUJOS BASE"""
 @pytest.mark.asyncio
 async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository = FakeInternshipRepository()
+    # Simular que el estudiante no tiene seguro escolar registrado
+    repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
+        is_completed=False,
+    )
     service = InternshipService(internship_repository=repository)
 
     internship = await service.create_internship(
@@ -212,6 +228,7 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert internship is repository.created_internship
     assert internship.user_id == 42
     assert internship.status_id == 1
+    assert internship.has_school_insurance is False
     assert internship.org_name == "Acme Chile"
     assert internship.supervisor_email == "ana.perez@acme.example"
     assert repository.created_initial_status.title == "Pendiente"
@@ -507,8 +524,6 @@ async def test_approve_seasonal_internship_raises_409_without_insurance_or_excep
         internship_period="Verano",                  # Práctica estival
         internship_type=PracticeTypeEnum.practice_2,  # Usamos Práctica II para no chocar con el bloqueo de inducción
         has_school_insurance=False,                   # Sin seguro escolar básico
-        has_induction=True,
-        roles=[]
     )
     repository.exception_by_rule = None
 
@@ -536,7 +551,6 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
         internship_period="Verano",
         internship_type=PracticeTypeEnum.practice_2,
         has_school_insurance=False,  # Permanece en False
-        has_induction=True
     )
     repository.internship_by_id = internship_mock
     repository.exception_by_rule = SimpleNamespace(id=1, rule="school_insurance")
@@ -556,15 +570,19 @@ async def test_approve_practice_1_without_induction_raises_409_absolute_block() 
     service = InternshipService(internship_repository=repository)
     actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
     
-    # Práctica de Estudio I, sin inducción realizada (has_induction=False)
+    # Práctica de Estudio I, sin inducción aprobada en backend
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=False,
+    )
+    repository._passed_induction_for_user[10] = None
     repository.internship_by_id = SimpleNamespace(
         id=8,
+        user_id=10,
         status_id=1,
         status=_status(1, "Pendiente"),
         internship_period=PracticePeriodEnum.semester,
         internship_type=PracticeTypeEnum.practice_1,  # <-- Práctica I (Obligatoria)
         has_school_insurance=True,                    # Seguro OK para aislar el test de la inducción
-        has_induction=False                           # <-- NO asistió
     )
 
    
@@ -582,7 +600,7 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
     service = InternshipService(internship_repository=repository)
     actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
     
-    # Práctica de Estudio II, sin inducción realizada
+    # Práctica de Estudio II, sin inducción realizada (no bloquea)
     internship_mock = SimpleNamespace(
         id=9,
         user_id=10,
@@ -593,7 +611,6 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
         internship_period=PracticePeriodEnum.semester,
         internship_type=PracticeTypeEnum.practice_2,  
         has_school_insurance=True,
-        has_induction=False                          
     )
     repository.internship_by_id = internship_mock
 

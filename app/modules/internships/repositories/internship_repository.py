@@ -12,10 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.internships.models.current_state_model import CurrentState
+from app.modules.internships.models.induction_model import (
+    InductionAttempt,
+    InductionContentVersion,
+)
 from app.modules.internships.models.internship_exception_model import InternshipException
 from app.modules.internships.models.internship_model import Internship
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
+)
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentRegistrationRequirement,
 )     
 
 class InternshipRepository:
@@ -314,4 +321,116 @@ class InternshipRepository:
             .order_by(InternshipException.authorized_at.asc())
         )
         return list(result.scalars().all())
-        
+
+    # ── Inducción ──────────────────────────────────────────────────────────
+
+    async def get_active_induction_content(
+        self,
+    ) -> InductionContentVersion | None:
+        """Obtiene la versión de contenido de inducción activa y publicada.
+
+        Returns:
+            ``InductionContentVersion`` con videos y preguntas, o ``None``
+            si no existe una versión activa publicada.
+        """
+        query = (
+            select(InductionContentVersion)
+            .where(
+                InductionContentVersion.is_active.is_(True),
+                InductionContentVersion.status == "published",
+            )
+            .options(
+                selectinload(InductionContentVersion.videos),
+                selectinload(InductionContentVersion.questions),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_induction_content_version_by_id(
+        self,
+        version_id: int,
+    ) -> InductionContentVersion | None:
+        """Obtiene una versión de contenido por su identificador.
+
+        Args:
+            version_id: Identificador de la versión.
+
+        Returns:
+            ``InductionContentVersion`` o ``None``.
+        """
+        query = (
+            select(InductionContentVersion)
+            .where(InductionContentVersion.id == version_id)
+            .options(
+                selectinload(InductionContentVersion.questions),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def create_induction_attempt(
+        self,
+        attempt: InductionAttempt,
+    ) -> InductionAttempt:
+        """Persiste un intento de cuestionario de inducción.
+
+        Args:
+            attempt: Entidad ``InductionAttempt`` a persistir.
+
+        Returns:
+            El intento persistido y refrescado.
+        """
+        self.db.add(attempt)
+        await self.db.commit()
+        await self.db.refresh(attempt)
+        return attempt
+
+    async def get_passed_induction_attempt(
+        self,
+        user_id: int,
+    ) -> InductionAttempt | None:
+        """Obtiene el último intento aprobado de inducción de un estudiante.
+
+        Args:
+            user_id: Identificador del estudiante.
+
+        Returns:
+            El intento aprobado más reciente, o ``None``.
+        """
+        result = await self.db.execute(
+            select(InductionAttempt)
+            .where(
+                InductionAttempt.user_id == user_id,
+                InductionAttempt.passed.is_(True),
+            )
+            .order_by(InductionAttempt.attempted_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    # ── Prerrequisitos del estudiante ──────────────────────────────────────
+
+    async def get_student_requirement(
+        self,
+        user_id: int,
+        requirement: str,
+    ) -> StudentRegistrationRequirement | None:
+        """Obtiene el registro de un prerrequisito para un estudiante.
+
+        Args:
+            user_id: Identificador del estudiante.
+            requirement: Nombre del requisito (``"school_insurance"`` o
+                ``"induction"``).
+
+        Returns:
+            ``StudentRegistrationRequirement`` si existe, o ``None``.
+        """
+        result = await self.db.execute(
+            select(StudentRegistrationRequirement)
+            .where(
+                StudentRegistrationRequirement.user_id == user_id,
+                StudentRegistrationRequirement.requirement == requirement,
+            )
+        )
+        return result.scalar_one_or_none()

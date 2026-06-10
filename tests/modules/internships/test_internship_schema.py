@@ -35,7 +35,6 @@ def _valid_payload() -> dict[str, object]:
         "amount": 120000,
         "internship_period": PracticePeriodEnum.semester,  # "Semestre"
         "internship_type": PracticeTypeEnum.practice_1,  # "Practica 1"
-        "has_school_insurance": False,
     }
 
 
@@ -136,40 +135,32 @@ def test_internship_create_request_rejects_invalid_supervisor_email() -> None:
 
 
 def test_register_semester_ok() -> None:
-    """Test: Practica semestral sin seguro escolar debe ser aceptada (retorna 201)"""
+    """Test: Practica semestral se acepta sin has_school_insurance (backend lo computa)."""
 
     payload = _valid_payload()
     payload["internship_period"] = PracticePeriodEnum.semester
-    payload["has_school_insurance"] = False
 
     internship = InternshipCreateRequest(**payload)
 
     assert internship.internship_period == "Semestre"
-    assert internship.has_school_insurance is False
+    assert not hasattr(internship, "has_school_insurance")
 
 
 def test_register_summer_no_insurance() -> None:
-    """Test: El esquema debe aceptar el payload de verano con seguro en False.
-    
-    La validación restrictiva y el bloqueo se ejecutan en la capa de servicio.
-    """
+    """Test: El esquema ya no acepta has_school_insurance; se rechaza con ValidationError."""
     payload = _valid_payload()
     payload["internship_period"] = PracticePeriodEnum.summer
     payload["has_school_insurance"] = False
 
-    # El esquema debe ser capaz de construir el objeto sin caerse
-    internship = InternshipCreateRequest(**payload)
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)
 
-    assert internship.internship_period == "Verano"
-    assert internship.has_school_insurance is False
 
 def test_register_summer_with_insurance() -> None:
-    """Test: Práctica en Verano con seguro debe ser aceptada (Retorna 201)"""
+    """Test: El esquema ya no acepta has_school_insurance; se rechaza con ValidationError."""
     payload = _valid_payload()
     payload["internship_period"] = PracticePeriodEnum.summer
     payload["has_school_insurance"] = True
 
-    internship = InternshipCreateRequest(**payload)
-
-    assert internship.internship_period == "Verano"
-    assert internship.has_school_insurance is True
+    with pytest.raises(ValidationError):
+        InternshipCreateRequest(**payload)

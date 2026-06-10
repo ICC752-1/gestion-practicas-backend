@@ -5,6 +5,7 @@ pese a no cumplir una regla de negocio base. No reemplaza ni modifica
 el valor original del campo exceptuado; solo registra la autorización
 con trazabilidad completa.
 """
+import enum
 
 from datetime import UTC, datetime
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database.database import Base
 
 
-class ExceptableRule(str):
+class ExceptableRule(str, enum.Enum):
     SCHOOL_INSURANCE = "school_insurance"
 
 class InternshipException(Base):
@@ -46,20 +47,24 @@ class InternshipException(Base):
         nullable=False,
         index=True,
     )
-    rule: Mapped[str] = mapped_column(
+
+    rule: Mapped[ExceptableRule] = mapped_column(
         PGEnum(
-            "school_insurance",
+            ExceptableRule,
             name="exceptable_rule_enum",
-            create_type=True,
+            create_type=False,
         ),
         nullable=False,
     )
+
     reason: Mapped[str] = mapped_column(Text, nullable=False)
-    authorized_by: Mapped[int] = mapped_column(
+
+    authorized_by: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=False,
+        nullable=True,
     )
+
     authorized_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(UTC).replace(tzinfo=None),
