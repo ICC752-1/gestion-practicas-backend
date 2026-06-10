@@ -27,6 +27,11 @@ class Config(BaseSettings):
     LOG_MAX_BYTES: int = 10485760
     LOG_BACKUP_COUNT: int = 5
 
+    # Documentos
+    DOCUMENT_STORAGE_DIR: str = "storage/documents"
+    DOCUMENT_MAX_BYTES: int = 10485760
+    DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
+
     # notificaciones
     NOTIFICATION_MODE: str = "simulated"
 
@@ -56,6 +61,14 @@ class Config(BaseSettings):
             for origin in self.CORS_ORIGINS.split(",")
             if origin.strip()
         ]
+
+    @property
+    def DOCUMENT_ALLOWED_EXTENSION_SET(self) -> set[str]:
+        return {
+            extension.strip().lower().lstrip(".")
+            for extension in self.DOCUMENT_ALLOWED_EXTENSIONS.split(",")
+            if extension.strip()
+        }
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

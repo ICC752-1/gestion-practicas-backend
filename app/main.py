@@ -10,6 +10,9 @@ from app.modules.admin.controllers.admin_controller import router as admin_route
 from app.modules.auth.controllers.auth_controller import router as auth_router
 from app.modules.auth.controllers.role_controller import router as roles_router
 from app.modules.auth.controllers.user_controller import router as users_router
+from app.modules.documents.controllers.document_controller import (
+    router as documents_router,
+)
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
@@ -47,3 +50,4 @@ app.include_router(roles_router)
 app.include_router(admin_router)
 app.include_router(notifications_router)
 app.include_router(internships_router)
+app.include_router(documents_router)
