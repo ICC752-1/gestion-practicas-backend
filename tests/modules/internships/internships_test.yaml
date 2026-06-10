@@ -22,7 +22,7 @@ collection:
           created: 1778800000001
           modified: 1778800000001
           isPrivate: false
-          description: "Ejecutar primero. Copiar access_token al environment student_access_token."
+          description: "Ejecutar primero. Guarda access_token en student_access_token."
           sortKey: -1778800000001
         method: POST
         body:
@@ -38,6 +38,16 @@ collection:
           - name: User-Agent
             value: insomnia/12.5.0
             disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("student_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("student_refresh_token", body.refresh_token);
+            }
         settings:
           renderRequestBody: true
           encodeUrl: true
@@ -55,7 +65,7 @@ collection:
           created: 1778800000010
           modified: 1778800000010
           isPrivate: false
-          description: "Copiar access_token al environment access_token para endpoints de dashboard."
+          description: "Guarda access_token en access_token y director_access_token para endpoints de dashboard."
           sortKey: -1778800000010
         method: POST
         body:
@@ -71,6 +81,18 @@ collection:
           - name: User-Agent
             value: insomnia/12.5.0
             disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("access_token", body.access_token);
+              insomnia.environment.set("director_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("refresh_token", body.refresh_token);
+              insomnia.environment.set("director_refresh_token", body.refresh_token);
+            }
         settings:
           renderRequestBody: true
           encodeUrl: true
@@ -567,4 +589,7 @@ environments:
     access_token: paste_privileged_access_token_here
     student_access_token: paste_student_access_token_here
     director_access_token: paste_director_access_token_here
+    refresh_token: paste_privileged_refresh_token_here
+    student_refresh_token: paste_student_refresh_token_here
+    director_refresh_token: paste_director_refresh_token_here
     internship_id: 1
