@@ -166,14 +166,14 @@ collection:
             store: true
           rebuildPath: true
 
-      - name: POST Create Internship DIRAE
+      - name: POST Create Internship for DIRAE Package
         url: "{{ _.base_url }}/internships"
         meta:
           id: req_documents_create_dirae_internship
           created: 1781050000014
           modified: 1781050000014
           isPrivate: false
-          description: "Crea una practica separada para paquete DIRAE y guarda dirae_internship_id."
+          description: "Crea una practica de prueba que luego sera aprobada y usada para validar el paquete documental DIRAE. Guarda dirae_internship_id."
           sortKey: -1781050000014
         method: POST
         body:
@@ -229,7 +229,7 @@ collection:
             store: true
           rebuildPath: true
 
-      - name: POST Create Internship DIRAE Incomplete
+      - name: POST Create Incomplete Internship for DIRAE Package
         url: "{{ _.base_url }}/internships"
         meta:
           id: req_documents_create_dirae_incomplete_internship
