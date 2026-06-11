@@ -78,17 +78,22 @@ def _make_service(
 class TestApprove:
 
     @pytest.mark.asyncio
-    async def test_encargado_aprueba_desde_pendiente_directo_a_aprobada(self):
-        """Encargado de práctica aprueba desde Pendiente → Aprobada."""
-        state_map = {APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)}
+    async def test_encargado_aprueba_desde_pendiente_avanza_a_en_revision(self):
+        """Encargado de práctica aprueba desde Pendiente → En revisión."""
+        # Agregamos ambos estados al mapa para que el mock los pueda resolver
+        state_map = {
+            IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2),
+            APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3)
+        }
         internship = _make_internship(PENDING_STATUS_TITLE)
         service = _make_service(internship=internship, state_map=state_map)
         actor = _make_user("Encargado de practica")
 
         result = await service.approve(internship.id, actor, comment=None)
 
-        assert result.status.title == APPROVED_STATUS_TITLE
-
+        # El flujo por defecto para el Encargado es mover a "En revisión"
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+        
     @pytest.mark.asyncio
     async def test_director_aprueba_desde_pendiente_directo_a_aprobada(self):
         """Director de carrera aprueba desde Pendiente → Aprobada directamente (No secuencial)."""

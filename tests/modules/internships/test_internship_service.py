@@ -36,7 +36,6 @@ def _valid_payload() -> InternshipCreateRequest:
         amount=120000,
         internship_period=PracticePeriodEnum.semester,
         internship_type=PracticeTypeEnum.practice_1,
-        has_school_insurance=False,
     )
 
 
@@ -59,6 +58,7 @@ class FakeInternshipRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self._student_requirements = {}
         self.states = {
             "Pendiente": _status(1, "Pendiente"),
             "En revisión": _status(2, "En revisión"),
@@ -128,6 +128,9 @@ class FakeInternshipRepository:
 
         return internship
 
+    async def get_student_requirement(self, user_id: int, requirement: str):
+        return self._student_requirements.get((user_id, requirement))
+
 
 def _student() -> SimpleNamespace:
     return SimpleNamespace(
@@ -167,6 +170,9 @@ def _dashboard_internship(
 
 async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository = FakeInternshipRepository()
+    repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
     service = InternshipService(internship_repository=repository)
 
     internship = await service.create_internship(
@@ -177,6 +183,7 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert internship is repository.created_internship
     assert internship.user_id == 42
     assert internship.status_id == 1
+    assert internship.has_school_insurance is True
     assert internship.org_name == "Acme Chile"
     assert internship.supervisor_email == "ana.perez@acme.example"
     assert repository.created_initial_status.title == "Pendiente"
