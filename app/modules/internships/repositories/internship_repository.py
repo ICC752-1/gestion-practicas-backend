@@ -22,6 +22,7 @@ from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
 from app.modules.internships.models.student_internship_requirement_model import (
+    StudentInternshipRequirement,
     StudentRegistrationRequirement,
 )     
 
@@ -442,3 +443,48 @@ class InternshipRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def get_academic_requirement(
+        self,
+        user_id: int,
+        practice_type: str,
+    ) -> StudentInternshipRequirement | None:
+        result = await self.db.execute(
+            select(StudentInternshipRequirement)
+            .where(
+                StudentInternshipRequirement.user_id == user_id,
+                StudentInternshipRequirement.type == practice_type,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert_academic_requirement_status(
+        self,
+        user_id: int,
+        practice_type: str,
+        new_status: str,
+        updated_by: int,
+    ) -> StudentInternshipRequirement:
+        from datetime import UTC, datetime
+
+        existing = await self.get_academic_requirement(user_id, practice_type)
+
+        if existing is None:
+            req = StudentInternshipRequirement(
+                user_id=user_id,
+                type=practice_type,
+                status=new_status,
+                status_updated_at = datetime.now(),
+                status_updated_by=updated_by,
+            )
+            self.db.add(req)
+            await self.db.commit()
+            await self.db.refresh(req)
+            return req
+
+        existing.status = new_status
+        existing.status_updated_at = datetime.now(UTC)
+        existing.status_updated_by = updated_by
+        await self.db.commit()
+        await self.db.refresh(existing)
+        return existing

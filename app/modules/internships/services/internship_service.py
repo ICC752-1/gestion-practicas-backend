@@ -103,7 +103,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "Secretaria de Carrera": ["derive"]
 }
 
-EXCEPTABLE_RULES = {"school_insurance", "sequentiality"}
+EXCEPTABLE_RULES = {"school_insurance", "sequentiality", "sequentiality_thesis", "parallel_course"}
 APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
 
 class InternshipService:
@@ -564,6 +564,8 @@ class InternshipService:
 
         await self._check_school_insurance_or_exception(internship)
         await self._check_sequentiality_or_exception(internship)
+        await self._check_thesis_sequentiality(internship)
+        await self._check_parallel_course_or_exception(internship)
 
         user_roles = {r.role.name for r in actor.roles}
 
@@ -594,6 +596,9 @@ class InternshipService:
             reason=comment,
             metadata={"action": "approve", "skip_review": skip_review},
         )
+
+        if next_title == APPROVED_STATUS_TITLE:
+            await self._sync_academic_requirement_on_approval(result, actor)
 
         logger.info("Práctica ID: %s transicionada con éxito a '%s'. Despachando notificación...", result.id, next_title)
         await self._dispatch_notification(
@@ -849,7 +854,7 @@ class InternshipService:
             HTTPException 409: Si la practica es estival, no tiene seguro
                 y tampoco tiene excepcion administrativa registrada.
         """
-        is_seasonal = str(internship.internship_period) in SEASONAL_PERIODS
+        is_seasonal = internship.internship_period.value in SEASONAL_PERIODS
         if not is_seasonal or internship.has_school_insurance:
             return
 
@@ -879,11 +884,9 @@ class InternshipService:
     ) -> None:
         """Verifica secuencialidad: Práctica II requiere Práctica I aprobada o excepción.
 
-        Si la práctica es de tipo ``Práctica de Estudio II``, se exige que el
-        estudiante tenga al menos una ``Práctica de Estudio I`` en estado
-        ``Aprobada``. Si no la tiene, se bloquea el avance a menos que exista
-        una excepción administrativa ``"sequentiality"`` registrada sobre la
-        práctica actual.
+        La fuente de verdad es ``StudentInternshipRequirement`` (requisito académico),
+        no el estado de una ``Internship`` individual. Si el requisito académico
+        de Práctica de Estudio I está aprobado, la secuencialidad se cumple.
 
         Raises:
             HTTPException 409: Si no se cumple la secuencialidad y no hay
@@ -892,16 +895,11 @@ class InternshipService:
         if internship.internship_type != PracticeTypeEnum.practice_2:
             return
 
-        user_internships = await self.internship_repository.list_internships_by_user(
-            internship.user_id,
+        req = await self.internship_repository.get_academic_requirement(
+            user_id=internship.user_id,
+            practice_type=PracticeTypeEnum.practice_1.value,
         )
-        has_approved_practice_1 = any(
-            inn.status is not None
-            and inn.status.title in APPROVED_STATUS_TITLE_SET
-            and inn.internship_type == PracticeTypeEnum.practice_1
-            for inn in user_internships
-        )
-        if has_approved_practice_1:
+        if req is not None and req.status == "Aprobada":
             return
 
         existing = await self.internship_repository.get_exception_by_rule(
@@ -932,6 +930,136 @@ class InternshipService:
                 ),
             },
         )
+
+    async def _check_thesis_sequentiality(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Verifica secuencialidad para Tesis: requiere Práctica II aprobada o excepción.
+
+        Raises:
+            HTTPException 409: Si no se cumple la secuencialidad y no hay
+                excepción vigente.
+        """
+        if internship.internship_type != PracticeTypeEnum.thesis:
+            return
+
+        req = await self.internship_repository.get_academic_requirement(
+            user_id=internship.user_id,
+            practice_type=PracticeTypeEnum.practice_2.value,
+        )
+        if req is not None and req.status == "Aprobada":
+            return
+
+        existing = await self.internship_repository.get_exception_by_rule(
+            internship_id=internship.id,
+            rule="sequentiality_thesis",
+        )
+        if existing is not None:
+            logger.info(
+                "Excepción de secuencialidad para Tesis vigente en práctica ID: %s",
+                internship.id,
+            )
+            return
+
+        logger.warning(
+            "Bloqueo por secuencialidad: Tesis ID: %s sin Práctica II aprobada "
+            "ni excepción registrada",
+            internship.id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "rule": "sequentiality_thesis",
+                "message": (
+                    "La Tesis requiere que la Práctica de Estudio II se encuentre "
+                    "aprobada. Si existe una causa justificada, un actor "
+                    "administrativo autorizado puede registrar una excepción "
+                    "de secuencialidad para continuar el trámite."
+                ),
+            },
+        )
+
+    async def _check_parallel_course_or_exception(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Verifica regla de ramo en paralelo para Práctica Controlada.
+
+        La Práctica Controlada requiere que los co-requisitos (ramos en
+        paralelo) estén resueltos. Como el sistema aún no modela la malla
+        curricular, se asume que hay co-requisitos pendientes y se exige
+        una excepción administrativa ``"parallel_course"`` para permitir
+        el avance.
+
+        Raises:
+            HTTPException 409: Si no existe una excepción de ramo en
+                paralelo registrada.
+        """
+        if internship.internship_type != PracticeTypeEnum.controlled_practice:
+            return
+
+        existing = await self.internship_repository.get_exception_by_rule(
+            internship_id=internship.id,
+            rule="parallel_course",
+        )
+        if existing is not None:
+            logger.info(
+                "Excepción de ramo en paralelo vigente para práctica controlada ID: %s",
+                internship.id,
+            )
+            return
+
+        logger.warning(
+            "Bloqueo por ramo en paralelo: Práctica Controlada ID: %s sin excepción registrada",
+            internship.id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "rule": "parallel_course",
+                "message": (
+                    "La Práctica Controlada requiere que los co-requisitos "
+                    "(ramos en paralelo) estén resueltos. Si existe una causa "
+                    "justificada, un actor administrativo autorizado puede "
+                    "registrar una excepción de ramo en paralelo para continuar "
+                    "el trámite."
+                ),
+            },
+        )
+
+    async def _sync_academic_requirement_on_approval(
+        self,
+        internship: Internship,
+        actor: User,
+    ) -> None:
+        """Sincroniza ``StudentInternshipRequirement`` al aprobar una práctica.
+
+        Si el requisito académico no existe, se crea con estado ``Aprobada``.
+        Si existe, se actualiza su estado. La fuente de verdad transaccional
+        sigue siendo ``Internship.status``; este método es un espejo para
+        habilitar consultas de secuencialidad sin depender del estado
+        administrativo de prácticas individuales.
+        """
+        try:
+            await self.internship_repository.upsert_academic_requirement_status(
+                user_id=internship.user_id,
+                practice_type=internship.internship_type.value,
+                new_status="Aprobada",
+                updated_by=actor.id,
+            )
+            logger.info(
+                "Requisito académico sincronizado para práctica ID: %s, tipo: %s",
+                internship.id,
+                internship.internship_type.value,
+            )
+        except Exception:
+            logger.exception(
+                "Fallo al sincronizar requisito académico para práctica ID: %s. "
+                "La práctica ya fue aprobada; la sincronización puede reintentarse "
+                "manualmente.",
+                internship.id,
+            )
 
     async def _dispatch_notification(self, notification) -> None:
         """Despacha una notificacion a traves del servicio de notificaciones.

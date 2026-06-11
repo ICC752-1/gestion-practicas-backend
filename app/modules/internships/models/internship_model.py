@@ -119,10 +119,9 @@ class Internship(Base):
 
     internship_period: Mapped[PracticePeriodEnum] = mapped_column(
         PGEnum(
-            "Semestre",
-            "Verano",
-            "Invierno",
+            PracticePeriodEnum,
             name="enumInternshipPeriod",
+            values_callable=lambda x: [e.value for e in x],
             create_type=False,
         ),
         nullable=False,
@@ -130,11 +129,9 @@ class Internship(Base):
 
     internship_type: Mapped[PracticeTypeEnum] = mapped_column(
         PGEnum(
-            "Práctica de Estudio I",
-            "Práctica de Estudio II",
-            "Práctica Controlada",
-            "Tesis",
+            PracticeTypeEnum,
             name="enumStudentInternshipType",
+            values_callable=lambda x: [e.value for e in x],
             create_type=False,
         ),
         nullable=False,

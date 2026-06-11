@@ -1,4 +1,4 @@
-"""Tests unitarios para el módulo de Inducción Obligatoria.
+"""Tests unitarios para el módulo de Inducción Obligatoria y Reglas 10.20.
 
 Cubre:
 1. Consumo correcto de contenido publicado activo.
@@ -6,6 +6,10 @@ Cubre:
 3. Bloqueo de práctica estival sin seguro y aprobación con excepción.
 4. Bloqueo de Práctica I por inducción incompleta.
 5. Cómputo interno de has_school_insurance en create_internship.
+6. Secuencialidad académica (Práctica II requiere Práctica I aprobada).
+7. Secuencialidad para Tesis (requiere Práctica II aprobada o excepción).
+8. Rama en paralelo para Práctica Controlada.
+9. Sincronización automática de StudentInternshipRequirement al aprobar.
 """
 
 from datetime import date, datetime
@@ -100,11 +104,15 @@ def _fake_content(questions: list | None = None, min_score: int = 5) -> SimpleNa
     )
 
 
+def _academic_req(status: str) -> SimpleNamespace:
+    return SimpleNamespace(status=status)
+
+
 # ── Fake Repository ──────────────────────────────────────────────────────────
 
 
 class FakeInductionRepository:
-    """Repositorio fake que soporta todas las operaciones de inducción."""
+    """Repositorio fake que soporta todas las operaciones de inducción y 10.20."""
 
     def __init__(self) -> None:
         self.created_internship = None
@@ -129,6 +137,12 @@ class FakeInductionRepository:
         self._passed_induction_for_user = {}
         self._active_induction_content = None
         self._created_attempts = []
+
+        # (user_id, practice_type) -> SimpleNamespace(status=str)
+        self._academic_requirements = {}
+
+        # (internship_id, rule) -> SimpleNamespace or None
+        self._exceptions_by_rule = {}
 
         self.states = {
             PENDING_STATUS_TITLE: _status(1, PENDING_STATUS_TITLE),
@@ -177,6 +191,9 @@ class FakeInductionRepository:
         return internship
 
     async def get_exception_by_rule(self, internship_id: int, rule: str):
+        dict_val = self._exceptions_by_rule.get((internship_id, rule))
+        if dict_val is not None:
+            return dict_val
         return getattr(self, "_exception_by_rule_value", None)
 
     # ── Prerrequisitos ───────────────────────────────────────────────────
@@ -186,6 +203,22 @@ class FakeInductionRepository:
 
     async def get_passed_induction_attempt(self, user_id: int):
         return self._passed_induction_for_user.get(user_id)
+
+    # ── Requisito Académico (Tarea 10.20) ────────────────────────────────
+
+    async def get_academic_requirement(self, user_id: int, practice_type: str):
+        return self._academic_requirements.get((user_id, practice_type))
+
+    async def upsert_academic_requirement_status(
+        self, user_id: int, practice_type: str, new_status: str, updated_by: int,
+    ):
+        existing = self._academic_requirements.get((user_id, practice_type))
+        if existing is None:
+            req = _academic_req(new_status)
+            self._academic_requirements[(user_id, practice_type)] = req
+            return req
+        existing.status = new_status
+        return existing
 
     # ── Inducción ────────────────────────────────────────────────────────
 
@@ -333,7 +366,7 @@ class TestIntegratedRules:
             student=SimpleNamespace(email="test@ufro.cl"),
             status_id=1,
             status=_status(1, PENDING_STATUS_TITLE),
-            internship_period="Verano",
+            internship_period=PracticePeriodEnum.summer,
             internship_type=PracticeTypeEnum.practice_2,
             has_school_insurance=False,
         )
@@ -359,7 +392,7 @@ class TestIntegratedRules:
             student=SimpleNamespace(email="test@ufro.cl"),
             status_id=1,
             status=_status(1, PENDING_STATUS_TITLE),
-            internship_period="Verano",
+            internship_period=PracticePeriodEnum.summer,
             internship_type=PracticeTypeEnum.practice_2,
             has_school_insurance=False,
         )
@@ -388,7 +421,7 @@ class TestIntegratedRules:
             student=SimpleNamespace(email="test@ufro.cl"),
             status_id=1,
             status=_status(1, PENDING_STATUS_TITLE),
-            internship_period="Semestre",
+            internship_period=PracticePeriodEnum.semester,
             internship_type=PracticeTypeEnum.practice_1,
             has_school_insurance=True,
         )
@@ -417,7 +450,7 @@ class TestIntegratedRules:
             student=SimpleNamespace(email="test@ufro.cl"),
             status_id=1,
             status=_status(1, PENDING_STATUS_TITLE),
-            internship_period="Semestre",
+            internship_period=PracticePeriodEnum.semester,
             internship_type=PracticeTypeEnum.practice_1,
             has_school_insurance=True,
         )
@@ -425,6 +458,284 @@ class TestIntegratedRules:
         result = await service.approve(internship_id=9, actor=actor, comment=None)
 
         assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    # ── Tarea 10.20: Secuencialidad Académica ────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_approve_practice_2_fails_without_practice_1_requirement(self):
+        """6.a. Práctica II bloqueada si no hay Práctica I aprobada en StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=10,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_2,
+            has_school_insurance=True,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship_id=10, actor=actor, comment=None)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["rule"] == "sequentiality"
+
+    @pytest.mark.asyncio
+    async def test_approve_practice_2_allowed_with_practice_1_requirement(self):
+        """6.b. Práctica II avanza si Práctica I está aprobada en StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo._academic_requirements[(10, PracticeTypeEnum.practice_1.value)] = _academic_req("Aprobada")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=10,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_2,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=10, actor=actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_approve_practice_2_with_sequentiality_exception(self):
+        """6.c. Práctica II avanza si existe excepción de secuencialidad."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo._exceptions_by_rule[(10, "sequentiality")] = SimpleNamespace(
+            id=2, rule="sequentiality",
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=10,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_2,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=10, actor=actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    # ── Tarea 10.20: Secuencialidad para Tesis ───────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_approve_thesis_fails_without_practice_2_requirement(self):
+        """7.a. Tesis bloqueada si no hay Práctica II aprobada en StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=11,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.thesis,
+            has_school_insurance=True,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship_id=11, actor=actor, comment=None)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["rule"] == "sequentiality_thesis"
+
+    @pytest.mark.asyncio
+    async def test_approve_thesis_allowed_with_practice_2_requirement(self):
+        """7.b. Tesis avanza si Práctica II está aprobada en StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo._academic_requirements[(10, PracticeTypeEnum.practice_2.value)] = _academic_req("Aprobada")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=11,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.thesis,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=11, actor=actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_approve_thesis_with_sequentiality_exception(self):
+        """7.c. Tesis avanza si existe excepción sequentiality_thesis."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo._exceptions_by_rule[(11, "sequentiality_thesis")] = SimpleNamespace(
+            id=3, rule="sequentiality_thesis",
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=11,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.thesis,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=11, actor=actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    # ── Tarea 10.20: Rama en Paralelo para Práctica Controlada ───────────
+
+    @pytest.mark.asyncio
+    async def test_approve_controlled_practice_fails_without_parallel_exception(self):
+        """8.a. Práctica Controlada bloqueada sin excepción parallel_course."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=12,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.controlled_practice,
+            has_school_insurance=True,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship_id=12, actor=actor, comment=None)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["rule"] == "parallel_course"
+
+    @pytest.mark.asyncio
+    async def test_approve_controlled_practice_allowed_with_parallel_exception(self):
+        """8.b. Práctica Controlada avanza si existe excepción parallel_course."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+
+        repo._exceptions_by_rule[(12, "parallel_course")] = SimpleNamespace(
+            id=4, rule="parallel_course",
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=12,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.controlled_practice,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=12, actor=actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    # ── Tarea 10.20: Sincronización al Aprobar ───────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_approve_practice_1_syncs_academic_requirement(self):
+        """9. Al aprobar Práctica I (Director), se sincroniza StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Director de carrera")
+
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=13,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=13, actor=actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+        synced = repo._academic_requirements.get(
+            (10, PracticeTypeEnum.practice_1.value),
+        )
+        assert synced is not None
+        assert synced.status == "Aprobada"
+
+    @pytest.mark.asyncio
+    async def test_approve_practice_2_syncs_academic_requirement(self):
+        """9.b. Al aprobar Práctica II (Director), se sincroniza StudentInternshipRequirement."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Director de carrera")
+
+        repo._academic_requirements[(10, PracticeTypeEnum.practice_1.value)] = _academic_req("Aprobada")
+
+        repo.internship_by_id = SimpleNamespace(
+            id=14,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=1,
+            status=_status(1, PENDING_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_2,
+            has_school_insurance=True,
+        )
+
+        result = await service.approve(internship_id=14, actor=actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+        synced = repo._academic_requirements.get(
+            (10, PracticeTypeEnum.practice_2.value),
+        )
+        assert synced is not None
+        assert synced.status == "Aprobada"
 
 
 # ── Tests: Cómputo Interno de Seguro Escolar ─────────────────────────────────
