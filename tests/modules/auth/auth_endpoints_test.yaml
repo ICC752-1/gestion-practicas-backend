@@ -346,15 +346,17 @@ collection:
           sortKey: -1779984196046
         method: POST
         body:
-          mimeType: application/json
-          text: |-
-            {
-            	"email": "{{ _.email }}",
-            	"password": "{{ _.password }}"
-            }
+          mimeType: application/x-www-form-urlencoded
+          params:
+            - name: username
+              value: "{{ _.email }}"
+              disabled: false
+            - name: password
+              value: "{{ _.password }}"
+              disabled: false
         headers:
           - name: Content-Type
-            value: application/json
+            value: application/x-www-form-urlencoded
           - name: User-Agent
             value: insomnia/12.5.0
             description: ""

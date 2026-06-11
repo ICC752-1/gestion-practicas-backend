@@ -26,15 +26,17 @@ collection:
           sortKey: -1781050000001
         method: POST
         body:
-          mimeType: application/json
-          text: >-
-            {
-              "email": "{{ _.test_email }}",
-              "password": "{{ _.test_password }}"
-            }
+          mimeType: application/x-www-form-urlencoded
+          params:
+            - name: username
+              value: "{{ _.test_email }}"
+              disabled: false
+            - name: password
+              value: "{{ _.test_password }}"
+              disabled: false
         headers:
           - name: Content-Type
-            value: application/json
+            value: application/x-www-form-urlencoded
           - name: User-Agent
             value: insomnia/12.5.0
             disabled: false
@@ -68,15 +70,17 @@ collection:
           sortKey: -1781050000002
         method: POST
         body:
-          mimeType: application/json
-          text: >-
-            {
-              "email": "{{ _.admin_email }}",
-              "password": "{{ _.test_password }}"
-            }
+          mimeType: application/x-www-form-urlencoded
+          params:
+            - name: username
+              value: "{{ _.admin_email }}"
+              disabled: false
+            - name: password
+              value: "{{ _.test_password }}"
+              disabled: false
         headers:
           - name: Content-Type
-            value: application/json
+            value: application/x-www-form-urlencoded
           - name: User-Agent
             value: insomnia/12.5.0
             disabled: false
@@ -162,6 +166,132 @@ collection:
             store: true
           rebuildPath: true
 
+      - name: POST Create Internship DIRAE
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_documents_create_dirae_internship
+          created: 1781050000014
+          modified: 1781050000014
+          isPrivate: false
+          description: "Crea una practica separada para paquete DIRAE y guarda dirae_internship_id."
+          sortKey: -1781050000014
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa DIRAE Demo SpA",
+              "sector": "Tecnologia",
+              "address": "Av. Siempre Viva 456",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa-dirae-demo.cl",
+              "supervisor_name": "Ana Perez",
+              "supervisor_profession": "Ingeniera Civil Informatica",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnologia",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miercoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 456, Temuco",
+              "act_description": "Desarrollo y apoyo en mantencion de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I",
+              "has_school_insurance": false
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("dirae_internship_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Create Internship DIRAE Incomplete
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_documents_create_dirae_incomplete_internship
+          created: 1781050000015
+          modified: 1781050000015
+          isPrivate: false
+          description: "Crea una practica sin documentos aprobados para probar paquete no exportable."
+          sortKey: -1781050000015
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Incompleta SpA",
+              "sector": "Tecnologia",
+              "address": "Av. Siempre Viva 789",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa-incompleta.cl",
+              "supervisor_name": "Ana Perez",
+              "supervisor_profession": "Ingeniera Civil Informatica",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnologia",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miercoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 789, Temuco",
+              "act_description": "Desarrollo y apoyo en mantencion de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I",
+              "has_school_insurance": false
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("dirae_incomplete_internship_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
   - name: Happy path
     meta:
       id: fld_documents_happy_path
@@ -192,6 +322,15 @@ collection:
 
             if (Array.isArray(body) && body.length > 0 && body[0].id) {
               insomnia.environment.set("document_type_id", body[0].id);
+            }
+            if (Array.isArray(body)) {
+              const requiredTypes = body.filter((type) => type.is_required);
+              if (requiredTypes[0]?.id) {
+                insomnia.environment.set("dirae_required_type_id", requiredTypes[0].id);
+              }
+              if (requiredTypes[1]?.id) {
+                insomnia.environment.set("dirae_second_required_type_id", requiredTypes[1].id);
+              }
             }
         settings:
           renderRequestBody: true
@@ -387,6 +526,249 @@ collection:
             store: true
           rebuildPath: true
 
+  - name: DIRAE package
+    meta:
+      id: fld_documents_dirae_package
+      created: 1781050000500
+      modified: 1781050000500
+      sortKey: -1781050000250
+      description: ""
+    children:
+      - name: POST Upload DIRAE Required Document 1
+        url: "{{ _.base_url }}/internships/{{ _.dirae_internship_id }}/documents"
+        meta:
+          id: req_documents_dirae_upload_required_1
+          created: 1781050000501
+          modified: 1781050000501
+          isPrivate: false
+          description: "Sube el primer documento requerido para el paquete DIRAE."
+          sortKey: -1781050000501
+        method: POST
+        body:
+          mimeType: multipart/form-data
+          params:
+            - name: document_type_id
+              value: "{{ _.dirae_required_type_id }}"
+              disabled: false
+            - name: file
+              fileName: "{{ _.document_fixture_path }}"
+              type: file
+              disabled: false
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("dirae_document_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Upload DIRAE Required Document 2
+        url: "{{ _.base_url }}/internships/{{ _.dirae_internship_id }}/documents"
+        meta:
+          id: req_documents_dirae_upload_required_2
+          created: 1781050000502
+          modified: 1781050000502
+          isPrivate: false
+          description: "Sube el segundo documento requerido para completar el paquete DIRAE."
+          sortKey: -1781050000502
+        method: POST
+        body:
+          mimeType: multipart/form-data
+          params:
+            - name: document_type_id
+              value: "{{ _.dirae_second_required_type_id }}"
+              disabled: false
+            - name: file
+              fileName: "{{ _.document_fixture_path }}"
+              type: file
+              disabled: false
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.id) {
+              insomnia.environment.set("dirae_second_document_id", body.id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: PATCH Approve DIRAE Document 1
+        url: "{{ _.base_url }}/documents/{{ _.dirae_document_id }}/status"
+        meta:
+          id: req_documents_dirae_approve_required_1
+          created: 1781050000503
+          modified: 1781050000503
+          isPrivate: false
+          description: "Aprueba el primer documento requerido."
+          sortKey: -1781050000503
+        method: PATCH
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "status": "approved",
+              "comment": "Documento requerido validado para DIRAE"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: PATCH Approve DIRAE Document 2
+        url: "{{ _.base_url }}/documents/{{ _.dirae_second_document_id }}/status"
+        meta:
+          id: req_documents_dirae_approve_required_2
+          created: 1781050000504
+          modified: 1781050000504
+          isPrivate: false
+          description: "Aprueba el segundo documento requerido."
+          sortKey: -1781050000504
+        method: PATCH
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "status": "approved",
+              "comment": "Documento requerido validado para DIRAE"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Approve DIRAE Internship
+        url: "{{ _.base_url }}/internships/{{ _.dirae_internship_id }}/approve"
+        meta:
+          id: req_documents_dirae_approve_internship
+          created: 1781050000505
+          modified: 1781050000505
+          isPrivate: false
+          description: "Aprueba la practica despues de cargar los documentos requeridos."
+          sortKey: -1781050000505
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "comment": "Practica aprobada para paquete documental DIRAE"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET DIRAE Document Package
+        url: "{{ _.base_url }}/internships/{{ _.dirae_internship_id }}/documents/package"
+        meta:
+          id: req_documents_dirae_get_package
+          created: 1781050000506
+          modified: 1781050000506
+          isPrivate: false
+          description: "Consulta el paquete documental exportable."
+          sortKey: -1781050000506
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET DIRAE CSV Export
+        url: "{{ _.base_url }}/dirae/document-packages/export?internship_ids={{ _.dirae_internship_id }}"
+        meta:
+          id: req_documents_dirae_export_csv
+          created: 1781050000507
+          modified: 1781050000507
+          isPrivate: false
+          description: "Exporta CSV DIRAE para la practica exportable."
+          sortKey: -1781050000507
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
   - name: Errores esperados
     meta:
       id: fld_documents_expected_errors
@@ -476,6 +858,56 @@ collection:
             store: true
           rebuildPath: true
 
+      - name: GET DIRAE Package no exportable
+        url: "{{ _.base_url }}/internships/{{ _.dirae_incomplete_internship_id }}/documents/package"
+        meta:
+          id: req_documents_dirae_package_incomplete
+          created: 1781050000016
+          modified: 1781050000016
+          isPrivate: false
+          description: "Debe responder 200 con exportable=false por practica no aprobada y documentos faltantes."
+          sortKey: -1781050000016
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: GET DIRAE Export no exportable
+        url: "{{ _.base_url }}/dirae/document-packages/export?internship_ids={{ _.dirae_incomplete_internship_id }}"
+        meta:
+          id: req_documents_dirae_export_incomplete
+          created: 1781050000017
+          modified: 1781050000017
+          isPrivate: false
+          description: "Debe responder 409 si se solicita exportar una practica no exportable."
+          sortKey: -1781050000017
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
 cookieJar:
   name: Default Jar
   meta:
@@ -499,6 +931,12 @@ environments:
     refresh_token: paste_privileged_refresh_token_here
     student_refresh_token: paste_student_refresh_token_here
     internship_id: 1
+    dirae_internship_id: 2
+    dirae_incomplete_internship_id: 3
     document_type_id: 1
+    dirae_required_type_id: 1
+    dirae_second_required_type_id: 2
     document_id: 1
+    dirae_document_id: 2
+    dirae_second_document_id: 3
     document_fixture_path: tests/fixtures/documents/formulario.pdf

@@ -1,6 +1,6 @@
 """Tests unitarios para el router documental."""
 
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -87,6 +87,7 @@ class FakeDocumentService:
         self.document = _document() if document is None else document
         self.uploaded_content = None
         self.deleted_id = None
+        self.export_ids = None
 
     async def list_document_types(self):
         return [_document_type()]
@@ -120,6 +121,63 @@ class FakeDocumentService:
         self.deleted_id = document_id
         return self.document
 
+    async def get_document_package(self, internship_id, actor):
+        return SimpleNamespace(
+            internship_id=internship_id,
+            status="Aprobada",
+            exportable=True,
+            reasons=[],
+            student=SimpleNamespace(
+                id=10,
+                rut="12.345.678-9",
+                enrollment="12345678923",
+                first_name="Juan",
+                last_name="Perez",
+                email="juan.perez@correo.cl",
+                degree="Ingenieria Civil Informatica",
+                cod_degree="INF-001",
+            ),
+            internship=SimpleNamespace(
+                type="Práctica de Estudio I",
+                period="Semestre",
+                organization="Empresa Demo SpA",
+                city="Temuco",
+                start_date=date(2026, 6, 1),
+                end_date=date(2026, 8, 31),
+            ),
+            required_documents=[
+                SimpleNamespace(
+                    type_id=1,
+                    type_name="Formulario",
+                    status="approved",
+                    document=self.document,
+                )
+            ],
+            optional_documents=[],
+        )
+
+    async def export_dirae_document_packages(self, actor, internship_ids=None):
+        self.export_ids = internship_ids
+        return SimpleNamespace(
+            filename="dirae_document_packages_20260601_120000.csv",
+            content=(
+                "internship_id,student_id,student_rut,student_enrollment,"
+                "student_first_name,student_last_name,student_email,"
+                "degree,cod_degree,internship_type,internship_period,"
+                "organization,city,start_date,end_date,"
+                "approved_document_ids,required_document_type_ids,"
+                "exported_at\n"
+            ),
+            audit_event=SimpleNamespace(
+                name="dirae_export_generated",
+                actor_id=99,
+                internship_ids=[7],
+                approved_document_ids=[55],
+                filename="dirae_document_packages_20260601_120000.csv",
+                result="generated",
+            ),
+        )
+
 
 def test_documents_router_is_registered() -> None:
     paths = {route.path for route in app.routes}
@@ -135,6 +193,12 @@ def test_documents_router_is_registered() -> None:
     assert "PATCH" in _methods_for_path("/documents/{document_id}/status")
     assert "/documents/{document_id}" in paths
     assert "DELETE" in _methods_for_path("/documents/{document_id}")
+    assert "/internships/{internship_id}/documents/package" in paths
+    assert "GET" in _methods_for_path(
+        "/internships/{internship_id}/documents/package",
+    )
+    assert "/dirae/document-packages/export" in paths
+    assert "GET" in _methods_for_path("/dirae/document-packages/export")
 
 
 @pytest.mark.asyncio
@@ -187,6 +251,16 @@ async def test_update_document_status_rejects_student_role() -> None:
 
 
 @pytest.mark.asyncio
+async def test_export_dirae_document_packages_rejects_student_role() -> None:
+    role_checker = require_roles(DOCUMENT_ADMIN_ROLES)
+
+    with pytest.raises(HTTPException) as exc:
+        await role_checker(_user(10, ["Estudiante"]))
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_update_document_status_returns_reviewed_document(monkeypatch):
     service = FakeDocumentService()
     monkeypatch.setattr(
@@ -227,6 +301,47 @@ async def test_delete_document_returns_204(monkeypatch):
 
     assert response.status_code == 204
     assert service.deleted_id == 55
+
+
+@pytest.mark.asyncio
+async def test_get_document_package_returns_summary(monkeypatch):
+    service = FakeDocumentService()
+    monkeypatch.setattr(
+        document_controller,
+        "_build_service",
+        lambda db: service,
+    )
+
+    result = await document_controller.get_document_package(
+        internship_id=7,
+        db=object(),
+        current_user=_user(10, ["Estudiante"]),
+    )
+
+    assert result.internship_id == 7
+    assert result.exportable is True
+    assert result.required_documents[0].document.id == 55
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_document_packages_returns_csv(monkeypatch):
+    service = FakeDocumentService()
+    monkeypatch.setattr(
+        document_controller,
+        "_build_service",
+        lambda db: service,
+    )
+
+    response = await document_controller.export_dirae_document_packages(
+        db=object(),
+        current_user=_user(99, ["Secretaria de Carrera"]),
+        internship_ids=[7],
+    )
+
+    assert response.media_type == "text/csv; charset=utf-8"
+    assert service.export_ids == [7]
+    assert b"internship_id,student_id" in response.body
+    assert response.headers["Content-Disposition"].endswith(".csv\"")
 
 
 @pytest.mark.asyncio
