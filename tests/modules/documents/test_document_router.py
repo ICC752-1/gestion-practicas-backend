@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.auth.dependencies.role_dependency import require_roles
@@ -13,6 +14,7 @@ from app.modules.documents.controllers import document_controller
 from app.modules.documents.controllers.document_controller import (
     DOCUMENT_ADMIN_ROLES,
 )
+from app.modules.documents.services.document_service import DocumentService
 from app.modules.documents.models.document_model import (
     DocumentCategoryEnum,
     DocumentExtensionEnum,
@@ -75,6 +77,40 @@ def _document(status: DocumentStatusEnum = DocumentStatusEnum.uploaded):
     )
 
 
+def _internship(user_id: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=7,
+        user_id=user_id,
+        status=SimpleNamespace(title="Pendiente"),
+    )
+
+
+class FakeDocumentRepository:
+    def __init__(self, document=None) -> None:
+        self.document = _document() if document is None else document
+
+    async def get_document_by_id(self, document_id: int):
+        if document_id == self.document.id:
+            return self.document
+
+        return None
+
+
+def _config(tmp_path) -> SimpleNamespace:
+    return SimpleNamespace(
+        DOCUMENT_STORAGE_DIR=str(tmp_path),
+        DOCUMENT_MAX_BYTES=10,
+        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides():
+    app.dependency_overrides.clear()
+    yield
+    app.dependency_overrides.clear()
+
+
 class FakeUploadFile:
     filename = "formulario.pdf"
 
@@ -135,6 +171,73 @@ def test_documents_router_is_registered() -> None:
     assert "PATCH" in _methods_for_path("/documents/{document_id}/status")
     assert "/documents/{document_id}" in paths
     assert "DELETE" in _methods_for_path("/documents/{document_id}")
+
+
+def test_download_document_requires_authentication() -> None:
+    with TestClient(app) as client:
+        response = client.get("/documents/55/download")
+
+    assert response.status_code == 401
+
+
+def test_download_document_returns_file_for_owner(monkeypatch, tmp_path) -> None:
+    document = _document()
+    document.file_path = "7/formulario.pdf"
+    document.internship = _internship(user_id=10)
+    stored_file = tmp_path / document.file_path
+    stored_file.parent.mkdir(parents=True)
+    stored_file.write_bytes(b"private-data")
+    repository = FakeDocumentRepository(document=document)
+    service = DocumentService(
+        document_repository=repository,
+        app_config=_config(tmp_path),
+    )
+    monkeypatch.setattr(
+        document_controller,
+        "_build_service",
+        lambda db: service,
+    )
+    app.dependency_overrides[document_controller.get_current_user] = lambda: _user(
+        10,
+        ["Estudiante"],
+    )
+    app.dependency_overrides[document_controller.get_db] = lambda: object()
+
+    with TestClient(app) as client:
+        response = client.get("/documents/55/download")
+
+    assert response.status_code == 200
+    assert response.content == b"private-data"
+    assert "formulario.pdf" in response.headers["content-disposition"]
+
+
+def test_download_document_rejects_cross_student(monkeypatch, tmp_path) -> None:
+    document = _document()
+    document.file_path = "7/formulario.pdf"
+    document.internship = _internship(user_id=10)
+    stored_file = tmp_path / document.file_path
+    stored_file.parent.mkdir(parents=True)
+    stored_file.write_bytes(b"private-data")
+    repository = FakeDocumentRepository(document=document)
+    service = DocumentService(
+        document_repository=repository,
+        app_config=_config(tmp_path),
+    )
+    monkeypatch.setattr(
+        document_controller,
+        "_build_service",
+        lambda db: service,
+    )
+    app.dependency_overrides[document_controller.get_current_user] = lambda: _user(
+        99,
+        ["Estudiante"],
+    )
+    app.dependency_overrides[document_controller.get_db] = lambda: object()
+
+    with TestClient(app) as client:
+        response = client.get("/documents/55/download")
+
+    assert response.status_code == 403
 
 
 @pytest.mark.asyncio
