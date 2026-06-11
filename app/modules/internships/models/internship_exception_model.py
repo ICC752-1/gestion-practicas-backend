@@ -53,6 +53,7 @@ class InternshipException(Base):
         PGEnum(
             ExceptableRule,
             name="exceptable_rule_enum",
+            values_callable=lambda x: [e.value for e in x],
             create_type=False,
         ),
         nullable=False,

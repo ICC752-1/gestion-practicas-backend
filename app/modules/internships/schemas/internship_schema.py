@@ -403,6 +403,13 @@ class RegistrationEligibilityResponse(BaseModel):
         has_school_insurance_exception: ``True`` si existe una excepción
             administrativa activa para seguro escolar en alguna práctica
             vigente del estudiante.
+        has_approved_practice_1: ``True`` si el estudiante tiene al menos
+            una Práctica de Estudio I en estado ``Aprobada``.
+        sequentiality_blocked: ``True`` si el estudiante no tiene una
+            Práctica de Estudio I aprobada (informativo, no bloquea).
+        has_sequentiality_exception: ``True`` si existe una excepción
+            administrativa activa de secuencialidad en alguna práctica
+            del estudiante.
         blocked: ``True`` si existe algún bloqueo activo que impida
             el registro o aprobación.
         next_step: Texto descriptivo de la siguiente acción recomendada
@@ -412,5 +419,8 @@ class RegistrationEligibilityResponse(BaseModel):
     has_school_insurance: bool
     has_induction: bool
     has_school_insurance_exception: bool = False
+    has_approved_practice_1: bool = False
+    sequentiality_blocked: bool = False
+    has_sequentiality_exception: bool = False
     blocked: bool
     next_step: str

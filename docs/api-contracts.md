@@ -141,6 +141,29 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
  
 Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascendente. Accesible para el propietario de la práctica y roles privilegiados de lectura.
  
+### Elegibilidad de registro
+
+`GET /internships/eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+
+**Respuesta (`RegistrationEligibilityResponse`):**
+
+```json
+{
+  "has_school_insurance": true,
+  "has_induction": true,
+  "has_school_insurance_exception": false,
+  "has_approved_practice_1": false,
+  "sequentiality_blocked": true,
+  "has_sequentiality_exception": false,
+  "blocked": false,
+  "next_step": "Puede registrar una nueva práctica."
+}
+```
+
+Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiality_exception` son informativos. El campo `blocked` no se activa por secuencialidad, solo por seguro escolar faltante o inducción no aprobada.
+
+---
+
 #### Errores Comunes de Flujo
  
 | Código | Condición | Ejemplo de `detail` |
@@ -151,6 +174,7 @@ Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascende
 | `404` | Práctica no existe | `"Práctica no encontrada (Internship not found)"` |
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
+| `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
  
 ---
 

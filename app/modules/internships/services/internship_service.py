@@ -1076,8 +1076,23 @@ class InternshipService:
         has_induction = await self._has_passed_induction(user_id)
 
         internships = await self.internship_repository.list_internships_by_user(user_id)
-        has_exception = any(
-            internship.exceptions
+
+        has_school_insurance_exception = any(
+            any(exc.rule == "school_insurance" for exc in (internship.exceptions or []))
+            for internship in internships
+        )
+
+        has_approved_practice_1 = any(
+            inn.status is not None
+            and inn.status.title in APPROVED_STATUS_TITLE_SET
+            and inn.internship_type == PracticeTypeEnum.practice_1
+            for inn in internships
+        )
+
+        sequentiality_blocked = not has_approved_practice_1
+
+        has_sequentiality_exception = any(
+            any(exc.rule == "sequentiality" for exc in (internship.exceptions or []))
             for internship in internships
         )
 
@@ -1101,7 +1116,10 @@ class InternshipService:
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
             has_induction=has_induction,
-            has_school_insurance_exception=has_exception,
+            has_school_insurance_exception=has_school_insurance_exception,
+            has_approved_practice_1=has_approved_practice_1,
+            sequentiality_blocked=sequentiality_blocked,
+            has_sequentiality_exception=has_sequentiality_exception,
             blocked=blocked,
             next_step=next_step,
         )

@@ -852,3 +852,157 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
     assert updated_internship is internship_mock
     assert repository.updated_new_status.title == "En revisión"
     assert repository.updated_reason == "Procesando Práctica II"
+
+
+"""REGLA DE NEGOCIO: ELEGIBILIDAD DE REGISTRO - SECUENCIALIDAD"""
+@pytest.mark.asyncio
+async def test_registration_eligibility_sequentiality_blocked() -> None:
+    """[RN-03] Elegibilidad refleja sequentiality_blocked=True sin Práctica I aprobada."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1, user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+
+    elig = await service.get_registration_eligibility(user_id=10)
+
+    assert elig.has_approved_practice_1 is False
+    assert elig.sequentiality_blocked is True
+    assert elig.has_sequentiality_exception is False
+    assert elig.blocked is False  # secuencialidad no bloquea
+
+
+@pytest.mark.asyncio
+async def test_registration_eligibility_has_approved_practice_1() -> None:
+    """[RN-03] Elegibilidad refleja has_approved_practice_1=True con Práctica I aprobada."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1, user_id=10,
+            status=_status(3, "Aprobada"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+
+    elig = await service.get_registration_eligibility(user_id=10)
+
+    assert elig.has_approved_practice_1 is True
+    assert elig.sequentiality_blocked is False
+    assert elig.has_sequentiality_exception is False
+
+
+@pytest.mark.asyncio
+async def test_registration_eligibility_has_sequentiality_exception() -> None:
+    """[RN-03] Elegibilidad refleja has_sequentiality_exception=True si existe excepción."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1, user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[SimpleNamespace(rule="sequentiality")],
+        ),
+    ]
+
+    elig = await service.get_registration_eligibility(user_id=10)
+
+    assert elig.has_approved_practice_1 is False
+    assert elig.sequentiality_blocked is True
+    assert elig.has_sequentiality_exception is True
+
+
+@pytest.mark.asyncio
+async def test_registration_eligibility_school_insurance_exception_filtered() -> None:
+    """[RN-01] has_school_insurance_exception no se activa por excepción de sequentiality."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1, user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[SimpleNamespace(rule="sequentiality")],
+        ),
+    ]
+
+    elig = await service.get_registration_eligibility(user_id=10)
+
+    assert elig.has_school_insurance_exception is False
+    assert elig.has_sequentiality_exception is True
+
+
+"""REGLA DE NEGOCIO: CREACIÓN DE PRÁCTICA II SIN BLOQUEO DE SECUENCIALIDAD"""
+@pytest.mark.asyncio
+async def test_create_practice_2_allowed_without_approved_practice_1() -> None:
+    """[RN-03] Creación de Práctica II permitida aunque no exista Práctica I aprobada."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+
+    payload = _valid_payload()
+    payload.internship_type = PracticeTypeEnum.practice_2
+
+    internship = await service.create_internship(
+        internship_data=payload,
+        user_id=10,
+    )
+
+    assert internship is repository.created_internship
+    assert internship.user_id == 10
+    assert internship.status_id == 1
+    assert internship.internship_type == PracticeTypeEnum.practice_2
+
+
+@pytest.mark.asyncio
+async def test_create_practice_2_allowed_with_active_practice_1() -> None:
+    """[RN-03] Creación de Práctica II permitida con Práctica I activa (no aprobada)."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1, user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+
+    payload = _valid_payload()
+    payload.internship_type = PracticeTypeEnum.practice_2
+
+    internship = await service.create_internship(
+        internship_data=payload,
+        user_id=10,
+    )
+
+    assert internship is repository.created_internship
+    assert internship.internship_type == PracticeTypeEnum.practice_2

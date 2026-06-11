@@ -179,7 +179,7 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 
 ### Descripción
 
-Un estudiante no puede tramitar la aprobación de la **Práctica de Estudio II** mientras su **Práctica de Estudio I** no se encuentre aprobada. Esta regla evita la inscripción y cursado paralelo de ambas prácticas.
+Un estudiante no puede avanzar la **Práctica de Estudio II** mediante `approve()` mientras su **Práctica de Estudio I** no se encuentre aprobada. La creación de la Práctica II (`create_internship`) no está sujeta a esta restricción.
 
 ### Definición de la Regla
 
@@ -187,6 +187,9 @@ Un estudiante no puede tramitar la aprobación de la **Práctica de Estudio II**
 - Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
 - Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
 - El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.
+- La creación de Práctica II se permite sin restricciones de secuencialidad. El estudiante puede registrar la práctica, pero no podrá avanzarla hasta cumplir la regla u obtener una excepción.
+
+> **Nota técnica:** La regla actual considera el estado `Aprobada` como criterio oficial para satisfacer la secuencialidad. Si negocio define otro hito académico en el futuro (ej. "Evaluación aprobada" como hito intermedio), la regla deberá ajustarse.
 
 ### Excepción Administrativa
 
