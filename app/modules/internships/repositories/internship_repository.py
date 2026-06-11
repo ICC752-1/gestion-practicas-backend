@@ -1,5 +1,4 @@
 """Repositorio de acceso a datos para practicas.
-
 Este modulo define `InternshipRepository`, encargado de encapsular consultas y
 operaciones de persistencia relacionadas con la entidad `Internship` usando una
 sesion asincrona de SQLAlchemy.
@@ -52,8 +51,11 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
 
+        return loaded_internship
     async def create_internship_with_history(
         self,
         internship: Internship,
@@ -91,7 +93,11 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
 
     async def get_internship_by_id(self, internship_id: int) -> Internship | None:
         """Obtiene una practica por su identificador.
@@ -106,7 +112,10 @@ class InternshipRepository:
         query = (
             select(Internship)
             .where(Internship.id == internship_id)
-            .options(selectinload(Internship.status))
+            .options(
+                selectinload(Internship.status),
+                selectinload(Internship.student),
+            )
         )
         result = await self.db.execute(query)
 
@@ -234,6 +243,8 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
 
-    
+        return loaded_internship
