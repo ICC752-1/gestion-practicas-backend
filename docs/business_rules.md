@@ -146,7 +146,53 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
 }
 ```
 ---
- 
+
+## RN-03: Secuencialidad de Prácticas (Práctica I → Práctica II)
+
+### Descripción
+
+Un estudiante no puede tramitar la aprobación de la **Práctica de Estudio II** mientras su **Práctica de Estudio I** no se encuentre aprobada. Esta regla evita la inscripción y cursado paralelo de ambas prácticas.
+
+### Definición de la Regla
+
+- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no al registro inicial (`create_internship`).
+- Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
+- Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
+- El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.
+
+### Excepción Administrativa
+
+- Cuando no existe una Práctica I aprobada, un actor administrativo autorizado puede registrar una excepción de secuencialidad que habilita el trámite sin modificar el estado de la Práctica I.
+- La excepción se registra sobre la **Práctica II** (la que se intenta aprobar).
+
+#### Roles autorizados para otorgar la excepción
+
+| Rol | Puede otorgar excepción (`grant_exception`) |
+| :--- | :---: |
+| Encargado de práctica | **Sí** |
+| Director de carrera | **Sí** |
+| Secretaria de Carrera | No |
+| Estudiante | No |
+
+#### Condición de disparo
+
+1. `internship_type` es `"Práctica de Estudio II"`.
+2. El estudiante **no** tiene una `Práctica de Estudio I` en estado `Aprobada`.
+3. El actor intenta aprobar la práctica (acción `approve`).
+
+Sin una excepción activa para la regla `sequentiality`, el sistema bloquea con `409 Conflict`.
+
+#### Idempotencia
+
+Si ya existe una excepción registrada para la misma práctica y regla `sequentiality`, el endpoint retorna la existente sin crear un duplicado.
+
+#### Restricción de estado terminal
+
+No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+
+---
+
+
 ### Endpoint: `POST /internships/{internship_id}/exceptions`
  
 #### Caso 4 — Éxito: Excepción registrada

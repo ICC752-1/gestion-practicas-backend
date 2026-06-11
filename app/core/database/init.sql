@@ -7,7 +7,7 @@ CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
-CREATE TYPE "exceptable_rule_enum" AS ENUM ('school_insurance');
+CREATE TYPE "exceptable_rule_enum" AS ENUM ('school_insurance', 'sequentiality');
 
 CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');

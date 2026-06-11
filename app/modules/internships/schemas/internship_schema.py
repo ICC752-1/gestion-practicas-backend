@@ -257,13 +257,13 @@ class InternshipExceptionRequest(BaseModel):
     """Payload para registrar una excepcion administrativa.
 
     Attributes:
-        rule: Regla de negocio que se exceptua. Actualmente solo
-            ``"school_insurance"`` esta habilitada.
+        rule: Regla de negocio que se exceptua. Valores habilitados:
+            ``"school_insurance"``, ``"sequentiality"``.
         reason: Justificacion obligatoria de la excepcion. No puede
             estar vacia ni contener solo espacios en blanco.
     """
 
-    rule: Literal["school_insurance"] = Field(
+    rule: Literal["school_insurance", "sequentiality"] = Field(
         description="Regla de negocio exceptuada."
     )
     reason: str = Field(

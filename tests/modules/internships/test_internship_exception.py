@@ -593,6 +593,228 @@ async def test_approve_practice_1_without_induction_raises_409_absolute_block() 
     assert "La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I" in exc_info.value.detail
 
 
+"""REGLA DE NEGOCIO: SECUENCIALIDAD DE PRÁCTICAS"""
+@pytest.mark.asyncio
+async def test_grant_sequentiality_exception_success() -> None:
+    """[RN-03] Excepción de secuencialidad se registra correctamente."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    repository.internship_by_id = SimpleNamespace(
+        id=10,
+        status_id=1,
+        status=_status(1, "Pendiente"),
+    )
+
+    exception = await service.grant_exception(
+        internship_id=10,
+        actor=actor,
+        rule="sequentiality",
+        reason="El estudiante cursó Práctica I en otra institución en proceso de convalidación.",
+    )
+
+    assert exception.internship_id == 10
+    assert repository.created_exception_rule == "sequentiality"
+    assert repository.created_exception_reason == (
+        "El estudiante cursó Práctica I en otra institución en proceso de convalidación."
+    )
+    assert repository.created_exception_authorized_by == 22
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_2_blocked_without_approved_practice_1() -> None:
+    """[RN-03] Bloqueo 409: Práctica II sin Práctica I aprobada ni excepción."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+
+    practice_2 = SimpleNamespace(
+        id=11,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_2,
+        has_school_insurance=True,
+    )
+    repository.internship_by_id = practice_2
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1,
+            user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+    repository.exception_by_rule = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.approve(internship_id=11, actor=actor, comment="Aprobando Práctica II sin Práctica I")
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["rule"] == "sequentiality"
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_2_allowed_with_approved_practice_1() -> None:
+    """[RN-03] Práctica II permitida si existe Práctica I aprobada."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+
+    practice_2 = SimpleNamespace(
+        id=12,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_2,
+        has_school_insurance=True,
+    )
+    repository.internship_by_id = practice_2
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1,
+            user_id=10,
+            status=_status(3, "Aprobada"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+
+    updated = await service.approve(internship_id=12, actor=actor, comment="Práctica II con Práctica I aprobada")
+
+    assert updated is practice_2
+    assert repository.updated_new_status.title == "En revisión"
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_2_allowed_with_sequentiality_exception() -> None:
+    """[RN-03] Práctica II permitida si hay excepción de secuencialidad activa."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+
+    practice_2 = SimpleNamespace(
+        id=13,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_2,
+        has_school_insurance=True,
+    )
+    repository.internship_by_id = practice_2
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1,
+            user_id=10,
+            status=_status(1, "Pendiente"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+    repository.exception_by_rule = SimpleNamespace(id=99, rule="sequentiality")
+
+    updated = await service.approve(internship_id=13, actor=actor, comment="Práctica II con excepción")
+
+    assert updated is practice_2
+    assert repository.updated_new_status.title == "En revisión"
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_1_not_affected_by_sequentiality() -> None:
+    """[RN-03] Práctica I nunca se bloquea por regla de secuencialidad."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+
+    practice_1 = SimpleNamespace(
+        id=14,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_1,
+        has_school_insurance=True,
+    )
+    repository.internship_by_id = practice_1
+    repository.internships_by_user = []
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
+
+    updated = await service.approve(internship_id=14, actor=actor, comment="Práctica I sin restricción")
+
+    assert updated is practice_1
+    assert repository.updated_new_status.title == "En revisión"
+
+
+@pytest.mark.asyncio
+async def test_grant_sequentiality_exception_rejects_invalid_sequentiality_rule() -> None:
+    """[RN-03] Regla no exceptuable sigue siendo rechazada."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Ana", last_name="Director", roles=["Director de carrera"])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.grant_exception(
+            internship_id=7,
+            actor=actor,
+            rule="invalid_rule",
+            reason="Prueba.",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "no admite excepción administrativa" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_approve_practice_2_none_status_not_crashes() -> None:
+    """[RN-03] Práctica II no crashea si una práctica I tiene status=None."""
+    repository = FakeInternshipRepository()
+    service = InternshipService(internship_repository=repository)
+    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+
+    practice_2 = SimpleNamespace(
+        id=15,
+        user_id=10,
+        org_name="Acme Chile",
+        student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
+        status_id=1,
+        status=_status(1, "Pendiente"),
+        internship_period=PracticePeriodEnum.semester,
+        internship_type=PracticeTypeEnum.practice_2,
+        has_school_insurance=True,
+    )
+    repository.internship_by_id = practice_2
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1,
+            user_id=10,
+            status=None,
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
+    repository.exception_by_rule = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.approve(internship_id=15, actor=actor, comment="Práctica II con práctica I sin estado")
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["rule"] == "sequentiality"
+
+
 @pytest.mark.asyncio
 async def test_approve_practice_2_without_induction_allows_advance() -> None:
     """[BE1] Comprueba que la Práctica de Estudio II no se bloquea por falta de inducción."""
@@ -613,6 +835,15 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
         has_school_insurance=True,
     )
     repository.internship_by_id = internship_mock
+    repository.internships_by_user = [
+        SimpleNamespace(
+            id=1,
+            user_id=10,
+            status=_status(3, "Aprobada"),
+            internship_type=PracticeTypeEnum.practice_1,
+            exceptions=[],
+        ),
+    ]
 
     # Act
     updated_internship = await service.approve(internship_id=9, actor=actor, comment="Procesando Práctica II")

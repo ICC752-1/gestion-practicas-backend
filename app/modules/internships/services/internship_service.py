@@ -103,7 +103,8 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "Secretaria de Carrera": ["derive"]
 }
 
-EXCEPTABLE_RULES = {"school_insurance"}
+EXCEPTABLE_RULES = {"school_insurance", "sequentiality"}
+APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
 
 class InternshipService:
     """Orquesta casos de uso relacionados con practicas.
@@ -562,6 +563,7 @@ class InternshipService:
                 )
 
         await self._check_school_insurance_or_exception(internship)
+        await self._check_sequentiality_or_exception(internship)
 
         user_roles = {r.role.name for r in actor.roles}
 
@@ -870,7 +872,67 @@ class InternshipService:
                 },
             )
         logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
-        
+
+    async def _check_sequentiality_or_exception(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Verifica secuencialidad: Práctica II requiere Práctica I aprobada o excepción.
+
+        Si la práctica es de tipo ``Práctica de Estudio II``, se exige que el
+        estudiante tenga al menos una ``Práctica de Estudio I`` en estado
+        ``Aprobada``. Si no la tiene, se bloquea el avance a menos que exista
+        una excepción administrativa ``"sequentiality"`` registrada sobre la
+        práctica actual.
+
+        Raises:
+            HTTPException 409: Si no se cumple la secuencialidad y no hay
+                excepción vigente.
+        """
+        if internship.internship_type != PracticeTypeEnum.practice_2:
+            return
+
+        user_internships = await self.internship_repository.list_internships_by_user(
+            internship.user_id,
+        )
+        has_approved_practice_1 = any(
+            inn.status is not None
+            and inn.status.title in APPROVED_STATUS_TITLE_SET
+            and inn.internship_type == PracticeTypeEnum.practice_1
+            for inn in user_internships
+        )
+        if has_approved_practice_1:
+            return
+
+        existing = await self.internship_repository.get_exception_by_rule(
+            internship_id=internship.id,
+            rule="sequentiality",
+        )
+        if existing is not None:
+            logger.info(
+                "Excepción de secuencialidad vigente para práctica ID: %s",
+                internship.id,
+            )
+            return
+
+        logger.warning(
+            "Bloqueo por secuencialidad: Práctica II ID: %s sin Práctica I aprobada "
+            "ni excepción registrada",
+            internship.id,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "rule": "sequentiality",
+                "message": (
+                    "La Práctica de Estudio II requiere que la Práctica de Estudio I "
+                    "se encuentre aprobada. Si existe una causa justificada, un "
+                    "actor administrativo autorizado puede registrar una excepción "
+                    "de secuencialidad para continuar el trámite."
+                ),
+            },
+        )
+
     async def _dispatch_notification(self, notification) -> None:
         """Despacha una notificacion a traves del servicio de notificaciones.
 
