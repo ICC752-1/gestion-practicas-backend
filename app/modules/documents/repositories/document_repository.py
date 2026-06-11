@@ -10,6 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.auth.models.role_model import Role
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 from app.modules.documents.models.document_model import (
     Document,
     DocumentStatusEnum,
@@ -88,7 +91,10 @@ class DocumentRepository:
         query = (
             select(Internship)
             .where(Internship.id == internship_id)
-            .options(selectinload(Internship.status))
+            .options(
+                selectinload(Internship.status),
+                selectinload(Internship.student),
+            )
         )
         result = await self.db.execute(query)
 
@@ -157,6 +163,7 @@ class DocumentRepository:
             .options(
                 selectinload(Document.document_type),
                 selectinload(Document.internship).selectinload(Internship.status),
+                selectinload(Document.internship).selectinload(Internship.student),
             )
         )
         result = await self.db.execute(query)
@@ -197,6 +204,21 @@ class DocumentRepository:
             return document
 
         return loaded_document
+
+    async def list_users_by_roles(self, role_names: set[str]) -> list[User]:
+        """Lista usuarios activos que poseen alguno de los roles indicados."""
+
+        query = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name.in_(role_names), User.is_active.is_(True))
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .order_by(User.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().unique().all())
 
     async def soft_delete_document(
         self,

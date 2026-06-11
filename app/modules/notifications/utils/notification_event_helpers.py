@@ -121,6 +121,102 @@ def build_internship_derived_notification(
     )
 
 
+def build_internship_created_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    internship_id: int,
+    org_name: str,
+    student_user_id: int,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para revisores tras crear una practica."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Nueva práctica registrada",
+        content=(
+            f"Se registró una nueva práctica en <strong>{org_name}</strong> "
+            "pendiente de revisión."
+        ),
+        status=status,
+        payload={
+            "event": "internship_created",
+            "internship_id": internship_id,
+            "student_user_id": student_user_id,
+        },
+    )
+
+
+def build_document_uploaded_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    document_id: int,
+    internship_id: int,
+    document_type: str,
+    file_name: str,
+    org_name: str,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para revisores tras cargar un documento."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Nuevo documento cargado",
+        content=(
+            f"Se cargó el documento <strong>{document_type}</strong> "
+            f"(<strong>{file_name}</strong>) para la práctica en "
+            f"<strong>{org_name}</strong>."
+        ),
+        status=status,
+        payload={
+            "event": "document_uploaded",
+            "document_id": document_id,
+            "internship_id": internship_id,
+            "document_type": document_type,
+        },
+    )
+
+
+def build_document_status_changed_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    document_id: int,
+    internship_id: int,
+    document_type: str,
+    new_status: str,
+    comment: str | None = None,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para cambios de estado documental."""
+
+    status_label = "aprobado" if new_status == "approved" else "observado"
+    comment_text = f" Observación: {comment}." if comment else ""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject=f"Documento {status_label}: {document_type}",
+        content=(
+            f"Su documento <strong>{document_type}</strong> fue "
+            f"<strong>{status_label}</strong>.{comment_text}"
+        ),
+        status=status,
+        payload={
+            "event": "document_status_changed",
+            "document_id": document_id,
+            "internship_id": internship_id,
+            "document_type": document_type,
+            "new_status": new_status,
+            "comment": comment,
+        },
+    )
+
+
 def build_requirement_status_changed_notification(
     recipient_user_id: int,
     recipient_email: str | None,
