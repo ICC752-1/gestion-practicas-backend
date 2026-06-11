@@ -87,9 +87,12 @@ Esta sección reúne documentación propia del funcionamiento interno del sistem
 El repositorio cuenta con workflows automatizados:
 
 - **CI**: ejecuta lint y tests en cada push y pull request.
-- **CD**: al hacer merge a `main` construye la imagen y despliega en la VPS.
-  Temporalmente tambien despliega desde `feature/devops-cicd-vps-deployment`
-  para validar la canalizacion sin interferir con `develop`.
+- **CD**: esta configurado para ejecutarse al hacer push a `main`, construyendo
+  la imagen y desplegando en la VPS.
+
+En la verificacion de Sprint 10.22, el workflow de CD existe en ramas de
+desarrollo, pero debe ser aceptado o mergeado hacia `main` para que el despliegue
+productivo quede activo desde la rama de liberacion.
 
 La imagen de produccion no se publica en un registry. El workflow:
 
@@ -99,6 +102,11 @@ La imagen de produccion no se publica en un registry. El workflow:
 4. Carga la imagen con `sudo docker load`.
 5. La etiqueta como `gestion-practicas-backend:deploy`.
 6. Reinicia el servicio `backend` del stack compartido.
+
+Para que el CD sea efectivo, el workflow debe estar presente en `main`, los
+secrets `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY` y, preferentemente,
+`VPS_KNOWN_HOSTS` deben existir en GitHub Actions, y los scripts del repositorio
+`gestion-practicas-deployment` deben estar disponibles en `/srv/team-b/app`.
 
 #### Despliegue en producción
 El stack de produccion vive en el repositorio `gestion-practicas-deployment` y
