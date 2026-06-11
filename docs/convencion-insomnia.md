@@ -45,6 +45,13 @@ Si el módulo usa variables adicionales, también deben declararse en
 quedar vacíos o como placeholders; no guardar tokens reales ni secretos
 personales en el YAML.
 
+Cuando una colección tiene más de un flujo sobre el mismo dominio, usar
+variables separadas por escenario para evitar que un paso posterior rompa otro
+happy path. Ejemplos: `document_id` para CRUD documental,
+`dirae_document_id` para exportación DIRAE, `internship_id` para carga simple y
+`dirae_internship_id` para el paquete exportable. Esto es especialmente
+importante si un flujo elimina, observa, aprueba o cambia de estado el recurso.
+
 ## Estructura de colección
 
 Mantener una colección por módulo con esta estructura simple:
@@ -73,6 +80,18 @@ manual "copiar el token" si Insomnia puede guardarlo automáticamente.
 Para login simple:
 
 ```yaml
+body:
+  mimeType: application/x-www-form-urlencoded
+  params:
+    - name: username
+      value: "{{ _.test_email }}"
+      disabled: false
+    - name: password
+      value: "{{ _.test_password }}"
+      disabled: false
+headers:
+  - name: Content-Type
+    value: application/x-www-form-urlencoded
 scripts:
   afterResponse: |-
     const body = insomnia.response.json();
@@ -84,6 +103,12 @@ scripts:
       insomnia.environment.set("refresh_token", body.refresh_token);
     }
 ```
+
+El backend usa `OAuth2PasswordRequestForm` en `POST /auth/login`; por eso el
+login debe enviarse como `application/x-www-form-urlencoded` con campos
+`username` y `password`. No usar JSON `{ "email": "...", "password": "..." }`
+para este endpoint, porque FastAPI responderá `422` indicando que faltan
+`username` y `password`.
 
 Para login por rol, guardar el token en una variable explícita del rol:
 

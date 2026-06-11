@@ -14,9 +14,17 @@ y referencia las fuentes de verdad existentes.
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
-| POST | `/auth/login` | Publico | `LoginRequest` | `TokenResponse` |
+| POST | `/auth/login` | Publico | `OAuth2PasswordRequestForm` | `TokenResponse` |
 | GET | `/auth/me` | Bearer token | Header `Authorization` | `CurrentUserResponse` |
 | POST | `/auth/logout` | Bearer token | `LogoutRequest` opcional | `204 No Content` |
+
+`POST /auth/login` usa `application/x-www-form-urlencoded`, no JSON. El campo
+`username` corresponde al email del usuario:
+
+```text
+username=claudio.navarro@ufrontera.cl
+password=my_secure_password
+```
 
 ## Usuarios y roles
 
@@ -296,9 +304,11 @@ como URL publica; toda descarga pasa por endpoint autenticado.
 | GET | `/documents/types` | Bearer token | - | `list[DocumentTypeResponse]` |
 | POST | `/internships/{internship_id}/documents` | Estudiante propietario | `multipart/form-data` con `document_type_id` y `file` | `DocumentResponse` |
 | GET | `/internships/{internship_id}/documents` | Propietario o rol documental | Path `internship_id` | `list[DocumentResponse]` |
+| GET | `/internships/{internship_id}/documents/package` | Propietario o rol documental | Path `internship_id` | `DocumentPackageResponse` |
 | GET | `/documents/{document_id}/download` | Propietario o rol documental | Path `document_id` | Archivo binario |
 | PATCH | `/documents/{document_id}/status` | Rol documental | `DocumentStatusUpdateRequest` | `DocumentResponse` |
 | DELETE | `/documents/{document_id}` | Propietario si no esta aprobado, o rol documental | Path `document_id` | `204 No Content` |
+| GET | `/dirae/document-packages/export` | Rol documental | Query opcional `internship_ids` repetible | CSV `text/csv` |
 
 Roles documentales autorizados:
 
@@ -379,6 +389,93 @@ Estados documentales:
 - `approved`
 - `deleted`
 
+### DIRAE / Paquete documental
+
+`GET /internships/{internship_id}/documents/package` calcula el paquete
+documental de una practica. Puede consultarlo el estudiante propietario o un
+rol documental autorizado. La respuesta indica si la practica es exportable a
+DIRAE sin crear lotes persistidos.
+
+Reglas de exportabilidad:
+
+- la practica debe estar en estado `Aprobada`;
+- cada `DocumentType` activo con `is_required = true` debe tener un documento
+  `approved` no eliminado;
+- si existe mas de un documento aprobado para el mismo tipo, se usa el mas
+  reciente por `upload_date DESC, id DESC`;
+- `reasons` usa valores estables: `internship_not_approved` y
+  `missing_required_documents`.
+
+Respuesta resumida:
+
+```json
+{
+  "internship_id": 7,
+  "status": "Aprobada",
+  "exportable": true,
+  "reasons": [],
+  "student": {
+    "id": 10,
+    "rut": "12.345.678-9",
+    "enrollment": "12345678923",
+    "first_name": "Juan",
+    "last_name": "Perez",
+    "email": "juan.perez@correo.cl",
+    "degree": "Ingenieria Civil Informatica",
+    "cod_degree": "INF-001"
+  },
+  "internship": {
+    "type": "Práctica de Estudio I",
+    "period": "Semestre",
+    "organization": "Empresa Demo SpA",
+    "city": "Temuco",
+    "start_date": "2026-06-01",
+    "end_date": "2026-08-31"
+  },
+  "required_documents": [
+    {
+      "type_id": 1,
+      "type_name": "Formulario de inscripción",
+      "status": "approved",
+      "document": {
+        "id": 15,
+        "file_name": "formulario.pdf",
+        "extension": "pdf",
+        "status": "approved"
+      }
+    }
+  ],
+  "optional_documents": []
+}
+```
+
+`GET /dirae/document-packages/export` exporta CSV con:
+
+```text
+internship_id,student_id,student_rut,student_enrollment,student_first_name,student_last_name,student_email,degree,cod_degree,internship_type,internship_period,organization,city,start_date,end_date,approved_document_ids,required_document_type_ids,exported_at
+```
+
+`student_enrollment` se calcula como RUT sin puntos ni guion más los dos últimos
+dígitos del año de ingreso cuando ese dato está disponible en el usuario. Si el
+año de ingreso todavía no existe en el modelo de datos, el campo se retorna vacío
+en CSV y `null` en el paquete JSON.
+
+El query `internship_ids` es opcional y repetible:
+
+```text
+/dirae/document-packages/export?internship_ids=1&internship_ids=2
+```
+
+Si se omite, exporta todas las practicas aprobadas y exportables. Si no hay
+filas exportables, responde `200 OK` con solo el encabezado CSV. La respuesta
+incluye `Content-Disposition` con nombre
+`dirae_document_packages_YYYYMMDD_HHMMSS.csv`.
+
+La exportación define el evento interno `dirae_export_generated` con actor,
+fecha, prácticas, documentos, archivo y resultado de generación para integración
+posterior con auditoría. En el MVP no se persiste un lote DIRAE propio ni se
+envía el archivo a sistemas externos.
+
 Errores esperados:
 
 - `400 Bad Request`: extension invalida, archivo vacio, tamano excedido o
@@ -387,3 +484,5 @@ Errores esperados:
 - `404 Not Found`: practica, tipo documental, documento o archivo inexistente.
 - `409 Conflict`: carga en practica terminal o estudiante intentando eliminar
   un documento aprobado.
+- `409 Conflict`: exportacion DIRAE solicitada explicitamente para una practica
+  no exportable.

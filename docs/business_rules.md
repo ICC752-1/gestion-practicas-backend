@@ -188,3 +188,48 @@ consultarlo, revisarlo o eliminarlo.
   autenticación y autorización.
 
 ---
+
+## RN-04: Exportación DIRAE posterior a la aprobación administrativa
+
+### Descripción
+
+La exportación DIRAE consolida prácticas ya aprobadas y con documentación
+mínima validada. El paquete documental es una vista calculada sobre prácticas,
+estudiantes, tipos documentales y documentos aprobados; no representa una etapa
+obligatoria para resolver la solicitud de práctica.
+
+### Definición de la Regla
+
+1. **Aprobación previa:** Una práctica solo puede ser exportable a DIRAE cuando
+   su estado actual es `Aprobada`.
+2. **Documentación requerida:** Todos los tipos documentales activos marcados
+   como requeridos deben tener al menos un documento `approved` no eliminado.
+3. **Documento vigente por tipo:** Si existen varios documentos aprobados para
+   un mismo tipo, se selecciona el más reciente por `upload_date DESC, id DESC`.
+4. **DIRAE no bloquea la aprobación:** El flujo DIRAE ocurre después de la
+   aprobación administrativa. No es un estado previo obligatorio para aprobar
+   o rechazar una práctica.
+5. **Roles autorizados:** `Encargado de practica`, `Director de carrera` y
+   `Secretaria de Carrera` pueden consultar paquetes documentales y exportar
+   CSV DIRAE.
+6. **Matrícula derivada:** La matrícula institucional se calcula como RUT sin
+   puntos ni guion más los dos últimos dígitos del año de ingreso cuando ese dato
+   está disponible. Si el año de ingreso no existe en el modelo actual, el campo
+   queda vacío o `null`.
+7. **Sin persistencia de lote MVP:** La exportación se genera dinámicamente y no
+   crea lotes persistidos en esta versión.
+8. **Evento auditable definido:** La exportación deja definido el evento
+   `dirae_export_generated` con actor, fecha, prácticas, documentos, archivo y
+   resultado para integrarlo con la auditoría funcional cuando 11.5 esté
+   disponible.
+
+### Resultado Técnico
+
+- `GET /internships/{internship_id}/documents/package` retorna
+  `exportable = false` con razones estables si la práctica no está aprobada o
+  faltan documentos requeridos.
+- `GET /dirae/document-packages/export` retorna CSV `text/csv`. Cuando se
+  solicitan IDs explícitos, una práctica inexistente responde `404` y una
+  práctica no exportable responde `409`.
+
+---
