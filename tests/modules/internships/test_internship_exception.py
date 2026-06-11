@@ -12,9 +12,6 @@ from app.modules.internships.models.internship_model import (
 )
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
 from app.modules.internships.services.internship_service import (
-    APPROVED_STATUS_TITLE,
-    IN_REVIEW_STATUS_TITLE,
-    PENDING_STATUS_TITLE,
     InternshipService,
 )
 
