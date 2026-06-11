@@ -7,6 +7,7 @@ CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
 CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
+CREATE TYPE "exceptable_rule_enum" AS ENUM ('school_insurance', 'sequentiality');
 CREATE TYPE "enumDocumentStatus" AS ENUM ('uploaded', 'observed', 'approved', 'deleted');
 
 CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
@@ -16,6 +17,9 @@ CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
 
 CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
+
+CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
+CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
 
 -- 2. Creación de Tablas
 
@@ -80,7 +84,7 @@ CREATE TABLE user_roles (
     assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE StudentInternshipRequirement (
+CREATE TABLE studentInternshipRequirement (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES Users(id),
     type "enumStudentInternshipType" NOT NULL,
@@ -210,6 +214,65 @@ created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 sent_at TIMESTAMP
 );
 
+CREATE TABLE internship_exceptions (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    rule "exceptable_rule_enum" NOT NULL,
+    reason TEXT NOT NULL,
+    authorized_by INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+    authorized_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);    
+
+CREATE TABLE student_registration_requirements (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id),
+    requirement "registration_requirement_enum" NOT NULL,
+    is_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    completed_at TIMESTAMP,
+    updated_by INTEGER REFERENCES Users(id),
+
+    UNIQUE (user_id, requirement)
+);
+
+CREATE TABLE induction_content_versions (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    status "content_status_enum" NOT NULL DEFAULT 'draft',
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    min_score INTEGER NOT NULL DEFAULT 5,
+    published_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE induction_videos (
+    id SERIAL PRIMARY KEY,
+    content_version_id INTEGER NOT NULL REFERENCES induction_content_versions(id) ON DELETE CASCADE,
+    title VARCHAR(255) NOT NULL,
+    video_url VARCHAR(500) NOT NULL,
+    "order" INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE induction_questions (
+    id SERIAL PRIMARY KEY,
+    content_version_id INTEGER NOT NULL REFERENCES induction_content_versions(id) ON DELETE CASCADE,
+    question_text TEXT NOT NULL,
+    options JSONB NOT NULL,
+    correct_answer VARCHAR(255) NOT NULL,
+    "order" INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE induction_attempts (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id) ON DELETE CASCADE,
+    content_version_id INTEGER NOT NULL REFERENCES induction_content_versions(id) ON DELETE CASCADE,
+    answers JSONB NOT NULL,
+    score INTEGER NOT NULL,
+    passed BOOLEAN NOT NULL,
+    attempted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE OR REPLACE FUNCTION fn_create_student_internship_requirements()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -265,6 +328,7 @@ BEGIN
     entity_enum := CASE lower(TG_TABLE_NAME)
         WHEN 'users' THEN 'Usuario'::"enumEntity"
         WHEN 'internship' THEN 'Práctica'::"enumEntity"
+        WHEN 'internship_exceptions' THEN 'Práctica':: "enumEntity"
         WHEN 'document' THEN 'Documento'::"enumEntity"
         WHEN 'presentation' THEN 'Presentación'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
@@ -306,3 +370,5 @@ CREATE TRIGGER tr_audit_user AFTER INSERT OR UPDATE OR DELETE ON Users FOR EACH 
 CREATE TRIGGER tr_audit_internship AFTER INSERT OR UPDATE OR DELETE ON Internship FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_document AFTER INSERT OR UPDATE OR DELETE ON Document FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Presentation FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+
