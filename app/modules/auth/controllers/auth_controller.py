@@ -8,14 +8,16 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.core.database.database import get_db
 
+from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
 from app.modules.auth.repositories.user_repository import UserRepository
 
-from app.modules.auth.schemas.auth_schema import LoginRequest, LogoutRequest
+from app.modules.auth.schemas.auth_schema import LogoutRequest, RefreshTokenRequest
 from app.modules.auth.schemas.token_schema import TokenResponse
 from app.modules.auth.schemas.user_schema import CurrentUserResponse
 
@@ -30,15 +32,15 @@ logger = logging.getLogger(__name__)
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
-    credentials: LoginRequest,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
-):
+) -> TokenResponse:
     """Inicia sesión y devuelve tokens de acceso y refresco.
 
     Valida las credenciales y, si son correctas, emite un `TokenResponse`.
 
     Args:
-        credentials: Credenciales de inicio de sesión (email y password).
+        form_data: Formulario OAuth2 con `username` (email) y `password`.
         db: Sesión asíncrona de base de datos inyectada por `get_db`.
 
     Returns:
@@ -49,22 +51,70 @@ async def login(
     """
 
     user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
 
     auth_service = AuthService(
         user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
         password_service=PasswordService(),
         token_service=TokenService()
     )
 
     try:
         logger.info("Login request received")
-        return await auth_service.login(email=credentials.email, password=credentials.password)
+        return await auth_service.login(
+            email=form_data.username,
+            password=form_data.password,
+        )
 
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(
+    payload: RefreshTokenRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> TokenResponse:
+    """Renueva tokens usando un refresh token valido.
+
+    Args:
+        payload: Solicitud con refresh token emitido previamente.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+
+    Returns:
+        `TokenResponse` con nuevos tokens de acceso y refresco.
+
+    Raises:
+        HTTPException: 401 si el refresh token es invalido, expiro, no es de
+            tipo refresh o el usuario asociado no existe/esta inactivo.
+    """
+
+    user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        token_response = await auth_service.refresh_session(payload.refresh_token)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    logger.info("Refresh token completed")
+
+    return token_response
 
 @router.get("/me", response_model=CurrentUserResponse)
 async def get_me(
@@ -96,42 +146,42 @@ async def get_me(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     payload: LogoutRequest | None = None,
 ) -> Response:
     """Cierra sesión (logout) para el dispositivo actual.
 
-    En esta implementación los JWT no se persisten en el backend, por lo que no
-    existe una revocación real del token. El cierre de sesión efectivo ocurre
-    en el frontend al eliminar los tokens almacenados.
-
-    Si el frontend envía un `refresh_token`, se valida su firma/expiración y que
-    pertenezca al usuario autenticado (solo como verificación/auditoría).
+    Si el frontend envía un `refresh_token`, se valida que pertenezca al usuario
+    autenticado y se revoca en base de datos.
 
     Args:
         current_user: Usuario autenticado (access token válido).
+        db: Sesión asíncrona de base de datos inyectada por `get_db`.
         payload: Opcional. Incluye `refresh_token` para validación.
 
     Returns:
         Respuesta vacía con código 204.
     """
 
-    if payload is not None:
-        token_service = TokenService()
+    user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
 
-        try:
-            refresh_payload = token_service.decode_token(payload.refresh_token)
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid refresh token",
-            )
-
-        refresh_sub = refresh_payload.get("sub")
-        if refresh_sub is None or str(refresh_sub) != str(current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Refresh token does not match current user",
-            )
+    try:
+        await auth_service.logout_session(
+            current_user=current_user,
+            refresh_token=payload.refresh_token if payload else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
     logger.info("Logout completed", extra={"user_id": current_user.id})

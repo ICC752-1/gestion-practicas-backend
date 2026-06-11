@@ -28,12 +28,14 @@ class TokenPayload(BaseModel):
         sub: Identificador del sujeto (usuario) del token.
         email: Correo electrónico del usuario.
         roles: Lista de roles asociados al usuario.
+        type: Tipo de token, siempre ``"access"``.
         exp: Fecha/hora de expiración del token.
     """
 
     sub: str
     email: EmailStr
     roles: list[str]
+    type: Literal["access"]
     exp: datetime
 
 class RefreshTokenPayload(BaseModel):
@@ -41,10 +43,14 @@ class RefreshTokenPayload(BaseModel):
 
     Attributes:
         sub: Identificador del sujeto (usuario) del token.
+        jti: Identificador único del refresh token.
+        type: Tipo de token, siempre ``"refresh"``.
         exp: Fecha/hora de expiración del refresh token.
     """
 
     sub: str
+    jti: str
+    type: Literal["refresh"]
     exp: datetime
 
 class TokenValidationResponse(BaseModel):
