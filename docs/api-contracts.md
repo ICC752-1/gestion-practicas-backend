@@ -63,16 +63,15 @@ Para conocer la matriz de transiciones detallada y las reglas de negocio que evi
 
 #### Aprobación (`POST /internships/{internship_id}/approve`)
 
-* **Payload (`ApproveRequest`):**
+* **Payload (`InternshipActionRequest`):**
 
 ```json
 {
-  "comment": "Comentario opcional de aprobación",
-  "skip_review": false
+  "comment": "Comentario opcional de aprobación"
 }
 ```
 
-**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** o el flag `skip_review: true` la avanzará a **Aprobada**. El rol de **Encargado** (con `skip_review: false`) la avanzará a **En revisión**.
+**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** la avanzará directamente a **Aprobada**. El rol de **Encargado** la avanzará a **En revisión**.
 
 #### Rechazo (`POST /internships/{internship_id}/reject`)
 
@@ -296,8 +295,7 @@ Respuesta resumida:
   "ben_description": "Bono locomocion y colacion.",
   "amount": 120000,
   "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": false
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 
@@ -306,7 +304,6 @@ Valores validos relevantes:
 - `modality`: `Presencial`, `Remoto`, `Híbrido`.
 - `internship_period`: `Semestre`, `Verano`, `Invierno`.
 - `internship_type`: `Práctica de Estudio I`, `Práctica de Estudio II`, `Práctica Controlada`, `Tesis`.
-- `has_school_insurance`: obligatorio. Si el periodo es `Verano` o `Invierno`, debe ser `true`.
 
 ## Mapeo esperado desde formulario frontend
 
@@ -335,7 +332,7 @@ Valores validos relevantes:
 | `paymentAmount` | `amount` |
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
-`internship_period`, `internship_type` y `has_school_insurance`.
+`internship_period`, `internship_type`.
 
 ## Documentos
 

@@ -7,7 +7,10 @@ from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
     PracticeTypeEnum,
 )
-from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
+from app.modules.internships.schemas.internship_schema import (
+    InternshipCreateRequest,
+    InternshipExceptionRequest,
+)
 
 
 def _valid_payload() -> dict[str, object]:
@@ -164,3 +167,16 @@ def test_register_summer_with_insurance() -> None:
 
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
+
+
+@pytest.mark.parametrize(
+    ("reason", "test_name"),
+    [
+        pytest.param("", "empty string", id="reason_empty"),
+        pytest.param("   ", "whitespace only", id="reason_whitespace"),
+        pytest.param(None, "null value", id="reason_none"),
+    ],
+)
+def test_exception_request_rejects_blank_reason(reason: str | None, test_name: str) -> None:
+    with pytest.raises(ValidationError):
+        InternshipExceptionRequest(rule="school_insurance", reason=reason)
