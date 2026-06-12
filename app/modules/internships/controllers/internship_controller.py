@@ -28,6 +28,9 @@ from app.modules.internships.schemas.internship_schema import (
     InductionContentVersionResponse,
     InternshipActionRequest,
     InternshipActionResponse,
+    InternshipAdminUpdateRequest,
+    InternshipCancelRequest,
+    InternshipCancelResponse,
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
@@ -424,6 +427,96 @@ async def get_internship_tracking(
         InternshipTrackingResponse.model_validate(history)
         for history in status_history
     ]
+
+
+@router.patch(
+    "/{internship_id}/admin",
+    response_model=InternshipResponse,
+)
+async def update_internship_admin_fields(
+    internship_id: int,
+    payload: InternshipAdminUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(EXCEPTION_ROLES))],
+) -> InternshipResponse:
+    """Corrige campos editables de una practica con trazabilidad administrativa.
+
+    Args:
+        internship_id: Identificador de la practica a corregir.
+        payload: Campos editables y motivo obligatorio de la correccion.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+
+    Returns:
+        `InternshipResponse` con la practica actualizada.
+    """
+
+    logger.info(
+        "HTTP PATCH /internships/%s/admin - Edición administrativa solicitada "
+        "por actor ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.update_admin_fields(
+        internship_id=internship_id,
+        actor=current_user,
+        payload=payload,
+    )
+
+    logger.info(
+        "HTTP 200 OK - Práctica ID: %s editada administrativamente por actor ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    return InternshipResponse.model_validate(internship)
+
+
+@router.post(
+    "/{internship_id}/cancel",
+    response_model=InternshipCancelResponse,
+)
+async def cancel_internship(
+    internship_id: int,
+    payload: InternshipCancelRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(EXCEPTION_ROLES))],
+) -> InternshipCancelResponse:
+    """Anula logicamente una practica con trazabilidad administrativa.
+
+    Args:
+        internship_id: Identificador de la practica a anular.
+        payload: Motivo obligatorio de anulacion.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado con rol autorizado por `require_roles`.
+
+    Returns:
+        `InternshipCancelResponse` con los datos de anulacion logica.
+    """
+
+    logger.info(
+        "HTTP POST /internships/%s/cancel - Anulación lógica solicitada por "
+        "actor ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.cancel(
+        internship_id=internship_id,
+        actor=current_user,
+        reason=payload.reason,
+    )
+
+    logger.info(
+        "HTTP 200 OK - Práctica ID: %s anulada lógicamente por actor ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    return InternshipCancelResponse.model_validate(internship)
 
 
 @router.post(

@@ -200,6 +200,10 @@ class InternshipResponse(BaseModel):
             practica.
         internship_period: Periodo de la practica.
         internship_type: Tipo de practica.
+        is_cancelled: Indica si la practica fue anulada logicamente.
+        cancelled_at: Fecha y hora de anulacion logica, si existe.
+        cancelled_by: Identificador del usuario que anulo la practica.
+        cancellation_reason: Motivo funcional de la anulacion logica.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -232,8 +236,61 @@ class InternshipResponse(BaseModel):
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
     has_school_insurance: bool
+    is_cancelled: bool
+    cancelled_at: datetime | None
+    cancelled_by: int | None
+    cancellation_reason: str | None
 
     exceptions: list["InternshipExceptionResponse"] = []
+
+
+class InternshipAdminUpdateRequest(BaseModel):
+    """Payload para edicion administrativa acotada de una practica."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+    org_name: str | None = None
+    sector: str | None = None
+    address: str | None = None
+    city: str | None = None
+    org_phone: str | None = None
+    web: str | None = None
+    supervisor_name: str | None = None
+    supervisor_profession: str | None = None
+    supervisor_position: str | None = None
+    supervisor_department: str | None = None
+    supervisor_email: EmailStr | None = None
+    supervisor_phone: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    schedule: str | None = None
+    days: str | None = None
+    modality: Modality | None = None
+    internship_address: str | None = None
+    act_description: str | None = None
+    ben_description: str | None = None
+    amount: int | None = None
+
+
+class InternshipCancelRequest(BaseModel):
+    """Payload para anulacion logica de una practica."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str
+
+
+class InternshipCancelResponse(BaseModel):
+    """Respuesta tras anular logicamente una practica."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    is_cancelled: bool
+    cancelled_at: datetime | None
+    cancelled_by: int | None
+    cancellation_reason: str | None
 
 class InternshipActionRequest(BaseModel):
     """Payload para acciones de transición de estado.

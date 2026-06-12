@@ -8,6 +8,7 @@ aplicación.
 from datetime import datetime, UTC, timedelta
 import hashlib
 import hmac
+import secrets
 from typing import Any
 from uuid import uuid4
 import jwt
@@ -85,6 +86,32 @@ class TokenService:
         }
         
         return jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)  # pyright: ignore[reportUnknownMemberType]
+
+    def create_oauth_state_token(self) -> str:
+        """Crea un token firmado para validar callbacks OAuth."""
+
+        expire = datetime.now(UTC) + timedelta(
+            minutes=config.GOOGLE_STATE_EXPIRE_MINUTES
+        )
+
+        payload: dict[str, Any] = {
+            "sub": "google_oauth",
+            "typ": "oauth_state",
+            "nonce": secrets.token_urlsafe(24),
+            "exp": expire,
+        }
+
+        return jwt.encode(payload, config.JWT_SECRET_KEY, algorithm=config.JWT_ALGORITHM)  # pyright: ignore[reportUnknownMemberType]
+
+    def decode_oauth_state_token(self, token: str) -> dict[str, Any]:
+        """Decodifica y valida que el token recibido sea un state OAuth."""
+
+        payload = self.decode_token(token)
+
+        if payload.get("typ") != "oauth_state":
+            raise ValueError("OAuth state inválido")
+
+        return payload
     
     def decode_token(self, token:str) -> dict[str, Any]:
         """Decodifica y valida un token JWT.
