@@ -17,6 +17,77 @@ y referencia las fuentes de verdad existentes.
 | POST | `/auth/login` | Publico | `LoginRequest` | `TokenResponse` |
 | GET | `/auth/me` | Bearer token | Header `Authorization` | `CurrentUserResponse` |
 | POST | `/auth/logout` | Bearer token | `LogoutRequest` opcional | `204 No Content` |
+| GET | `/auth/google/login` | Publico | - | `307 Redirect` a Google |
+| GET | `/auth/google/callback` | Publico, callback Google | Query `code`, `state` | `303 Redirect` al frontend |
+
+### Google OAuth institucional
+
+`GET /auth/google/login` inicia el flujo OAuth de Google con scopes
+`openid email profile`. El backend genera un `state` firmado y lo guarda en una
+cookie `HttpOnly` para validar que el callback pertenezca al navegador que
+inicio el login.
+
+`GET /auth/google/callback` recibe el `code`, intercambia el codigo contra
+Google, valida el `id_token`, verifica que el correo este confirmado y exige
+que el dominio pertenezca a `GOOGLE_ALLOWED_DOMAINS`.
+
+Variables sensibles requeridas:
+
+```env
+GOOGLE_CLIENT_ID=<client-id-web>
+GOOGLE_CLIENT_SECRET=<client-secret-web>
+```
+
+Defaults locales no sensibles definidos por el backend:
+
+```env
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
+GOOGLE_ALLOWED_DOMAINS=ufromail.cl,ufrontera.cl
+GOOGLE_FRONTEND_SUCCESS_URL=http://localhost:5173/auth/callback
+GOOGLE_FRONTEND_ERROR_URL=http://localhost:5173/auth/callback
+GOOGLE_COOKIE_SECURE=False
+```
+
+En produccion `GOOGLE_REDIRECT_URI` debe ser el callback HTTPS publico
+registrado en Google Cloud, por ejemplo
+`https://gestion-practicas-team-b.duckdns.org/api/auth/google/callback`, y
+`GOOGLE_COOKIE_SECURE=True`.
+
+En el despliegue Docker de produccion, `compose.prod.yml` define esos defaults
+publicos de produccion. La `.env` del host solo necesita sobrescribirlos si
+cambia el dominio o el callback autorizado.
+
+Regla de usuario:
+
+- Si existe un usuario activo con el correo Google validado, se reutiliza y sus
+  roles actuales definen la navegacion del frontend.
+- Si el dominio es permitido y no existe usuario, el backend crea un usuario
+  activo y verificado con rol `Estudiante`.
+- Como Google no entrega RUT, los usuarios creados por OAuth usan un RUT tecnico
+  `google:<hash-del-sub>`. La password almacenada es aleatoria y no se expone,
+  por lo que el acceso operativo de ese usuario queda ligado al OAuth.
+
+Resultado hacia frontend:
+
+- Exito: redireccion a `GOOGLE_FRONTEND_SUCCESS_URL?token=<access_token>`.
+- Error: redireccion a `GOOGLE_FRONTEND_ERROR_URL?error=<codigo>`.
+
+Codigos de error usados por el frontend:
+
+- `unauthorized_domain`
+- `invalid_callback`
+- `missing_token`
+- `server_unavailable`
+- `user_not_found`
+
+Limitaciones:
+
+- Google exige que `GOOGLE_REDIRECT_URI` coincida exactamente con una URI
+  autorizada en el cliente OAuth.
+- Para pruebas locales, registrar
+  `http://localhost:8000/auth/google/callback` en Google Cloud.
+- En produccion, usar HTTPS publico; no registrar URLs internas de Docker ni
+  callbacks sin TLS.
 
 ## Usuarios y roles
 
@@ -116,7 +187,7 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
 }
 ```
  
-- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`.
+- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`, `"sequentiality_thesis"`, `"parallel_course"`.
 - `reason`: obligatorio, no puede estar vacío ni contener solo espacios.
 **Respuesta exitosa** `201 Created` **(`InternshipExceptionResponse`):**
  
@@ -174,7 +245,9 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
- 
+| `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
+| `409` | Paralelo: Práctica Controlada sin excepción de ramo en paralelo | `{"rule": "parallel_course", "message": "La Práctica Controlada requiere que los co-requisitos estén resueltos. ..."}` |
+
 ---
 
 ### Dashboard coordinador

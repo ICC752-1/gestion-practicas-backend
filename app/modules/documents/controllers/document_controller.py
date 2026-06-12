@@ -21,6 +21,12 @@ from app.modules.documents.schemas.document_schema import (
     DocumentTypeResponse,
 )
 from app.modules.documents.services.document_service import DocumentService
+from app.modules.notifications.repositories.notification_repository import (
+    NotificationRepository,
+)
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
 
 
 router = APIRouter(tags=["Documents"])
@@ -42,9 +48,15 @@ def _build_service(db: AsyncSession) -> DocumentService:
         Instancia de `DocumentService`.
     """
 
+    notification_service = NotificationService(
+        notification_repository=NotificationRepository(db),
+        app_config=config,
+    )
+
     return DocumentService(
         document_repository=DocumentRepository(db),
         app_config=config,
+        notification_service=notification_service,
     )
 
 

@@ -5,12 +5,16 @@ operaciones de persistencia relacionadas con la entidad `Internship` usando una
 sesion asincrona de SQLAlchemy.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.auth.models.role_model import Role
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import (
     InductionAttempt,
@@ -185,6 +189,21 @@ class InternshipRepository:
 
         return list(result.scalars().all())
 
+    async def list_users_by_roles(self, role_names: set[str]) -> list[User]:
+        """Lista usuarios activos que poseen alguno de los roles indicados."""
+
+        query = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name.in_(role_names), User.is_active.is_(True))
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .order_by(User.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().unique().all())
+
     async def list_internship_status_history(
         self,
         internship_id: int,
@@ -246,6 +265,63 @@ class InternshipRepository:
             actor_id=actor_id,
             reason=reason,
             metadata_json=metadata,
+        )
+        self.db.add(status_history)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        return internship
+
+    async def update_internship_admin_fields_with_history(
+        self,
+        internship: Internship,
+        updates: dict[str, Any],
+        actor_id: int,
+        reason: str,
+        changed_fields: list[str],
+    ) -> Internship:
+        """Actualiza campos administrativos y registra trazabilidad."""
+
+        for field_name, value in updates.items():
+            setattr(internship, field_name, value)
+
+        status_history = InternshipStatusHistory(
+            internship_id=internship.id,
+            previous_status_id=internship.status_id,
+            new_status_id=internship.status_id,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_json={
+                "action": "admin_update",
+                "changed_fields": changed_fields,
+            },
+        )
+        self.db.add(status_history)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        return internship
+
+    async def cancel_internship_with_history(
+        self,
+        internship: Internship,
+        actor_id: int,
+        reason: str,
+    ) -> Internship:
+        """Marca una practica como anulada y registra trazabilidad."""
+
+        internship.is_cancelled = True
+        internship.cancelled_at = datetime.now(UTC).replace(tzinfo=None)
+        internship.cancelled_by = actor_id
+        internship.cancellation_reason = reason
+
+        status_history = InternshipStatusHistory(
+            internship_id=internship.id,
+            previous_status_id=internship.status_id,
+            new_status_id=internship.status_id,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_json={"action": "cancel"},
         )
         self.db.add(status_history)
         await self.db.commit()
@@ -465,8 +541,6 @@ class InternshipRepository:
         new_status: str,
         updated_by: int,
     ) -> StudentInternshipRequirement:
-        from datetime import UTC, datetime
-
         existing = await self.get_academic_requirement(user_id, practice_type)
 
         if existing is None:
@@ -474,7 +548,7 @@ class InternshipRepository:
                 user_id=user_id,
                 type=practice_type,
                 status=new_status,
-                status_updated_at = datetime.now(),
+                status_updated_at=datetime.now(UTC),
                 status_updated_by=updated_by,
             )
             self.db.add(req)

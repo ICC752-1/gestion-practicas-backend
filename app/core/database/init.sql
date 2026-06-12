@@ -123,6 +123,10 @@ CREATE TABLE Internship (
     internship_period "enumInternshipPeriod", 
     internship_type "enumStudentInternshipType",  
     has_school_insurance BOOLEAN,
+    is_cancelled BOOLEAN NOT NULL DEFAULT FALSE,
+    cancelled_at TIMESTAMP,
+    cancelled_by INTEGER REFERENCES Users(id),
+    cancellation_reason TEXT,
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
@@ -371,4 +375,3 @@ CREATE TRIGGER tr_audit_internship AFTER INSERT OR UPDATE OR DELETE ON Internshi
 CREATE TRIGGER tr_audit_document AFTER INSERT OR UPDATE OR DELETE ON Document FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Presentation FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
-

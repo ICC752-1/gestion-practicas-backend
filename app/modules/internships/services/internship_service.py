@@ -24,6 +24,7 @@ from app.modules.internships.schemas.internship_schema import (
     InductionAttemptResponse,
     InductionContentVersionResponse,
     InternshipCreateRequest,
+    InternshipAdminUpdateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
@@ -37,6 +38,7 @@ from app.modules.notifications.services.notification_service import (
 )
 from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_approved_notification,
+    build_internship_created_notification,
     build_internship_derived_notification,
     build_internship_rejected_notification,
 )
@@ -98,13 +100,31 @@ EMPTY_DASHBOARD_STATS = {
 }
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "Encargado de practica": ["approve", "reject", "grant_exception"],
-    "Director de carrera": ["approve", "reject", "grant_exception"],
+    "Encargado de practica": [
+        "approve",
+        "reject",
+        "grant_exception",
+        "admin_edit",
+        "cancel",
+    ],
+    "Director de carrera": [
+        "approve",
+        "reject",
+        "grant_exception",
+        "admin_edit",
+        "cancel",
+    ],
     "Secretaria de Carrera": ["derive"]
 }
 
 EXCEPTABLE_RULES = {"school_insurance", "sequentiality", "sequentiality_thesis", "parallel_course"}
 APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
+
+INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
+    "Encargado de practica",
+    "Director de carrera",
+}
+
 
 class InternshipService:
     """Orquesta casos de uso relacionados con practicas.
@@ -168,13 +188,19 @@ class InternshipService:
             status_id=initial_status.id,
         )
 
-        return await self.internship_repository.create_internship_with_history(
-            internship=internship,
-            initial_status=initial_status,
-            actor_id=user_id,
-            reason=INITIAL_HISTORY_REASON,
-            metadata={"event": "internship_created"},
+        created_internship = (
+            await self.internship_repository.create_internship_with_history(
+                internship=internship,
+                initial_status=initial_status,
+                actor_id=user_id,
+                reason=INITIAL_HISTORY_REASON,
+                metadata={"event": "internship_created"},
+            )
         )
+
+        await self._dispatch_internship_created_notifications(created_internship)
+
+        return created_internship
 
     async def get_internship(self, internship_id: int) -> Internship | None:
         """Obtiene una practica por identificador.
@@ -742,6 +768,135 @@ class InternshipService:
 
         return result
 
+    async def update_admin_fields(
+        self,
+        internship_id: int,
+        actor: User,
+        payload: InternshipAdminUpdateRequest,
+    ) -> Internship:
+        """Actualiza campos editables de una practica con trazabilidad.
+
+        Args:
+            internship_id: Identificador de la practica a corregir.
+            actor: Usuario administrativo que ejecuta la correccion.
+            payload: Campos editables y motivo obligatorio.
+
+        Returns:
+            La entidad ``Internship`` actualizada.
+
+        Raises:
+            HTTPException 400: Si falta motivo, no hay campos o los datos son
+                inconsistentes.
+            HTTPException 403: Si el actor no tiene permiso ``admin_edit``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si la practica esta anulada o en estado terminal.
+        """
+
+        self._require_action(actor, "admin_edit")
+        internship = await self._get_or_404(internship_id)
+        reason = payload.reason.strip()
+
+        if not reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de edición es obligatorio.",
+            )
+
+        self._require_editable_internship(internship, action_label="editar")
+
+        updates = payload.model_dump(exclude={"reason"}, exclude_none=True)
+        if not updates:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe informar al menos un campo editable.",
+            )
+
+        if "amount" in updates and updates["amount"] < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="El monto no puede ser negativo.",
+            )
+
+        start_date = updates.get("start_date", internship.start_date)
+        end_date = updates.get("end_date", internship.end_date)
+        if end_date < start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de término no puede ser anterior a la fecha de inicio.",
+            )
+
+        return await self.internship_repository.update_internship_admin_fields_with_history(
+            internship=internship,
+            updates=updates,
+            actor_id=actor.id,
+            reason=reason,
+            changed_fields=list(updates.keys()),
+        )
+
+    async def cancel(
+        self,
+        internship_id: int,
+        actor: User,
+        reason: str,
+    ) -> Internship:
+        """Anula logicamente una practica con motivo y trazabilidad.
+
+        Args:
+            internship_id: Identificador de la practica a anular.
+            actor: Usuario administrativo que ejecuta la anulacion.
+            reason: Motivo obligatorio de anulacion.
+
+        Returns:
+            La entidad ``Internship`` anulada logicamente.
+
+        Raises:
+            HTTPException 400: Si falta el motivo.
+            HTTPException 403: Si el actor no tiene permiso ``cancel``.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si la practica ya esta anulada o en estado terminal.
+        """
+
+        self._require_action(actor, "cancel")
+        internship = await self._get_or_404(internship_id)
+        clean_reason = reason.strip()
+
+        if not clean_reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de anulación es obligatorio.",
+            )
+
+        self._require_editable_internship(internship, action_label="anular")
+
+        return await self.internship_repository.cancel_internship_with_history(
+            internship=internship,
+            actor_id=actor.id,
+            reason=clean_reason,
+        )
+
+    def _require_editable_internship(
+        self,
+        internship: Internship,
+        action_label: str,
+    ) -> None:
+        """Bloquea operaciones administrativas sobre practicas cerradas."""
+
+        if internship.is_cancelled:
+            raise HTTPException(
+                status_code=409,
+                detail=f"No se puede {action_label} una práctica anulada.",
+            )
+
+        current_title = self._status_title_or_default(internship.status)
+        if current_title in TERMINAL_STATES:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"No se puede {action_label} una práctica en estado "
+                    f"terminal: {current_title}."
+                ),
+            )
+
     async def _get_or_404(self, internship_id: int) -> Internship:
         """Busca una practica o lanza 404 si no existe.
 
@@ -1251,3 +1406,26 @@ class InternshipService:
             blocked=blocked,
             next_step=next_step,
         )
+
+    async def _dispatch_internship_created_notifications(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Notifica a revisores cuando un estudiante registra una practica."""
+
+        if self.notification_service is None:
+            return
+
+        recipients = await self.internship_repository.list_users_by_roles(
+            INTERNSHIP_CREATION_NOTIFICATION_ROLES,
+        )
+        for recipient in recipients:
+            await self._dispatch_notification(
+                build_internship_created_notification(
+                    recipient_user_id=recipient.id,
+                    recipient_email=recipient.email,
+                    internship_id=internship.id,
+                    org_name=internship.org_name,
+                    student_user_id=internship.user_id,
+                ),
+            )

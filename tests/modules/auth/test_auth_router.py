@@ -20,3 +20,12 @@ def test_auth_router_exposes_oauth2_session_endpoints() -> None:
     assert "POST" in _methods_for_path("/auth/refresh")
     assert "/auth/me" in paths
     assert "/auth/logout" in paths
+
+
+def test_google_oauth_routes_are_registered() -> None:
+    paths = {route.path for route in app.routes}
+
+    assert "/auth/google/login" in paths
+    assert "GET" in _methods_for_path("/auth/google/login")
+    assert "/auth/google/callback" in paths
+    assert "GET" in _methods_for_path("/auth/google/callback")
