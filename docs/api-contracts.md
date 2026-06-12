@@ -151,7 +151,7 @@ Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascende
  
 ### Elegibilidad de registro
 
-`GET /internships/eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+`GET /internships/registration-eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
 
 **Respuesta (`RegistrationEligibilityResponse`):**
 
@@ -181,6 +181,7 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `403` | Rol sin permisos | `"Insufficient permissions"` |
 | `404` | Práctica no existe | `"Práctica no encontrada (Internship not found)"` |
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
+| `409` | Práctica I sin inducción aprobada | `"La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. ..."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
  
@@ -304,8 +305,7 @@ Respuesta resumida:
   "ben_description": "Bono locomocion y colacion.",
   "amount": 120000,
   "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": false
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 
@@ -314,7 +314,7 @@ Valores validos relevantes:
 - `modality`: `Presencial`, `Remoto`, `Híbrido`.
 - `internship_period`: `Semestre`, `Verano`, `Invierno`.
 - `internship_type`: `Práctica de Estudio I`, `Práctica de Estudio II`, `Práctica Controlada`, `Tesis`.
-- `has_school_insurance`: obligatorio. Si el periodo es `Verano` o `Invierno`, debe ser `true`.
+- `has_school_insurance` no se envía en `POST /internships`; el backend lo calcula desde los prerrequisitos registrados del estudiante y las excepciones administrativas vigentes.
 
 ## Mapeo esperado desde formulario frontend
 
@@ -343,7 +343,9 @@ Valores validos relevantes:
 | `paymentAmount` | `amount` |
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
-`internship_period`, `internship_type` y `has_school_insurance`.
+`internship_period` e `internship_type`. Para mostrar el estado de seguro e
+inducción, consultar `GET /internships/registration-eligibility` antes de enviar el
+formulario.
 
 ## Documentos
 

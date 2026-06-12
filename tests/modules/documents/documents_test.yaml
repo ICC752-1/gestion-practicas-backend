@@ -103,6 +103,80 @@ collection:
             store: true
           rebuildPath: true
 
+      - name: GET Induction Content
+        url: "{{ _.base_url }}/internships/induction"
+        meta:
+          id: req_documents_get_induction_content
+          created: 1781050000003
+          modified: 1781050000003
+          isPrivate: false
+          description: "Obtiene la induccion activa y guarda induction_question_id para completar el prerrequisito de Practica de Estudio I."
+          sortKey: -1781050000003
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body?.questions?.length > 0) {
+              insomnia.environment.set("induction_question_id", body.questions[0].id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+      - name: POST Complete Student Induction
+        url: "{{ _.base_url }}/internships/induction/attempts"
+        meta:
+          id: req_documents_complete_induction
+          created: 1781050000004
+          modified: 1781050000004
+          isPrivate: false
+          description: "Aprueba la induccion del estudiante antes de aprobar la Practica de Estudio I usada por DIRAE."
+          sortKey: -1781050000004
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "answers": {
+                "{{ _.induction_question_id }}": "{{ _.induction_correct_answer }}"
+              }
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (typeof body.passed === "boolean") {
+              insomnia.environment.set("induction_passed", body.passed);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
       - name: POST Create Internship
         url: "{{ _.base_url }}/internships"
         meta:
@@ -139,8 +213,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -202,8 +275,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -265,8 +337,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organizacion.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -930,6 +1001,9 @@ environments:
     student_access_token: paste_student_access_token_here
     refresh_token: paste_privileged_refresh_token_here
     student_refresh_token: paste_student_refresh_token_here
+    induction_question_id: 1
+    induction_correct_answer: Entiendo y acepto
+    induction_passed: false
     internship_id: 1
     dirae_internship_id: 2
     dirae_incomplete_internship_id: 3

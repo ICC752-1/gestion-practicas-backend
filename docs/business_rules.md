@@ -10,7 +10,7 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
 
 - **Práctica Semestral (`internship_period`: "Semestre"):** El seguro escolar **no es requerido** de forma obligatoria por parte de la plataforma para registrar la práctica, dado que el estudiante mantiene la carga académica y cobertura regular del periodo lectivo.
 
-- **Práctica Estival (`internship_period`: "Verano" o "Invierno"):** El seguro escolar es **estrictamente obligatorio**. No se permitirá el registro de ninguna práctica estival que no cuente con la declaración explícita de cobertura de seguro.
+- **Práctica Estival (`internship_period`: "Verano" o "Invierno"):** El seguro escolar es **estrictamente obligatorio**. No se permitirá el registro de ninguna práctica estival cuando el backend determine que el estudiante no cuenta con cobertura vigente o excepción administrativa aplicable.
 
   > **Excepción Administrativa:** Contemplada para ser implementada en el **Sprint 9** (gestión de casos excepcionales por secretaría de estudios o dirección de carrera).
 
@@ -24,11 +24,11 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
 
 ### Excepción Administrativa 
  
-- Cuando una práctica estival no cuenta con seguro escolar (`has_school_insurance = False`), un actor administrativo autorizado puede registrar una excepción justificada que habilita el trámite sin modificar la declaración original del estudiante.
+- Cuando una práctica estival no cuenta con seguro escolar (`has_school_insurance = False` como valor calculado por backend), un actor administrativo autorizado puede registrar una excepción justificada que habilita el trámite sin modificar el registro base de cumplimiento del estudiante.
 
 #### Principio de invariante
  
-- `has_school_insurance` **nunca se muta** por vía administrativa. El campo siempre refleja la realidad declarada por el estudiante. La excepción registra el desvío y habilita el flujo, pero no convierte `False` en `True` ni implica cumplimiento real del requisito.
+- `has_school_insurance` **nunca se muta** por vía administrativa. El campo refleja la realidad registrada internamente para el estudiante. La excepción registra el desvío y habilita el flujo, pero no convierte `False` en `True` ni implica cumplimiento real del requisito.
  
 #### Roles autorizados para otorgar la excepción
  
@@ -65,7 +65,7 @@ No se puede registrar una excepción sobre una práctica en estado terminal (`Ap
 
 #### Caso 1 — Rechazo: Práctica Estival sin Seguro
 
-Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y sin seguro (`"has_school_insurance": false`), el sistema denegará la petición.
+Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y el backend calcula que el estudiante no tiene seguro ni excepción administrativa vigente, el sistema denegará la petición.
 
 **Respuesta:** `400 Bad Request`
 
@@ -107,16 +107,15 @@ Permite el registro sin necesidad de contar con seguro escolar activo.
   "act_description": "Desarrollo de software backend",
   "ben_description": "Aplicar conocimientos académicos",
   "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": false
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 
 ---
 
-#### Caso 3 — Éxito: Práctica Estival con Seguro (Obligatorio Cumplido)
+#### Caso 3 — Éxito: Práctica Estival con Seguro Registrado (Obligatorio Cumplido)
 
-Permite el registro en periodo estival siempre que se declare explícitamente la posesión del seguro.
+Permite el registro en periodo estival siempre que el backend registre cumplimiento vigente de seguro escolar para el estudiante.
 
 **Respuesta:** `201 Created`
 
@@ -141,8 +140,7 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
   "act_description": "Desarrollo de software backend",
   "ben_description": "Aplicar conocimientos académicos",
   "internship_period": "Verano",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": true
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 ---
@@ -181,9 +179,15 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 
 Un estudiante no puede avanzar la **Práctica de Estudio II** mediante `approve()` mientras su **Práctica de Estudio I** no se encuentre aprobada. La creación de la Práctica II (`create_internship`) no está sujeta a esta restricción.
 
+La **Práctica de Estudio I** exige inducción obligatoria aprobada antes de la
+aprobación administrativa. Esta regla es inexceptuable: no puede resolverse con
+una excepción administrativa.
+
 ### Definición de la Regla
 
 - La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no al registro inicial (`create_internship`).
+- Si la práctica en aprobación es de tipo `Práctica de Estudio I`, el sistema verifica que el estudiante tenga inducción aprobada en `student_registration_requirements` o un intento aprobado en `induction_attempts`.
+- Si no existe inducción aprobada para Práctica I, se bloquea el avance con `409 Conflict`.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
 - Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
 - El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.

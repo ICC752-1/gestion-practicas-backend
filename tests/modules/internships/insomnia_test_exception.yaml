@@ -83,8 +83,7 @@ collection:
               "ben_description": "Aplicar conocimientos académicos del plan de estudios",
               "amount": 300000,
               "internship_period": "Verano",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -131,8 +130,7 @@ collection:
               "act_description": "Desarrollo de software backend",
               "ben_description": "Aplicar conocimientos académicos",
               "internship_period": "Verano",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": true
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
