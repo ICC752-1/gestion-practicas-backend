@@ -19,18 +19,6 @@ class Config(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # OAuth Google
-    GOOGLE_OAUTH_CLIENT_ID: str = ""
-    GOOGLE_OAUTH_CLIENT_SECRET: str = ""
-    GOOGLE_OAUTH_REDIRECT_URI: str = ""
-    GOOGLE_OAUTH_ALLOWED_DOMAIN: str = "ufromail.cl"
-    FRONTEND_AUTH_SUCCESS_URL: str = "http://localhost:5173/dashboard"
-
-    # Auth cookies
-    AUTH_COOKIE_SECURE: bool = False
-    AUTH_COOKIE_SAMESITE: str = "lax"
-    AUTH_COOKIE_DOMAIN: str | None = None
-
     # Logging
     LOG_DIR: str = "logs"
     LOG_FILE_NAME: str = "gestion_practicas.jsonl"
@@ -59,6 +47,20 @@ class Config(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_AUTH_URI: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    GOOGLE_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
+    GOOGLE_JWKS_URI: str = "https://www.googleapis.com/oauth2/v3/certs"
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
+    GOOGLE_ALLOWED_DOMAINS: str = "ufromail.cl,ufrontera.cl"
+    GOOGLE_FRONTEND_SUCCESS_URL: str = "http://localhost:5173/auth/callback"
+    GOOGLE_FRONTEND_ERROR_URL: str = "http://localhost:5173/auth/callback"
+    GOOGLE_STATE_EXPIRE_MINUTES: int = 10
+    GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
+    GOOGLE_COOKIE_SECURE: bool = False
+
     @property
     def DATABASE_URL(self) -> str:
         return (
@@ -81,6 +83,14 @@ class Config(BaseSettings):
             for extension in self.DOCUMENT_ALLOWED_EXTENSIONS.split(",")
             if extension.strip()
         }
+
+    @property
+    def GOOGLE_ALLOWED_DOMAIN_LIST(self) -> list[str]:
+        return [
+            domain.strip().lower()
+            for domain in self.GOOGLE_ALLOWED_DOMAINS.split(",")
+            if domain.strip()
+        ]
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"

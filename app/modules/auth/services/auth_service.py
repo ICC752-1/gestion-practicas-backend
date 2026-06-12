@@ -132,7 +132,7 @@ class AuthService:
 
         try:
             user_id = int(refresh_sub)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             raise ValueError("Invalid token payload")
 
         if not isinstance(refresh_jti, str) or not refresh_jti:
