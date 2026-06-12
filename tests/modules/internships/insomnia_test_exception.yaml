@@ -1,0 +1,347 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: My first collection
+meta:
+  id: wrk_efdb1be8377442e6977c95c42d0642c3
+  created: 1780000336765
+  modified: 1780000336765
+  description: ""
+collection:
+  - name: test_validacion_seguro
+    meta:
+      id: fld_ef4fcd9bc7474b548acb90fbe13cdd95
+      created: 1780005196253
+      modified: 1780005196253
+      sortKey: -1780005196254
+      description: ""
+    children:
+      - url: http://localhost:8000/auth/login
+        name: Auth_token
+        meta:
+          id: req_0e12c540abb54278b306dc4cb3fb2137
+          created: 1780000336895
+          modified: 1780005274952
+          isPrivate: false
+          description: ""
+          sortKey: -1780005201394
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "email": "juan.perez@correo.cl",
+              "password": "my_secure_password"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships
+        name: test_register_summer_no_insurance
+        meta:
+          id: req_aee93c837b2840c9be218623d3944039
+          created: 1780004965740
+          modified: 1780970649768
+          isPrivate: false
+          description: ""
+          sortKey: -1780005201444
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Ficticia SA",
+              "sector": "Tecnología",
+              "address": "Av. Alemania 0456",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa.cl",
+              "supervisor_name": "Claudio Quezada",
+              "supervisor_profession": "Ingeniero Civil Informático",
+              "supervisor_position": "Líder Técnico de Desarrollo",
+              "supervisor_department": "Área de Ingeniería",
+              "supervisor_email": "claudio.quezada@empresa.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "08:00 - 17:00",
+              "days": "Lunes a Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Alemania 0456",
+              "act_description": "Desarrollo de software backend en FastAPI",
+              "ben_description": "Aplicar conocimientos académicos del plan de estudios",
+              "amount": 300000,
+              "internship_period": "Verano",
+              "internship_type": "Práctica de Estudio I",
+              "has_school_insurance": false
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwiZXhwIjoxNzgwOTcxNDA0fQ.B1J15jE44fh724P4TbZnA4Xx1rqwNBQnH1zIMZfs1FA
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships
+        name: test_register_summer_with_insurance
+        meta:
+          id: req_b805b470936949349386bfdf7f59ece5
+          created: 1780005076281
+          modified: 1780010872223
+          isPrivate: false
+          description: ""
+          sortKey: -1780005201344
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+            	"org_name": "Empresa SA",
+              "sector": "Tecnología",
+              "address": "Av. Principal 123",
+              "city": "Temuco",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "08:00 - 17:00",
+              "days": "Lunes a Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Principal 123",
+              "act_description": "Desarrollo de software backend",
+              "ben_description": "Aplicar conocimientos académicos",
+              "internship_period": "Verano",
+              "internship_type": "Práctica de Estudio I",
+              "has_school_insurance": true
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwiZXhwIjoxNzgwMDEyNjUzfQ.oeX6__6J3faQc7OljeJe48O2w3GksaJRsu1YwSwoq2U
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: test_internship_actions
+    meta:
+      id: fld_dbfcfd22815b4ce1ab739474e9744ed2
+      created: 1780546612997
+      modified: 1780546612997
+      sortKey: -1780546612997
+      description: ""
+  - name: test_exception
+    meta:
+      id: fld_ce1347fd25154b12bd165f7835fc4efb
+      created: 1780890526007
+      modified: 1780890526007
+      sortKey: -1780890526007
+      description: ""
+    children:
+      - url: http://localhost:8000/internships/1/exceptions
+        name: register_exeception
+        meta:
+          id: req_1b333b5eb9534ab6b3e7a26d088359e8
+          created: 1780968996957
+          modified: 1780973585701
+          isPrivate: false
+          description: ""
+          sortKey: -1780969715382
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "rule": "school_insurance",
+              "reason": "El estudiante presenta constancia de tramitación de la póliza en la DAE (D.S. 313)."
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJjbGF1ZGlvLm5hdmFycm9AdWZyb250ZXJhLmNsIiwicm9sZXMiOlsiRGlyZWN0b3IgZGUgY2FycmVyYSJdLCJleHAiOjE3ODA5NzUzNzJ9.j99xLN6RRtb0ZEiYEBz_gNYDRWUuKI_I63UBm-mTZak
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/1/exceptions
+        name: register_exception_empty
+        meta:
+          id: req_8774d92d96914e278bf88d67e714d5b8
+          created: 1780969724635
+          modified: 1780974130893
+          isPrivate: false
+          description: ""
+          sortKey: -1780969715482
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "rule": "school_insurance",
+              "reason": "     "
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzIiwiZW1haWwiOiJlbmNhcmdhZG9AdWZyby5jbCIsInJvbGVzIjpbIkVuY2FyZ2FkbyBkZSBwcmFjdGljYSJdLCJleHAiOjE3ODA5NzU5MTB9._5c3bcXv2y96WFL0ntMRgXRU0l6oL6kAy3mSXZapqUA
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/1/exceptions
+        name: exception_practice
+        meta:
+          id: req_b788b5e3250a45fb8f251ee044ba7bc2
+          created: 1780969903378
+          modified: 1780974136709
+          isPrivate: false
+          description: ""
+          sortKey: -1780969715582
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzIiwiZW1haWwiOiJlbmNhcmdhZG9AdWZyby5jbCIsInJvbGVzIjpbIkVuY2FyZ2FkbyBkZSBwcmFjdGljYSJdLCJleHAiOjE3ODA5NzU5MTB9._5c3bcXv2y96WFL0ntMRgXRU0l6oL6kAy3mSXZapqUA
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/2/approve
+        name: practice_evidence
+        meta:
+          id: req_7673bb47e7874eb181394f658a7e7ce4
+          created: 1780970097332
+          modified: 1780974226418
+          isPrivate: false
+          description: ""
+          sortKey: -1780969715682
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "comment": "Aprobación de flujo regular"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIzIiwiZW1haWwiOiJlbmNhcmdhZG9AdWZyby5jbCIsInJvbGVzIjpbIkVuY2FyZ2FkbyBkZSBwcmFjdGljYSJdLCJleHAiOjE3ODA5NzU5MTB9._5c3bcXv2y96WFL0ntMRgXRU0l6oL6kAy3mSXZapqUA
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/1/exceptions
+        name: student_case
+        meta:
+          id: req_373127bb9be64178af12461eecd7e174
+          created: 1780970904310
+          modified: 1780974252736
+          isPrivate: false
+          description: ""
+          sortKey: -1780776193651
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "rule": "school_insurance",
+              "reason": "El estudiante presenta constancia de tramitación de la póliza en la DAE (D.S. 313)."
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwiZXhwIjoxNzgwOTc1MzU3fQ.AL0O87d9Urbk5ymJXWPG477ynDxo3cyWThMAE0PGA4s
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_3f197dee75478330de42d74f074498bb81d917c7
+    created: 1780000336777
+    modified: 1780000336777
+environments:
+  name: Base Environment
+  meta:
+    id: env_3f197dee75478330de42d74f074498bb81d917c7
+    created: 1780000336771
+    modified: 1780586765947
+    isPrivate: false

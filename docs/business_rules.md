@@ -22,6 +22,43 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
 
 ---
 
+### Excepción Administrativa 
+ 
+- Cuando una práctica estival no cuenta con seguro escolar (`has_school_insurance = False`), un actor administrativo autorizado puede registrar una excepción justificada que habilita el trámite sin modificar la declaración original del estudiante.
+
+#### Principio de invariante
+ 
+- `has_school_insurance` **nunca se muta** por vía administrativa. El campo siempre refleja la realidad declarada por el estudiante. La excepción registra el desvío y habilita el flujo, pero no convierte `False` en `True` ni implica cumplimiento real del requisito.
+ 
+#### Roles autorizados para otorgar la excepción
+ 
+| Rol | Puede otorgar excepción (`grant_exception`) |
+| :--- | :---: |
+| Encargado de práctica | **Sí** |
+| Director de carrera | **Sí** |
+| Secretaria de Carrera | No |
+| Estudiante | No |
+ 
+#### Condición de disparo
+ 
+La excepción solo es relevante cuando se cumplen **las tres condiciones simultáneamente**:
+ 
+1. `internship_period` es `"Verano"` o `"Invierno"`.
+2. `has_school_insurance = False`.
+3. El actor intenta avanzar el flujo de la práctica (acción `approve`).
+Si no se registró una excepción activa para la regla `school_insurance`, el sistema bloquea el avance con `409 Conflict`.
+ 
+#### Idempotencia
+ 
+Si ya existe una excepción registrada para la misma práctica y regla, el endpoint retorna la existente sin crear un duplicado.
+ 
+#### Restricción de estado terminal
+ 
+No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+ 
+
+---
+
 ## Especificación Técnica (API Contract)
 
 ### Endpoint: `POST /internships`
@@ -95,8 +132,8 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
   "supervisor_department": "Tecnología",
   "supervisor_email": "ana.perez@empresa.cl",
   "supervisor_phone": "+56987654321",
-  "start_date": "2026-06-01",
-  "end_date": "2026-08-31",
+  "start_date": "2026-01-05",
+  "end_date": "2026-02-07",
   "schedule": "08:00 - 17:00",
   "days": "Lunes a Viernes",
   "modality": "Presencial",
@@ -108,6 +145,7 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
   "has_school_insurance": true
 }
 ```
+---
 
 ## RN-02: Matriz de Transiciones de Estados y Permisología por Rol
 
@@ -137,7 +175,136 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 
 ---
 
-## RN-03: Gestión Documental por Propiedad, Rol y Estado
+## RN-03: Secuencialidad de Prácticas (Práctica I → Práctica II)
+
+### Descripción
+
+Un estudiante no puede avanzar la **Práctica de Estudio II** mediante `approve()` mientras su **Práctica de Estudio I** no se encuentre aprobada. La creación de la Práctica II (`create_internship`) no está sujeta a esta restricción.
+
+### Definición de la Regla
+
+- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no al registro inicial (`create_internship`).
+- Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
+- Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
+- El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.
+- La creación de Práctica II se permite sin restricciones de secuencialidad. El estudiante puede registrar la práctica, pero no podrá avanzarla hasta cumplir la regla u obtener una excepción.
+
+> **Nota técnica:** La regla actual considera el estado `Aprobada` como criterio oficial para satisfacer la secuencialidad. Si negocio define otro hito académico en el futuro (ej. "Evaluación aprobada" como hito intermedio), la regla deberá ajustarse.
+
+### Excepción Administrativa
+
+- Cuando no existe una Práctica I aprobada, un actor administrativo autorizado puede registrar una excepción de secuencialidad que habilita el trámite sin modificar el estado de la Práctica I.
+- La excepción se registra sobre la **Práctica II** (la que se intenta aprobar).
+
+#### Roles autorizados para otorgar la excepción
+
+| Rol | Puede otorgar excepción (`grant_exception`) |
+| :--- | :---: |
+| Encargado de práctica | **Sí** |
+| Director de carrera | **Sí** |
+| Secretaria de Carrera | No |
+| Estudiante | No |
+
+#### Condición de disparo
+
+1. `internship_type` es `"Práctica de Estudio II"`.
+2. El estudiante **no** tiene una `Práctica de Estudio I` en estado `Aprobada`.
+3. El actor intenta aprobar la práctica (acción `approve`).
+
+Sin una excepción activa para la regla `sequentiality`, el sistema bloquea con `409 Conflict`.
+
+#### Idempotencia
+
+Si ya existe una excepción registrada para la misma práctica y regla `sequentiality`, el endpoint retorna la existente sin crear un duplicado.
+
+#### Restricción de estado terminal
+
+No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+
+---
+
+
+### Endpoint: `POST /internships/{internship_id}/exceptions`
+ 
+#### Caso 4 — Éxito: Excepción registrada
+ 
+**Roles:** `Encargado de práctica`, `Director de carrera`
+ 
+**Request:**
+ 
+```json
+{
+  "rule": "school_insurance",
+  "reason": "Póliza en proceso de firma. Documentación física recibida por Secretaría."
+}
+```
+ 
+**Respuesta:** `201 Created`
+ 
+```json
+{
+  "id": 1,
+  "internship_id": 15,
+  "rule": "school_insurance",
+  "reason": "Póliza en proceso de firma. Documentación física recibida por Secretaría.",
+  "authorized_by": {
+    "id": 5,
+    "email": "encargado@ufro.cl",
+    "first_name": "Juan",
+    "last_name": "Coordinador"
+  },
+  "authorized_at": "2026-06-09T14:30:00"
+}
+```
+ 
+#### Caso 5 — Rechazo: Regla no exceptuable
+ 
+**Respuesta:** `400 Bad Request`
+ 
+```json
+{
+  "detail": "La regla 'invalid_rule' no admite excepción administrativa."
+}
+```
+ 
+#### Caso 6 — Rechazo: Práctica en estado terminal
+ 
+**Respuesta:** `409 Conflict`
+ 
+```json
+{
+  "detail": "No se puede registrar una excepción sobre una práctica en estado terminal: Aprobada."
+}
+```
+ 
+#### Caso 7 — Rechazo: Sin permiso
+ 
+**Respuesta:** `403 Forbidden`
+ 
+```json
+{
+  "detail": "Insufficient permissions"
+}
+```
+ 
+### Endpoint: `POST /internships/{internship_id}/approve` (con práctica estival sin seguro)
+ 
+#### Caso 8 — Rechazo: Estival sin seguro ni excepción activa
+ 
+**Respuesta:** `409 Conflict`
+ 
+```json
+{
+  "detail": {
+    "rule": "school_insurance",
+    "message": "La práctica es estival y no cuenta con seguro escolar. Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
+  }
+}
+```
+---
+
+
+## RN-04: Gestión Documental por Propiedad, Rol y Estado
 
 ### Descripción
 

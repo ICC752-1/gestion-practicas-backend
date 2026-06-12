@@ -5,6 +5,7 @@ practicas profesionales. El controlador coordina dependencias de autenticacion,
 sesion de base de datos y servicios de dominio, manteniendo la logica de negocio
 principal en `InternshipService`.
 """
+import logging
 
 from typing import Annotated
 
@@ -22,6 +23,9 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InductionAttemptRequest,
+    InductionAttemptResponse,
+    InductionContentVersionResponse,
     InternshipActionRequest,
     InternshipActionResponse,
     InternshipCreateRequest,
@@ -29,15 +33,24 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipResponse,
     InternshipTrackingResponse,
+    RegistrationEligibilityResponse,
 )
 from app.modules.internships.services.internship_service import InternshipService
+
+from app.modules.internships.schemas.internship_schema import (
+    InternshipExceptionRequest,
+    InternshipExceptionResponse,
+)
+
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
 from app.modules.notifications.services.notification_service import (
     NotificationService,
+
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/internships", tags=["Internships"])
 
 STUDENT_ROLE = "Estudiante"
@@ -55,6 +68,10 @@ ACTION_ROLES = [
     "Encargado de practica", 
     "Director de carrera", 
     "Secretaria de Carrera"]
+
+EXCEPTION_ROLES = [
+    "Encargado de practica", 
+    "Director de carrera"]
 
 def _has_any_role(user: User, role_names: set[str]) -> bool:
     """Verifica si un usuario posee al menos uno de los roles indicados.
@@ -214,6 +231,149 @@ async def list_my_internships(
     ]
 
 
+# ── Inducción Obligatoria ───────────────────────────────────────────────────
+
+
+@router.get(
+    "/induction",
+    response_model=InductionContentVersionResponse | None,
+)
+async def get_induction_content(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> InductionContentVersionResponse | None:
+    """Retorna el contenido de inducción activo y publicado.
+
+    Incluye videos embebibles y preguntas del cuestionario (sin las
+    respuestas correctas). Accesible para cualquier usuario autenticado.
+
+    Args:
+        db: Sesión asincrona de base de datos.
+        current_user: Usuario autenticado.
+
+    Returns:
+        ``InductionContentVersionResponse`` con videos y preguntas, o
+        ``None`` si no hay contenido publicado activo.
+    """
+    logger.info("HTTP GET /internships/induction - Solicitud de contenido de inducción por usuario ID: %s", current_user.id)
+    service = _build_service(db)
+    content = await service.get_active_induction_content()
+    if content is None:
+        logger.info("No hay contenido de inducción activo publicado")
+    return content
+
+
+@router.post(
+    "/induction/attempts",
+    response_model=InductionAttemptResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_induction_attempt(
+    payload: InductionAttemptRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InductionAttemptResponse:
+    """Envía las respuestas del cuestionario de inducción para evaluación.
+
+    Solo estudiantes pueden realizar intentos. El backend evalúa las
+    respuestas contra la versión activa, calcula el puntaje y registra
+    el resultado.
+
+    Args:
+        payload: Respuestas del cuestionario.
+        db: Sesión asincrona de base de datos.
+        current_user: Estudiante autenticado.
+
+    Returns:
+        ``InductionAttemptResponse`` con puntaje y resultado.
+    """
+    logger.info("HTTP POST /internships/induction/attempts - Intento de cuestionario de inducción por usuario ID: %s", current_user.id)
+    service = _build_service(db)
+    result = await service.submit_induction_attempt(
+        user_id=current_user.id,
+        payload=payload,
+    )
+    logger.info("HTTP 201 Created - Intento de inducción registrado: puntaje=%s, aprobado=%s", result.score, result.passed)
+    return result
+
+
+# ── Elegibilidad ────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/registration-eligibility",
+    response_model=RegistrationEligibilityResponse,
+)
+async def get_registration_eligibility(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> RegistrationEligibilityResponse:
+    """Evalúa la elegibilidad del estudiante autenticado para registrar prácticas.
+
+    Retorna el estado del seguro escolar, la inducción obligatoria,
+    excepciones vigentes y el siguiente paso sugerido.
+
+    Args:
+        db: Sesión asincrona de base de datos.
+        current_user: Usuario autenticado.
+
+    Returns:
+        ``RegistrationEligibilityResponse`` con el diagnóstico de elegibilidad.
+    """
+    logger.info("HTTP GET /internships/registration-eligibility - Consulta de elegibilidad por usuario ID: %s", current_user.id)
+    service = _build_service(db)
+    eligibility = await service.get_registration_eligibility(user_id=current_user.id)
+    logger.info("Elegibilidad para usuario ID: %s - seguro=%s, inducción=%s, bloqueado=%s",
+                current_user.id, eligibility.has_school_insurance, eligibility.has_induction, eligibility.blocked)
+    return eligibility
+
+
+# ── Rutas dinámicas ─────────────────────────────────────────────────────────
+
+
+@router.get("/{internship_id}", response_model=InternshipResponse)
+async def get_internship(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> InternshipResponse:
+    """Obtiene el detalle de una practica por identificador.
+
+    La consulta exige que la practica exista y que el usuario sea propietario o
+    tenga un rol privilegiado de lectura.
+
+    Args:
+        internship_id: Identificador entero de la practica solicitada.
+        db: Sesion asincrona de base de datos inyectada por `get_db`.
+        current_user: Usuario autenticado obtenido desde el token Bearer.
+
+    Returns:
+        `InternshipResponse` con el detalle de la practica.
+
+    Raises:
+        HTTPException: Con codigo 404 si la practica no existe.
+        HTTPException: Con codigo 403 si el usuario no tiene permisos de
+            lectura sobre la practica.
+    """
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return InternshipResponse.model_validate(internship)
+
+
 @router.get(
     "/{internship_id}/tracking",
     response_model=list[InternshipTrackingResponse],
@@ -266,48 +426,6 @@ async def get_internship_tracking(
     ]
 
 
-@router.get("/{internship_id}", response_model=InternshipResponse)
-async def get_internship(
-    internship_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> InternshipResponse:
-    """Obtiene el detalle de una practica por identificador.
-
-    La consulta exige que la practica exista y que el usuario sea propietario o
-    tenga un rol privilegiado de lectura.
-
-    Args:
-        internship_id: Identificador entero de la practica solicitada.
-        db: Sesion asincrona de base de datos inyectada por `get_db`.
-        current_user: Usuario autenticado obtenido desde el token Bearer.
-
-    Returns:
-        `InternshipResponse` con el detalle de la practica.
-
-    Raises:
-        HTTPException: Con codigo 404 si la practica no existe.
-        HTTPException: Con codigo 403 si el usuario no tiene permisos de
-            lectura sobre la practica.
-    """
-
-    service = _build_service(db)
-    internship = await service.get_internship(internship_id=internship_id)
-
-    if internship is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Internship not found",
-        )
-
-    if not _can_read_internship(user=current_user, internship=internship):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions",
-        )
-
-    return InternshipResponse.model_validate(internship)
-
 @router.post(
     "/{internship_id}/approve",
     response_model=InternshipActionResponse,
@@ -339,10 +457,14 @@ async def approve_internship(
         HTTPException 409: Si la practica ya esta en estado terminal o el estado
             actual no es apto para aprobacion.
     """
+    logger.info("HTTP POST /internships/%s/approve - Petición de aprobación administrativa recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.approve(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s aprobada administrativamente con éxito por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
@@ -380,10 +502,14 @@ async def reject_internship(
         HTTPException 404: Si la practica no existe.
         HTTPException 409: Si la practica ya fue rechazada o aprobada.
     """
+    logger.info("HTTP POST /internships/%s/reject - Petición de rechazo definitivo recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.reject(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s rechazada de forma definitiva por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
@@ -422,13 +548,107 @@ async def derive_internship(
         HTTPException 404: Si la practica no existe.
         HTTPException 409: Si la practica ya esta en estado terminal.
     """
+    logger.info("HTTP POST /internships/%s/derive - Petición de derivación a DIRAE recibida del actor ID: %s", 
+                internship_id, current_user.id)
  
     service = _build_service(db)
     internship = await service.derive(internship_id, current_user, payload.comment)
  
+    logger.info("HTTP 200 OK - Práctica ID: %s derivada exitosamente a DIRAE por actor ID: %s", 
+                internship_id, current_user.id)
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
         comment=payload.comment,
     )
- 
+
+
+@router.post(
+    "/{internship_id}/exceptions",
+    response_model=InternshipExceptionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def grant_internship_exception(
+    internship_id: int,
+    payload: InternshipExceptionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(EXCEPTION_ROLES))],
+) -> InternshipExceptionResponse:
+    """Registra una excepcion administrativa sobre una regla de negocio.
+
+    Permite que una practica continúe su flujo pese a no cumplir la regla
+    indicada. La excepcion no modifica el valor original del campo exceptuado
+    ni implica cumplimiento real de la regla base.
+
+    Args:
+        internship_id: Identificador de la practica.
+        payload: Regla a exceptuar y justificacion obligatoria.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario con rol autorizado para otorgar excepciones.
+
+    Returns:
+        ``InternshipExceptionResponse`` con responsable, fecha y regla exceptuada.
+
+    Raises:
+        HTTPException 400: Si la regla no admite excepcion o el motivo esta vacio.
+        HTTPException 403: Si el actor no tiene permiso ``grant_exception``.
+        HTTPException 404: Si la practica no existe.
+        HTTPException 409: Si la practica esta en estado terminal.
+    """
+    logger.info("HTTP POST /internships/%s/exceptions - Solicitud para conceder excepción sobre regla '%s' recibida del actor ID: %s", 
+                internship_id, payload.rule, current_user.id)
+    
+    service = _build_service(db)
+    exception = await service.grant_exception(
+        internship_id=internship_id,
+        actor=current_user,
+        rule=payload.rule,
+        reason=payload.reason,
+    )
+    
+    logger.info("HTTP 201 Created - Excepción sobre regla '%s' creada con éxito para práctica ID: %s", payload.rule, internship_id)
+    return InternshipExceptionResponse.model_validate(exception)
+
+
+@router.get(
+    "/{internship_id}/exceptions",
+    response_model=list[InternshipExceptionResponse],
+)
+async def list_internship_exceptions(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipExceptionResponse]:
+    """Lista las excepciones administrativas registradas para una practica.
+
+    Accesible para el propietario de la practica y roles privilegiados.
+
+    Args:
+        internship_id: Identificador de la practica.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario autenticado.
+
+    Returns:
+        Lista de excepciones con responsable y fecha.
+
+    Raises:
+        HTTPException 403: Si el usuario no tiene acceso a la practica.
+        HTTPException 404: Si la practica no existe.
+    """
+    logger.info("HTTP GET /internships/%s/exceptions - Solicitud de listado de excepciones por usuario ID: %s", 
+                internship_id, current_user.id)
+                
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id)
+
+    if internship is None:
+        logger.warning("HTTP 404 Not Found - Consulta de excepciones fallida: No se encontró la práctica con ID: %s", internship_id)
+        raise HTTPException(status_code=404, detail="Internship not found")
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        logger.warning("HTTP 403 Forbidden - Intento no autorizado de listar excepciones de la práctica ID: %s por usuario ID: %s", 
+                       internship_id, current_user.id)
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    exceptions = await service.internship_repository.list_exceptions(internship_id)
+    return [InternshipExceptionResponse.model_validate(e) for e in exceptions]

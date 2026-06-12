@@ -4,6 +4,7 @@ from csv import DictWriter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from io import StringIO
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,7 +21,16 @@ from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
 from app.modules.internships.models.internship_model import Internship
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_document_status_changed_notification,
+    build_document_uploaded_notification,
+)
 
+
+logger = logging.getLogger(__name__)
 
 STUDENT_ROLE = "Estudiante"
 DOCUMENT_ADMIN_ROLES = {
@@ -150,15 +160,18 @@ class DocumentService:
         self,
         document_repository: DocumentRepository,
         app_config: type | object = config,
+        notification_service: NotificationService | None = None,
     ) -> None:
         """Inicializa el servicio con repositorio y configuracion.
 
         Args:
             document_repository: Repositorio de documentos.
             app_config: Configuracion de aplicacion o doble de pruebas.
+            notification_service: Servicio opcional para despachar eventos.
         """
 
         self.repository = document_repository
+        self.notification_service = notification_service
         self.storage_root = Path(
             getattr(app_config, "DOCUMENT_STORAGE_DIR", "storage/documents")
         )
@@ -230,10 +243,14 @@ class DocumentService:
         )
 
         try:
-            return await self.repository.create_document(document)
+            created_document = await self.repository.create_document(document)
         except Exception:
             stored_path.unlink(missing_ok=True)
             raise
+
+        await self._dispatch_document_uploaded_notifications(created_document)
+
+        return created_document
 
     async def list_internship_documents(
         self,
@@ -308,12 +325,16 @@ class DocumentService:
         document = await self._get_document_or_404(document_id)
         self._require_not_deleted(document)
 
-        return await self.repository.update_document_status(
+        updated_document = await self.repository.update_document_status(
             document=document,
             new_status=new_status,
             reviewer_id=actor.id,
             comment=None if comment is None else comment.strip(),
         )
+
+        await self._dispatch_document_status_notification(updated_document)
+
+        return updated_document
 
     async def soft_delete_document(
         self,
@@ -903,6 +924,74 @@ class DocumentService:
             return str(enum_value)
 
         return str(value)
+
+    async def _dispatch_document_uploaded_notifications(
+        self,
+        document: Document,
+    ) -> None:
+        """Notifica a revisores que existe un documento pendiente."""
+
+        if self.notification_service is None:
+            return
+
+        recipients = await self.repository.list_users_by_roles(DOCUMENT_ADMIN_ROLES)
+        for recipient in recipients:
+            await self._dispatch_notification(
+                build_document_uploaded_notification(
+                    recipient_user_id=recipient.id,
+                    recipient_email=recipient.email,
+                    document_id=document.id,
+                    internship_id=document.internship_id,
+                    document_type=document.document_type.name,
+                    file_name=document.file_name,
+                    org_name=document.internship.org_name,
+                ),
+            )
+
+    async def _dispatch_document_status_notification(
+        self,
+        document: Document,
+    ) -> None:
+        """Notifica al estudiante cuando un documento es revisado."""
+
+        if self.notification_service is None:
+            return
+
+        student_email = None
+        if document.internship.student is not None:
+            student_email = document.internship.student.email
+
+        document_status = document.status
+        if isinstance(document_status, DocumentStatusEnum):
+            document_status = document_status.value
+
+        await self._dispatch_notification(
+            build_document_status_changed_notification(
+                recipient_user_id=document.user_id,
+                recipient_email=student_email,
+                document_id=document.id,
+                internship_id=document.internship_id,
+                document_type=document.document_type.name,
+                new_status=document_status,
+                comment=document.review_comment,
+            ),
+        )
+
+    async def _dispatch_notification(self, notification) -> None:
+        """Despacha una notificacion sin interrumpir el flujo documental."""
+
+        if self.notification_service is None:
+            return
+
+        try:
+            await self.notification_service.create_and_dispatch(notification)
+        except Exception:
+            logger.warning(
+                "Fallo al despachar notificacion documental (event=%s). "
+                "El flujo de negocio continua normalmente.",
+                notification.event_type,
+                exc_info=True,
+            )
 
     def _get_allowed_extensions(self, app_config: type | object) -> set[str]:
         extension_set = getattr(

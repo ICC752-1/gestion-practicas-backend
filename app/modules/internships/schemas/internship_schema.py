@@ -8,13 +8,13 @@ instancias ORM.
 from datetime import date, datetime
 from typing import Any, Literal
 
-from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
     PracticeTypeEnum,
 )
+
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
@@ -23,34 +23,12 @@ DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejec
 class InternshipCreateRequest(BaseModel):
     """Payload para crear una practica.
 
-    Attributes:
-        org_name: Nombre de la organizacion donde se realiza la practica.
-        sector: Sector o rubro de la organizacion.
-        address: Direccion principal de la organizacion.
-        city: Ciudad donde se ubica la organizacion.
-        org_phone: Telefono de contacto de la organizacion, si existe.
-        web: Sitio web de la organizacion, si existe.
-        supervisor_name: Nombre completo del supervisor de practica.
-        supervisor_profession: Profesion del supervisor de practica.
-        supervisor_position: Cargo del supervisor de practica.
-        supervisor_department: Departamento o seccion del supervisor.
-        supervisor_email: Correo electronico del supervisor.
-        supervisor_phone: Telefono del supervisor de practica.
-        start_date: Fecha de inicio de la practica.
-        end_date: Fecha de termino de la practica.
-        schedule: Horario definido para la practica.
-        days: Dias en que se realizara la practica.
-        modality: Modalidad de la practica (`Presencial`, `Remoto` o
-            `Híbrido`).
-        internship_address: Direccion especifica donde se ejecutara la
-            practica.
-        internship_period: Periodo de la practica.
-        internship_type: Tipo de practica.
-        has_school_insurance: Indica si posee seguro escolar vigente.
-        act_description: Descripcion de actividades a realizar.
-        ben_description: Descripcion del beneficio o aporte esperado.
-        amount: Monto asociado a la practica, si corresponde.
+    El campo ``has_school_insurance`` fue eliminado deliberadamente:
+    el backend ahora computa el cumplimiento del seguro escolar a partir
+    de los registros internos del estudiante y las excepciones vigentes.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     org_name: str = Field(min_length=1, max_length=255)
     sector: str = Field(min_length=1, max_length=255)
@@ -75,7 +53,6 @@ class InternshipCreateRequest(BaseModel):
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
-    has_school_insurance: bool
 
     @model_validator(mode="after")
     def validate_date_range(self) -> "InternshipCreateRequest":
@@ -92,31 +69,6 @@ class InternshipCreateRequest(BaseModel):
             raise ValueError("end_date must be greater than or equal to start_date")
 
         return self
-
-    @model_validator(mode="after")
-    def validate_school_insurance(self) -> "InternshipCreateRequest":
-        """Valida que el estudiante tenga el seguro escolar
-        Garantiza que no se realicen practicas en el periodo estival ('Verano' o 'Invierno')
-        sin el respaldo del seguro escolar obligatorio (D.S. 313)
-        """
-        is_seasonal_period = self.internship_period in (
-            PracticePeriodEnum.summer,
-            PracticePeriodEnum.winter,
-        )
-        if is_seasonal_period and not self.has_school_insurance:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "field": "has_school_insurance",
-                    "message": (
-                        "No es posible registrar práctica estival sin respaldo "
-                        "de seguro escolar vigente (D.S. 313)"
-                    ),
-                },
-            )
-        return self
-
-
 class CurrentStateResponse(BaseModel):
     """Respuesta con informacion de un estado de practica.
 
@@ -281,6 +233,8 @@ class InternshipResponse(BaseModel):
     internship_type: PracticeTypeEnum
     has_school_insurance: bool
 
+    exceptions: list["InternshipExceptionResponse"] = []
+
 class InternshipActionRequest(BaseModel):
     """Payload para acciones de transición de estado.
 
@@ -298,3 +252,175 @@ class InternshipActionResponse(BaseModel):
     id: int
     status_id: int | None
     comment: str | None
+
+class InternshipExceptionRequest(BaseModel):
+    """Payload para registrar una excepcion administrativa.
+
+    Attributes:
+        rule: Regla de negocio que se exceptua. Valores habilitados:
+            ``"school_insurance"``, ``"sequentiality"``.
+        reason: Justificacion obligatoria de la excepcion. No puede
+            estar vacia ni contener solo espacios en blanco.
+    """
+
+    rule: Literal["school_insurance", "sequentiality"] = Field(
+        description="Regla de negocio exceptuada."
+    )
+    reason: str = Field(
+        min_length=1,
+        max_length=1000,
+        description="Justificacion obligatoria de la excepcion.",
+    )
+
+    @model_validator(mode="after")
+    def validate_reason_not_blank(self) -> "InternshipExceptionRequest":
+        if not self.reason.strip():
+            raise ValueError("El motivo de la excepción no puede estar vacío.")
+        return self
+
+
+class InternshipExceptionActorResponse(BaseModel):
+    """Actor que autorizó la excepción."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    first_name: str
+    last_name: str
+
+
+class InternshipExceptionResponse(BaseModel):
+    """Respuesta tras registrar o consultar una excepcion administrativa.
+
+    Attributes:
+        id: Identificador de la excepcion.
+        internship_id: Practica asociada.
+        rule: Regla exceptuada.
+        reason: Justificacion registrada.
+        authorized_by: Datos del usuario que autorizó la excepción.
+        authorized_at: Timestamp de la autorizacion.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    internship_id: int
+    rule: str
+    reason: str
+    authorized_by: InternshipExceptionActorResponse = Field(
+        validation_alias="actor"
+    )
+    authorized_at: datetime
+
+
+# ──────────────────────────────────────────────
+# Schemas de Inducción Obligatoria
+# ──────────────────────────────────────────────
+
+
+class InductionVideoResponse(BaseModel):
+    """Video embebible de una versión de contenido de inducción."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    video_url: str
+    order: int
+
+
+class InductionQuestionResponse(BaseModel):
+    """Pregunta de cuestionario visible para el estudiante (sin respuesta)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    question_text: str
+    options: dict
+    order: int
+
+
+class InductionContentVersionResponse(BaseModel):
+    """Versión de contenido de inducción publicada y activa.
+
+    Incluye videos y preguntas. El campo ``min_score`` permite al frontend
+    informar al estudiante sobre el puntaje mínimo para aprobar.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: str | None
+    min_score: int
+    videos: list[InductionVideoResponse] = []
+    questions: list[InductionQuestionResponse] = []
+
+
+class InductionAttemptRequest(BaseModel):
+    """Payload para enviar las respuestas del cuestionario de inducción.
+
+    Attributes:
+        answers: Diccionario donde la clave es el ``id`` de la pregunta
+            y el valor es la opción seleccionada por el estudiante.
+    """
+
+    answers: dict[int, str]
+
+
+class InductionAttemptResponse(BaseModel):
+    """Resultado de un intento de cuestionario de inducción.
+
+    Attributes:
+        id: Identificador del intento registrado.
+        score: Puntaje obtenido (aciertos).
+        passed: ``True`` si el puntaje alcanzó o superó el mínimo.
+        attempted_at: Fecha y hora del intento.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    score: int
+    passed: bool
+    attempted_at: datetime
+
+
+# ──────────────────────────────────────────────
+# Schema de Elegibilidad para Registro
+# ──────────────────────────────────────────────
+
+
+class RegistrationEligibilityResponse(BaseModel):
+    """Elegibilidad del estudiante para registrar una práctica.
+
+    Attributes:
+        has_school_insurance: ``True`` si el estudiante tiene registrado
+            el cumplimiento del seguro escolar.
+        has_induction: ``True`` si el estudiante aprobó el cuestionario
+            de inducción obligatoria.
+        has_school_insurance_exception: ``True`` si existe una excepción
+            administrativa activa para seguro escolar en alguna práctica
+            vigente del estudiante.
+        has_approved_practice_1: ``True`` si el estudiante tiene al menos
+            una Práctica de Estudio I en estado ``Aprobada``.
+        sequentiality_blocked: ``True`` si el estudiante no tiene una
+            Práctica de Estudio I aprobada (informativo, no bloquea).
+        has_sequentiality_exception: ``True`` si existe una excepción
+            administrativa activa de secuencialidad en alguna práctica
+            del estudiante.
+        blocked: ``True`` si existe algún bloqueo activo que impida
+            el registro o aprobación.
+        next_step: Texto descriptivo de la siguiente acción recomendada
+            para el estudiante.
+    """
+
+    has_school_insurance: bool
+    has_induction: bool
+    has_school_insurance_exception: bool = False
+    has_approved_practice_1: bool = False
+    sequentiality_blocked: bool = False
+    has_sequentiality_exception: bool = False
+    blocked: bool
+    next_step: str
