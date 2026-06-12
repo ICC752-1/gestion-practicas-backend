@@ -134,16 +134,15 @@ Para conocer la matriz de transiciones detallada y las reglas de negocio que evi
 
 #### Aprobación (`POST /internships/{internship_id}/approve`)
 
-* **Payload (`ApproveRequest`):**
+* **Payload (`InternshipActionRequest`):**
 
 ```json
 {
-  "comment": "Comentario opcional de aprobación",
-  "skip_review": false
+  "comment": "Comentario opcional de aprobación"
 }
 ```
 
-**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** o el flag `skip_review: true` la avanzará a **Aprobada**. El rol de **Encargado** (con `skip_review: false`) la avanzará a **En revisión**.
+**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** la avanzará directamente a **Aprobada**. El rol de **Encargado** la avanzará a **En revisión**.
 
 #### Rechazo (`POST /internships/{internship_id}/reject`)
 
@@ -188,7 +187,7 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
 }
 ```
  
-- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`.
+- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`, `"sequentiality_thesis"`, `"parallel_course"`.
 - `reason`: obligatorio, no puede estar vacío ni contener solo espacios.
 **Respuesta exitosa** `201 Created` **(`InternshipExceptionResponse`):**
  
@@ -246,7 +245,9 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
- 
+| `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
+| `409` | Paralelo: Práctica Controlada sin excepción de ramo en paralelo | `{"rule": "parallel_course", "message": "La Práctica Controlada requiere que los co-requisitos estén resueltos. ..."}` |
+
 ---
 
 ### Dashboard coordinador
@@ -367,8 +368,7 @@ Respuesta resumida:
   "ben_description": "Bono locomocion y colacion.",
   "amount": 120000,
   "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": false
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 
@@ -377,7 +377,6 @@ Valores validos relevantes:
 - `modality`: `Presencial`, `Remoto`, `Híbrido`.
 - `internship_period`: `Semestre`, `Verano`, `Invierno`.
 - `internship_type`: `Práctica de Estudio I`, `Práctica de Estudio II`, `Práctica Controlada`, `Tesis`.
-- `has_school_insurance`: obligatorio. Si el periodo es `Verano` o `Invierno`, debe ser `true`.
 
 ## Mapeo esperado desde formulario frontend
 
@@ -406,7 +405,7 @@ Valores validos relevantes:
 | `paymentAmount` | `amount` |
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
-`internship_period`, `internship_type` y `has_school_insurance`.
+`internship_period`, `internship_type`.
 
 ## Documentos
 

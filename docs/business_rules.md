@@ -51,11 +51,18 @@ Si no se registró una excepción activa para la regla `school_insurance`, el si
 #### Idempotencia
  
 Si ya existe una excepción registrada para la misma práctica y regla, el endpoint retorna la existente sin crear un duplicado.
- 
 #### Restricción de estado terminal
- 
+
 No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
- 
+
+#### Permanencia de la excepción
+
+En esta versión, las excepciones administrativas son **permanentes**:
+- No tienen vigencia configurable (no existe campo `expires_at` ni `is_active`).
+- No existe mecanismo de revocación desde la API.
+- Una excepción mal otorgada solo puede eliminarse físicamente desde la base de datos.
+
+Esta es una decisión de diseño consciente, pendiente de revisión en una tarea futura si el negocio requiere expiración o revocación.
 
 ---
 
@@ -63,17 +70,17 @@ No se puede registrar una excepción sobre una práctica en estado terminal (`Ap
 
 ### Endpoint: `POST /internships`
 
-#### Caso 1 — Rechazo: Práctica Estival sin Seguro
+#### Caso 1 — Rechazo: Práctica Estival sin Seguro (al aprobar)
 
-Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y sin seguro (`"has_school_insurance": false`), el sistema denegará la petición.
+La validación del seguro escolar no ocurre al crear la práctica, sino al momento de aprobarla (`POST /internships/{internship_id}/approve`). Si la práctica es estival y el estudiante no tiene seguro escolar ni una excepción registrada, el sistema bloquea el avance.
 
-**Respuesta:** `400 Bad Request`
+**Respuesta:** `409 Conflict`
 
 ```json
 {
   "detail": {
-    "field": "has_school_insurance",
-    "message": "No es posible registrar práctica estival sin respaldo de seguro escolar vigente (D.S. 313)"
+    "rule": "school_insurance",
+    "message": "La práctica es estival y no cuenta con seguro escolar. Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
   }
 }
 ```
@@ -84,7 +91,7 @@ Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Inviern
 
 Permite el registro sin necesidad de contar con seguro escolar activo.
 
-**Respuesta:** `201 Created`
+  **Respuesta:** `201 Created`
 
 ```json
 {
@@ -107,8 +114,7 @@ Permite el registro sin necesidad de contar con seguro escolar activo.
   "act_description": "Desarrollo de software backend",
   "ben_description": "Aplicar conocimientos académicos",
   "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": false
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 
@@ -118,7 +124,7 @@ Permite el registro sin necesidad de contar con seguro escolar activo.
 
 Permite el registro en periodo estival siempre que se declare explícitamente la posesión del seguro.
 
-**Respuesta:** `201 Created`
+  **Respuesta:** `201 Created`
 
 ```json
 {
@@ -141,8 +147,7 @@ Permite el registro en periodo estival siempre que se declare explícitamente la
   "act_description": "Desarrollo de software backend",
   "ben_description": "Aplicar conocimientos académicos",
   "internship_period": "Verano",
-  "internship_type": "Práctica de Estudio I",
-  "has_school_insurance": true
+  "internship_type": "Práctica de Estudio I"
 }
 ```
 ---
@@ -220,6 +225,15 @@ Si ya existe una excepción registrada para la misma práctica y regla `sequenti
 #### Restricción de estado terminal
 
 No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+
+#### Permanencia de la excepción
+
+En esta versión, las excepciones administrativas son **permanentes**:
+- No tienen vigencia configurable (no existe campo `expires_at` ni `is_active`).
+- No existe mecanismo de revocación desde la API.
+- Una excepción mal otorgada solo puede eliminarse físicamente desde la base de datos.
+
+Esta es una decisión de diseño consciente, pendiente de revisión en una tarea futura si el negocio requiere expiración o revocación.
 
 ---
 
