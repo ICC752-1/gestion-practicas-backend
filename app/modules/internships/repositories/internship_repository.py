@@ -5,6 +5,7 @@ operaciones de persistencia relacionadas con la entidad `Internship` usando una
 sesion asincrona de SQLAlchemy.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -282,6 +283,63 @@ class InternshipRepository:
             return internship
 
         return loaded_internship
+
+    async def update_internship_admin_fields_with_history(
+        self,
+        internship: Internship,
+        updates: dict[str, Any],
+        actor_id: int,
+        reason: str,
+        changed_fields: list[str],
+    ) -> Internship:
+        """Actualiza campos administrativos y registra trazabilidad."""
+
+        for field_name, value in updates.items():
+            setattr(internship, field_name, value)
+
+        status_history = InternshipStatusHistory(
+            internship_id=internship.id,
+            previous_status_id=internship.status_id,
+            new_status_id=internship.status_id,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_json={
+                "action": "admin_update",
+                "changed_fields": changed_fields,
+            },
+        )
+        self.db.add(status_history)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        return internship
+
+    async def cancel_internship_with_history(
+        self,
+        internship: Internship,
+        actor_id: int,
+        reason: str,
+    ) -> Internship:
+        """Marca una practica como anulada y registra trazabilidad."""
+
+        internship.is_cancelled = True
+        internship.cancelled_at = datetime.now(UTC).replace(tzinfo=None)
+        internship.cancelled_by = actor_id
+        internship.cancellation_reason = reason
+
+        status_history = InternshipStatusHistory(
+            internship_id=internship.id,
+            previous_status_id=internship.status_id,
+            new_status_id=internship.status_id,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_json={"action": "cancel"},
+        )
+        self.db.add(status_history)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        return internship
 
     async def get_exception_by_rule(
         self,
