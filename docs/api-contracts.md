@@ -213,7 +213,7 @@ Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascende
  
 ### Elegibilidad de registro
 
-`GET /internships/eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+`GET /internships/registration-eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
 
 **Respuesta (`RegistrationEligibilityResponse`):**
 

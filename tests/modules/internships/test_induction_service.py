@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
@@ -25,6 +26,7 @@ from app.modules.internships.models.internship_model import (
 from app.modules.internships.schemas.internship_schema import (
     InductionAttemptRequest,
     InternshipCreateRequest,
+    InternshipExceptionRequest,
 )
 from app.modules.internships.services.internship_service import (
     APPROVED_STATUS_TITLE,
@@ -844,3 +846,57 @@ class TestRegistrationEligibility:
 
         assert result.blocked is False
         assert result.has_induction is True
+
+
+# ── Tests: Schema InternshipExceptionRequest ──────────────────────────────────
+
+
+class TestInternshipExceptionRequestSchema:
+
+    def test_accepts_school_insurance(self):
+        """El schema acepta school_insurance como regla."""
+        payload = InternshipExceptionRequest(
+            rule="school_insurance",
+            reason="Justificación válida.",
+        )
+        assert payload.rule == "school_insurance"
+
+    def test_accepts_sequentiality(self):
+        """El schema acepta sequentiality como regla."""
+        payload = InternshipExceptionRequest(
+            rule="sequentiality",
+            reason="Justificación válida.",
+        )
+        assert payload.rule == "sequentiality"
+
+    def test_accepts_sequentiality_thesis(self):
+        """El schema acepta sequentiality_thesis como regla."""
+        payload = InternshipExceptionRequest(
+            rule="sequentiality_thesis",
+            reason="Justificación válida.",
+        )
+        assert payload.rule == "sequentiality_thesis"
+
+    def test_accepts_parallel_course(self):
+        """El schema acepta parallel_course como regla."""
+        payload = InternshipExceptionRequest(
+            rule="parallel_course",
+            reason="Justificación válida.",
+        )
+        assert payload.rule == "parallel_course"
+
+    def test_rejects_invalid_rule(self):
+        """El schema rechaza una regla no válida."""
+        with pytest.raises(ValidationError):
+            InternshipExceptionRequest(
+                rule="invalid_rule",
+                reason="Justificación.",
+            )
+
+    def test_rejects_blank_reason(self):
+        """El schema rechaza motivo vacío o solo espacios."""
+        with pytest.raises(ValidationError):
+            InternshipExceptionRequest(
+                rule="school_insurance",
+                reason="   ",
+            )
