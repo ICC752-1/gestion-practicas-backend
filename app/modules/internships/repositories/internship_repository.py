@@ -11,6 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.auth.models.role_model import Role
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import (
     InductionAttempt,
@@ -183,6 +186,21 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def list_users_by_roles(self, role_names: set[str]) -> list[User]:
+        """Lista usuarios activos que poseen alguno de los roles indicados."""
+
+        query = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name.in_(role_names), User.is_active.is_(True))
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .order_by(User.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().unique().all())
 
     async def list_internship_status_history(
         self,

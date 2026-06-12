@@ -37,6 +37,7 @@ from app.modules.notifications.services.notification_service import (
 )
 from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_approved_notification,
+    build_internship_created_notification,
     build_internship_derived_notification,
     build_internship_rejected_notification,
 )
@@ -106,6 +107,12 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 EXCEPTABLE_RULES = {"school_insurance", "sequentiality"}
 APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
 
+INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
+    "Encargado de practica",
+    "Director de carrera",
+}
+
+
 class InternshipService:
     """Orquesta casos de uso relacionados con practicas.
 
@@ -168,13 +175,19 @@ class InternshipService:
             status_id=initial_status.id,
         )
 
-        return await self.internship_repository.create_internship_with_history(
-            internship=internship,
-            initial_status=initial_status,
-            actor_id=user_id,
-            reason=INITIAL_HISTORY_REASON,
-            metadata={"event": "internship_created"},
+        created_internship = (
+            await self.internship_repository.create_internship_with_history(
+                internship=internship,
+                initial_status=initial_status,
+                actor_id=user_id,
+                reason=INITIAL_HISTORY_REASON,
+                metadata={"event": "internship_created"},
+            )
         )
+
+        await self._dispatch_internship_created_notifications(created_internship)
+
+        return created_internship
 
     async def get_internship(self, internship_id: int) -> Internship | None:
         """Obtiene una practica por identificador.
@@ -1123,3 +1136,26 @@ class InternshipService:
             blocked=blocked,
             next_step=next_step,
         )
+
+    async def _dispatch_internship_created_notifications(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Notifica a revisores cuando un estudiante registra una practica."""
+
+        if self.notification_service is None:
+            return
+
+        recipients = await self.internship_repository.list_users_by_roles(
+            INTERNSHIP_CREATION_NOTIFICATION_ROLES,
+        )
+        for recipient in recipients:
+            await self._dispatch_notification(
+                build_internship_created_notification(
+                    recipient_user_id=recipient.id,
+                    recipient_email=recipient.email,
+                    internship_id=internship.id,
+                    org_name=internship.org_name,
+                    student_user_id=internship.user_id,
+                ),
+            )
