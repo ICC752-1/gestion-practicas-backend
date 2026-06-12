@@ -7,7 +7,7 @@ informacion base de una practica profesional asociada a un estudiante.
 from datetime import UTC, date, datetime
 import enum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,8 +63,13 @@ class Internship(Base):
         internship_period: Periodo de la practica segun `enumPeriod`.
         internship_type: Tipo de la practica segun `enumInternshipType`.
         has_school_insurance: Booleano que indica si posee seguro escolar.
+        is_cancelled: Indica si la practica fue anulada logicamente.
+        cancelled_at: Fecha y hora de anulacion logica, si existe.
+        cancelled_by: Identificador del usuario que anulo la practica.
+        cancellation_reason: Motivo funcional de la anulacion logica.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
+        cancellation_actor: Relacion ORM hacia el usuario anulador.
         status_history: Relacion ORM con el historial de estados.
     """
 
@@ -146,8 +151,25 @@ class Internship(Base):
         nullable=False,
     )
 
+    is_cancelled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+    cancelled_by: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     status = relationship("CurrentState", back_populates="internships")
-    student = relationship("User")
+    student = relationship("User", foreign_keys=[user_id])
+    cancellation_actor = relationship("User", foreign_keys=[cancelled_by])
     status_history = relationship(
         "InternshipStatusHistory",
         back_populates="internship",
@@ -161,4 +183,3 @@ class Internship(Base):
         order_by="InternshipException.authorized_at",
         lazy="selectin",
     )
-
