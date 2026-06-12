@@ -83,6 +83,7 @@ Esta sección reúne documentación propia del funcionamiento interno del sistem
 
 - [Logging](docs/logging.md)
 - [Almacenamiento y privacidad documental](docs/documents-privacy.md)
+- [Notificaciones](docs/notifications.md)
 
 ### CI/CD
 El repositorio cuenta con workflows automatizados:

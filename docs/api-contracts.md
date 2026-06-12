@@ -54,6 +54,8 @@ documentan en `docs/admin.md`.
 | POST | `/internships/{internship_id}/approve` | Rol `Encargado de practica` o `Director de carrera` | `ApproveRequest` | `InternshipResponse` |
 | POST | `/internships/{internship_id}/reject` | Rol `Encargado de practica` o `Director de carrera` | `RejectRequest` | `InternshipResponse` |
 | POST | `/internships/{internship_id}/derive` | Rol `Secretaria de Carrera` | `DeriveRequest` | `InternshipResponse` |
+| POST | `/internships/{internship_id}/exceptions` | Rol `Encargado de practica` o `Director de carrera` | `InternshipExceptionRequest` | `InternshipExceptionResponse` |
+| GET | `/internships/{internship_id}/exceptions` | Propietario o rol privilegiado | Path `internship_id` | `list[InternshipExceptionResponse]` |
 
 ### Acciones Administrativas (Flujo de Estados)
 
@@ -96,35 +98,85 @@ Para conocer la matriz de transiciones detallada y las reglas de negocio que evi
 
 **Restricción:** Acción exclusiva del rol **Secretaria de Carrera**. Exige comentario obligatorio.
 
-#### Errores Comunes de Flujo (Estructurales)
 
-Cualquiera de los tres endpoints de acciones administrativas puede arrojar las siguientes respuestas bajo condiciones de falla:
 
-##### 400 Bad Request (Falta Comentario Obligatorio)
+
+
+#### Excepciones Administrativas (`POST /internships/{internship_id}/exceptions`)
+ 
+Permite habilitar el trámite de una práctica cuando no se cumple una regla de negocio exceptuable (ej: seguro escolar en práctica estival, secuencialidad de prácticas). No modifica el campo que originó la validación; solo registra el desvío con trazabilidad completa.
+ 
+Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-01, Excepción Administrativa)**.
+ 
+**Request (`InternshipExceptionRequest`):**
+ 
+```json
+{
+  "rule": "school_insurance",
+  "reason": "Póliza en proceso de firma. Documentación física recibida por Secretaría."
+}
+```
+ 
+- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`.
+- `reason`: obligatorio, no puede estar vacío ni contener solo espacios.
+**Respuesta exitosa** `201 Created` **(`InternshipExceptionResponse`):**
+ 
+```json
+{
+  "id": 1,
+  "internship_id": 15,
+  "rule": "school_insurance",
+  "reason": "Póliza en proceso de firma. Documentación física recibida por Secretaría.",
+  "authorized_by": {
+    "id": 5,
+    "email": "encargado@ufro.cl",
+    "first_name": "Juan",
+    "last_name": "Coordinador"
+  },
+  "authorized_at": "2026-06-09T14:30:00"
+}
+```
+ 
+**Listado de excepciones** `GET /internships/{internship_id}/exceptions`:
+ 
+Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascendente. Accesible para el propietario de la práctica y roles privilegiados de lectura.
+ 
+### Elegibilidad de registro
+
+`GET /internships/eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+
+**Respuesta (`RegistrationEligibilityResponse`):**
 
 ```json
 {
-  "detail": "El motivo/comentario es obligatorio para la acción: reject"
+  "has_school_insurance": true,
+  "has_induction": true,
+  "has_school_insurance_exception": false,
+  "has_approved_practice_1": false,
+  "sequentiality_blocked": true,
+  "has_sequentiality_exception": false,
+  "blocked": false,
+  "next_step": "Puede registrar una nueva práctica."
 }
 ```
 
-##### 403 Forbidden (Rol Inadecuado o sin Permisos)
+Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiality_exception` son informativos. El campo `blocked` no se activa por secuencialidad, solo por seguro escolar faltante o inducción no aprobada.
 
-```json
-{
-  "detail": "Insufficient permissions"
-}
-```
+---
 
-##### 409 Conflict (Intento de Modificación de Estado Terminal)
-
-```json
-{
-  "detail": "No se puede operar sobre una práctica en estado terminal: Aprobada."
-}
-```
-
-
+#### Errores Comunes de Flujo
+ 
+| Código | Condición | Ejemplo de `detail` |
+| --- | --- | --- |
+| `400` | Comentario obligatorio ausente | `"El motivo/comentario es obligatorio para la acción: reject"` |
+| `400` | Regla no exceptuable | `"La regla 'x' no admite excepción administrativa."` |
+| `403` | Rol sin permisos | `"Insufficient permissions"` |
+| `404` | Práctica no existe | `"Práctica no encontrada (Internship not found)"` |
+| `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
+| `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
+| `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
+ 
+---
 
 ### Dashboard coordinador
 

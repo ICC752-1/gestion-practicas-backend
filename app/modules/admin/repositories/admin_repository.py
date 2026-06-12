@@ -123,6 +123,18 @@ class AdminRepository:
 
         return list(students)
 
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        """Obtiene un usuario por identificador con sus roles cargados."""
+
+        query = (
+            select(User)
+            .where(User.id == user_id)
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+        )
+        result = await self.db.execute(query)
+
+        return result.scalar_one_or_none()
+
     async def get_internships(self) -> list[Internship]:
         """Obtiene el listado administrativo de practicas.
 

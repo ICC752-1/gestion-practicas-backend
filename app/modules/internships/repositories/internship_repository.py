@@ -11,11 +11,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.auth.models.role_model import Role
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
+from app.modules.internships.models.induction_model import (
+    InductionAttempt,
+    InductionContentVersion,
+)
+from app.modules.internships.models.internship_exception_model import InternshipException
 from app.modules.internships.models.internship_model import Internship
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
-)        
+)
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentRegistrationRequirement,
+)     
 
 class InternshipRepository:
     """Implementa operaciones de lectura y escritura sobre practicas.
@@ -106,7 +117,11 @@ class InternshipRepository:
         query = (
             select(Internship)
             .where(Internship.id == internship_id)
-            .options(selectinload(Internship.status))
+            .options(
+                selectinload(Internship.status),
+                selectinload(Internship.student),  
+                selectinload(Internship.exceptions)
+            )
         )
         result = await self.db.execute(query)
 
@@ -143,6 +158,10 @@ class InternshipRepository:
         query = (
             select(Internship)
             .where(Internship.user_id == user_id)
+            .options(
+            selectinload(Internship.status),       # ← agregar
+            selectinload(Internship.exceptions),   # ← agregar
+        )
             .order_by(Internship.upload_date.desc())
         )
         result = await self.db.execute(query)
@@ -167,6 +186,21 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def list_users_by_roles(self, role_names: set[str]) -> list[User]:
+        """Lista usuarios activos que poseen alguno de los roles indicados."""
+
+        query = (
+            select(User)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name.in_(role_names), User.is_active.is_(True))
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .order_by(User.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().unique().all())
 
     async def list_internship_status_history(
         self,
@@ -236,4 +270,193 @@ class InternshipRepository:
 
         return internship
 
-    
+    async def get_exception_by_rule(
+        self,
+        internship_id: int,
+        rule: str,
+    ) -> InternshipException | None:
+        """Obtiene una excepcion existente para una practica y regla dados.
+
+        Se utiliza para evitar registrar excepciones duplicadas sobre la
+        misma regla en la misma practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+            rule: Nombre canonico de la regla exceptuada.
+
+        Returns:
+            La excepcion existente o ``None`` si no existe.
+        """
+        result = await self.db.execute(
+            select(InternshipException)
+            .where(
+                InternshipException.internship_id == internship_id,
+                InternshipException.rule == rule,
+            )
+            .options(selectinload(InternshipException.actor))
+        )
+        return result.scalar_one_or_none()
+
+
+    async def create_exception(
+        self,
+        internship_id: int,
+        rule: str,
+        reason: str,
+        authorized_by: int,
+    ) -> InternshipException:
+        """Persiste una excepcion administrativa para una practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+            rule: Regla de negocio exceptuada.
+            reason: Justificacion del actor.
+            authorized_by: Identificador del usuario autorizador.
+
+        Returns:
+            La excepcion persistida y refrescada.
+        """
+        exception = InternshipException(
+            internship_id=internship_id,
+            rule=rule,
+            reason=reason,
+            authorized_by=authorized_by,
+        )
+        self.db.add(exception)
+        await self.db.commit()
+        await self.db.refresh(exception, ["actor"])
+        return exception
+
+
+    async def list_exceptions(
+        self,
+        internship_id: int,
+    ) -> list[InternshipException]:
+        """Lista todas las excepciones registradas para una practica.
+
+        Args:
+            internship_id: Identificador de la practica.
+
+        Returns:
+            Lista de excepciones ordenadas por fecha de autorizacion.
+        """
+        result = await self.db.execute(
+            select(InternshipException)
+            .where(InternshipException.internship_id == internship_id)
+            .options(selectinload(InternshipException.actor))
+            .order_by(InternshipException.authorized_at.asc())
+        )
+        return list(result.scalars().all())
+
+    # ── Inducción ──────────────────────────────────────────────────────────
+
+    async def get_active_induction_content(
+        self,
+    ) -> InductionContentVersion | None:
+        """Obtiene la versión de contenido de inducción activa y publicada.
+
+        Returns:
+            ``InductionContentVersion`` con videos y preguntas, o ``None``
+            si no existe una versión activa publicada.
+        """
+        query = (
+            select(InductionContentVersion)
+            .where(
+                InductionContentVersion.is_active.is_(True),
+                InductionContentVersion.status == "published",
+            )
+            .options(
+                selectinload(InductionContentVersion.videos),
+                selectinload(InductionContentVersion.questions),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def get_induction_content_version_by_id(
+        self,
+        version_id: int,
+    ) -> InductionContentVersion | None:
+        """Obtiene una versión de contenido por su identificador.
+
+        Args:
+            version_id: Identificador de la versión.
+
+        Returns:
+            ``InductionContentVersion`` o ``None``.
+        """
+        query = (
+            select(InductionContentVersion)
+            .where(InductionContentVersion.id == version_id)
+            .options(
+                selectinload(InductionContentVersion.questions),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def create_induction_attempt(
+        self,
+        attempt: InductionAttempt,
+    ) -> InductionAttempt:
+        """Persiste un intento de cuestionario de inducción.
+
+        Args:
+            attempt: Entidad ``InductionAttempt`` a persistir.
+
+        Returns:
+            El intento persistido y refrescado.
+        """
+        self.db.add(attempt)
+        await self.db.commit()
+        await self.db.refresh(attempt)
+        return attempt
+
+    async def get_passed_induction_attempt(
+        self,
+        user_id: int,
+    ) -> InductionAttempt | None:
+        """Obtiene el último intento aprobado de inducción de un estudiante.
+
+        Args:
+            user_id: Identificador del estudiante.
+
+        Returns:
+            El intento aprobado más reciente, o ``None``.
+        """
+        result = await self.db.execute(
+            select(InductionAttempt)
+            .where(
+                InductionAttempt.user_id == user_id,
+                InductionAttempt.passed.is_(True),
+            )
+            .order_by(InductionAttempt.attempted_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    # ── Prerrequisitos del estudiante ──────────────────────────────────────
+
+    async def get_student_requirement(
+        self,
+        user_id: int,
+        requirement: str,
+    ) -> StudentRegistrationRequirement | None:
+        """Obtiene el registro de un prerrequisito para un estudiante.
+
+        Args:
+            user_id: Identificador del estudiante.
+            requirement: Nombre del requisito (``"school_insurance"`` o
+                ``"induction"``).
+
+        Returns:
+            ``StudentRegistrationRequirement`` si existe, o ``None``.
+        """
+        result = await self.db.execute(
+            select(StudentRegistrationRequirement)
+            .where(
+                StudentRegistrationRequirement.user_id == user_id,
+                StudentRegistrationRequirement.requirement == requirement,
+            )
+        )
+        return result.scalar_one_or_none()
