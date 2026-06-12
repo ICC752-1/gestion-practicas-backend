@@ -116,7 +116,7 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
 }
 ```
  
-- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`.
+- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`, `"sequentiality_thesis"`, `"parallel_course"`.
 - `reason`: obligatorio, no puede estar vacío ni contener solo espacios.
 **Respuesta exitosa** `201 Created` **(`InternshipExceptionResponse`):**
  
@@ -174,7 +174,9 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
- 
+| `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
+| `409` | Paralelo: Práctica Controlada sin excepción de ramo en paralelo | `{"rule": "parallel_course", "message": "La Práctica Controlada requiere que los co-requisitos estén resueltos. ..."}` |
+
 ---
 
 ### Dashboard coordinador
