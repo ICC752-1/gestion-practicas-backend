@@ -117,10 +117,12 @@ Todos requieren token y un rol administrativo permitido por el backend.
 
 ## Practicas
 
-`GET /internships` existe solo para el dashboard de coordinador/director. El
-listado del estudiante autenticado sigue siendo `GET /internships/me`. Los
-listados administrativos del modulo `admin` estan en `/admin/internships` y se
-documentan en `docs/admin.md`.
+El dashboard del coordinador debe consumir el contrato administrativo oficial
+del modulo `admin`: `GET /admin/summary`, `GET /admin/internships` y
+`GET /admin/internships/{internship_id}`. El listado del estudiante autenticado
+sigue siendo `GET /internships/me`. Las acciones de flujo de práctica
+(`approve`, `reject`, `derive`) permanecen bajo `/internships/{id}/...` porque
+modifican el estado de la entidad `Internship`.
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
@@ -260,12 +262,22 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 
 ### Dashboard coordinador
 
-Filtros validos para `GET /internships?status=`:
+Fuente oficial para 10.17:
+
+- `GET /admin/summary`: tarjetas/resumen del dashboard.
+- `GET /admin/internships`: tabla principal de prácticas.
+- `GET /admin/internships/{internship_id}`: detalle administrativo.
+
+Filtros validos para `GET /admin/internships?status=`:
 
 - `submitted`: practicas sin estado o con estado `Pendiente`.
-- `in_review`: practicas con estado `En revisión`.
+- `in_review`: practicas con estado `En revisión` o `En revisión DIRAE`.
 - `approved`: practicas con estado `Aprobada`.
 - `rejected`: practicas con estado `Rechazada` o `Reprobada`.
+
+El frontend no debe usar fallback silencioso desde `/admin/*` hacia
+`/internships` para el dashboard coordinador. Si `/admin/*` retorna `403`, el
+problema es de permisos/rol y debe mostrarse como error.
 
 ### Tracking de estados
 

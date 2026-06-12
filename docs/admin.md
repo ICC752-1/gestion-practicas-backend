@@ -32,6 +32,21 @@ El módulo `admin` no modifica la entidad `Internship` ni su flujo de creación.
 Su alcance se centra en lectura administrativa y gestión de requisitos de práctica
 del estudiante (`StudentInternshipRequirement`).
 
+Para el dashboard del coordinador, el contrato oficial acordado es usar el
+módulo `admin`:
+
+- `GET /admin/summary` para tarjetas/resumen.
+- `GET /admin/internships` para la tabla principal.
+- `GET /admin/internships?status=submitted|in_review|approved|rejected` para
+  filtros de estado del dashboard.
+- `GET /admin/internships/{internship_id}` para el detalle administrativo.
+
+El frontend del dashboard coordinador no debería depender de fallback silencioso
+hacia `/internships`. Los endpoints `/internships/{id}/approve`,
+`/internships/{id}/reject` y `/internships/{id}/derive` siguen siendo los
+endpoints de acciones del flujo de práctica mientras no existan wrappers
+administrativos equivalentes bajo `/admin`.
+
 Responsabilidades clave:
 
 - agregaciones y listados administrativos del sistema;
@@ -48,7 +63,7 @@ Todos los endpoints requieren autenticación y el rol `Encargado de practica`.
 | --- | --- | --- | --- |
 | GET | `/admin/summary` | Resumen global del sistema | Encargado de practica |
 | GET | `/admin/students` | Listado administrativo de estudiantes | Encargado de practica |
-| GET | `/admin/internships` | Listado de prácticas registradas | Encargado de practica |
+| GET | `/admin/internships` | Listado de prácticas registradas. Query opcional `status` | Encargado de practica |
 | GET | `/admin/internships/{internship_id}` | Detalle administrativo de práctica | Encargado de practica |
 | GET | `/admin/students/{student_id}/internship-requirements` | Listado de requisitos de práctica | Encargado de practica |
 | PATCH | `/admin/students/{student_id}/internship-requirements/{requirement_id}/status` | Actualiza estado de requisito | Encargado de practica |
@@ -88,6 +103,14 @@ Todos los endpoints requieren autenticación y el rol `Encargado de practica`.
 ```
 
 ### Prácticas registradas
+
+`GET /admin/internships` acepta el query opcional `status` con valores
+normalizados para el dashboard:
+
+- `submitted`: prácticas sin estado o con estado `Pendiente`.
+- `in_review`: prácticas con estado `En revisión` o `En revisión DIRAE`.
+- `approved`: prácticas con estado `Aprobada`.
+- `rejected`: prácticas con estado `Rechazada` o `Reprobada`.
 
 `AdminInternshipListItem`
 
