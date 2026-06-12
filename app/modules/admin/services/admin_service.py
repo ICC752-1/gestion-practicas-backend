@@ -244,9 +244,11 @@ class AdminService:
         updated_requirement = (
             await self.repository.update_student_internship_requirement(requirement)
         )
+        student = await self.repository.get_user_by_id(updated_requirement.user_id)
 
         await self._dispatch_requirement_notification(
             recipient_user_id=updated_requirement.user_id,
+            recipient_email=student.email if student is not None else None,
             requirement_id=updated_requirement.id,
             requirement_type=updated_requirement.type,
             new_status=updated_requirement.status,
@@ -395,6 +397,7 @@ class AdminService:
     async def _dispatch_requirement_notification(
         self,
         recipient_user_id: int,
+        recipient_email: str | None,
         requirement_id: int,
         requirement_type: str,
         new_status: str,
@@ -408,6 +411,7 @@ class AdminService:
 
         Args:
             recipient_user_id: Identificador del usuario destinatario.
+            recipient_email: Correo del usuario destinatario, si existe.
             requirement_id: Identificador del requisito actualizado.
             requirement_type: Tipo/nombre del requisito.
             new_status: Nuevo estado asignado al requisito.
@@ -419,7 +423,7 @@ class AdminService:
 
         notification = build_requirement_status_changed_notification(
             recipient_user_id=recipient_user_id,
-            recipient_email=None,
+            recipient_email=recipient_email,
             requirement_id=requirement_id,
             requirement_type=requirement_type,
             new_status=new_status,
