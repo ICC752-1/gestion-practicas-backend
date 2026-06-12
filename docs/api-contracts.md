@@ -414,6 +414,9 @@ El modulo `documents` centraliza la carga y revision de archivos asociados a
 practicas. Los archivos se guardan en storage privado local y nunca se exponen
 como URL publica; toda descarga pasa por endpoint autenticado.
 
+La politica de almacenamiento, privacidad, retencion y operacion en VPS se
+documenta en `docs/documents-privacy.md`.
+
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/documents/types` | Bearer token | - | `list[DocumentTypeResponse]` |

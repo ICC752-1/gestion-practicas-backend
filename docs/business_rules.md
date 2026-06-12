@@ -353,5 +353,11 @@ consultarlo, revisarlo o eliminarlo.
   exponerse en respuestas JSON.
 - Las descargas siempre pasan por `GET /documents/{document_id}/download` con
   autenticación y autorización.
+- La eliminacion documental es logica; el archivo fisico se conserva mientras no
+  exista una politica institucional de retencion y limpieza fisica.
+- En produccion VPS, el storage documental debe montarse como volumen persistente
+  privado y no debe exponerse como contenido estatico por Nginx.
+
+Para la politica operacional completa revisar `docs/documents-privacy.md`.
 
 ---

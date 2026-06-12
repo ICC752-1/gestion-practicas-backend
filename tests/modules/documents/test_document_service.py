@@ -344,6 +344,42 @@ async def test_download_allows_owner_and_rejects_cross_access(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_download_rejects_missing_file(tmp_path):
+    repository = FakeDocumentRepository()
+    document = _document(user_id=10)
+    repository.documents_by_id[document.id] = document
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.prepare_download(
+            document_id=document.id,
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_download_rejects_deleted_document(tmp_path):
+    repository = FakeDocumentRepository()
+    document = _document(
+        user_id=10,
+        status=DocumentStatusEnum.deleted,
+    )
+    document.deleted_at = datetime(2026, 6, 1, 10, 0, 0)
+    repository.documents_by_id[document.id] = document
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.prepare_download(
+            document_id=document.id,
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_observed_status_requires_comment(tmp_path):
     repository = FakeDocumentRepository()
     repository.documents_by_id[55] = _document()

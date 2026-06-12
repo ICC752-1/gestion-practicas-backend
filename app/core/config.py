@@ -31,6 +31,7 @@ class Config(BaseSettings):
     DOCUMENT_STORAGE_DIR: str = "storage/documents"
     DOCUMENT_MAX_BYTES: int = 10485760
     DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
+    DOCUMENT_RETENTION_DAYS: int = 0
 
     # notificaciones
     NOTIFICATION_MODE: str = "simulated"
