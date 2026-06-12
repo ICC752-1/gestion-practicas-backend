@@ -10,6 +10,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
+AdminInternshipStatusFilter = Literal[
+    "submitted",
+    "in_review",
+    "approved",
+    "rejected",
+]
 
 
 class AdminSummaryByStatusItem(BaseModel):

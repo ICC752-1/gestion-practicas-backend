@@ -7,12 +7,13 @@ Este modulo define las rutas administrativas de solo lectura orientadas al rol
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import get_db
 from app.core.config import config
 from app.modules.admin.schemas.admin_schema import (
+    AdminInternshipStatusFilter,
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
     AdminStudentInternshipRequirementItem,
@@ -103,12 +104,17 @@ async def get_students(
 async def get_internships(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    status_filter: Annotated[
+        AdminInternshipStatusFilter | None,
+        Query(alias="status"),
+    ] = None,
 ) -> list[AdminInternshipListItem]:
     """Obtiene el listado administrativo de practicas.
 
     Args:
         db            : Sesion asincrona de base de datos inyectada por `get_db`.
         current_user  : Usuario autenticado validado por `require_roles`.
+        status_filter : Estado normalizado opcional para dashboard.
 
     Returns:
         Lista de practicas visible para el encargado de practica.
@@ -121,7 +127,7 @@ async def get_internships(
 
     service = _build_service(db)
 
-    return await service.get_internships()
+    return await service.get_internships(status_filter=status_filter)
 
 
 @router.get(

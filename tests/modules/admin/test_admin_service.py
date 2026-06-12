@@ -231,6 +231,75 @@ async def test_get_internships_allows_none_status() -> None:
 
 
 # Caso de prueba:
+# el dashboard del coordinador consume `/admin/internships?status=...`.
+# El servicio debe filtrar usando estados normalizados sin exigir que el
+# frontend consulte `/internships`.
+async def test_get_internships_filters_by_dashboard_status() -> None:
+    repository = FakeAdminRepository()
+    student = FakeStudent(
+        student_id=1,
+        email="student@example.com",
+        first_name="Juan",
+        last_name="Perez",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    repository.internships = [
+        _internship(
+            internship_id=1,
+            student=student,
+            status=FakeStatus(
+                status_id=1,
+                title="Pendiente",
+                description="Pendiente.",
+            ),
+        ),
+        _internship(
+            internship_id=2,
+            student=student,
+            status=FakeStatus(
+                status_id=2,
+                title="En revisión",
+                description="En revisión administrativa.",
+            ),
+        ),
+        _internship(
+            internship_id=3,
+            student=student,
+            status=FakeStatus(
+                status_id=3,
+                title="En revisión DIRAE",
+                description="Derivada a DIRAE.",
+            ),
+        ),
+        _internship(
+            internship_id=4,
+            student=student,
+            status=FakeStatus(
+                status_id=4,
+                title="Aprobada",
+                description="Aprobada.",
+            ),
+        ),
+        _internship(
+            internship_id=5,
+            student=student,
+            status=None,
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    submitted = await service.get_internships(status_filter="submitted")
+    in_review = await service.get_internships(status_filter="in_review")
+    approved = await service.get_internships(status_filter="approved")
+
+    assert [internship.id for internship in submitted] == [1, 5]
+    assert [internship.id for internship in in_review] == [2, 3]
+    assert [internship.id for internship in approved] == [4]
+
+
+# Caso de prueba:
 # cuando la practica existe, el servicio debe devolver el detalle completo
 # y mantener disponibles las relaciones necesarias para que el controller
 # pueda responder el recurso administrativo sin transformaciones extra.

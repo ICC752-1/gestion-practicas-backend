@@ -11,15 +11,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.repositories.admin_repository import AdminRepository
 from app.modules.admin.schemas.admin_schema import (
-    AdminStudentInternshipRequirementItem,
-    AdminUpdateStudentInternshipRequirementStatusRequest,
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
+    AdminInternshipStatusFilter,
     AdminInternshipStatusInfo,
     AdminInternshipStudentInfo,
+    AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryByStatusItem,
     AdminSummaryResponse,
+    AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
@@ -36,6 +37,20 @@ from app.modules.notifications.utils.notification_event_helpers import (
 logger = logging.getLogger(__name__)
 
 UNKNOWN_STATUS = "Sin estado"
+PENDING_STATUS_TITLE = "Pendiente"
+IN_REVIEW_STATUS_TITLE = "En revisión"
+IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
+APPROVED_STATUS_TITLE = "Aprobada"
+REJECTED_STATUS_TITLE = "Rechazada"
+LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+STATUS_LABEL_TO_ADMIN_FILTER: dict[str, AdminInternshipStatusFilter] = {
+    PENDING_STATUS_TITLE: "submitted",
+    IN_REVIEW_STATUS_TITLE: "in_review",
+    IN_REVIEW_DIRAE_STATUS_TITLE: "in_review",
+    APPROVED_STATUS_TITLE: "approved",
+    REJECTED_STATUS_TITLE: "rejected",
+    LEGACY_REJECTED_STATUS_TITLE: "rejected",
+}
 
 
 class AdminService:
@@ -104,16 +119,32 @@ class AdminService:
 
         return student_items
 
-    async def get_internships(self) -> list[AdminInternshipListItem]:
+    async def get_internships(
+        self,
+        status_filter: AdminInternshipStatusFilter | None = None,
+    ) -> list[AdminInternshipListItem]:
         """Obtiene el listado administrativo de practicas.
+
+        Args:
+            status_filter: Estado normalizado opcional para dashboard.
 
         Returns:
             Lista de practicas en formato de respuesta del modulo `admin`.
         """
 
-        logger.info("Administrative internships list requested")
+        logger.info(
+            "Administrative internships list requested",
+            extra={"status_filter": status_filter},
+        )
 
         internships = await self.repository.get_internships()
+
+        if status_filter is not None:
+            internships = [
+                internship
+                for internship in internships
+                if self._matches_status_filter(internship, status_filter)
+            ]
 
         internship_items = self._build_internship_list_items(internships)
 
@@ -370,6 +401,19 @@ class AdminService:
         )
 
         return status_info
+
+    def _matches_status_filter(
+        self,
+        internship: Internship,
+        status_filter: AdminInternshipStatusFilter,
+    ) -> bool:
+        """Evalua si una practica corresponde al filtro normalizado admin."""
+
+        status_title = PENDING_STATUS_TITLE
+        if internship.status is not None and internship.status.title:
+            status_title = internship.status.title
+
+        return STATUS_LABEL_TO_ADMIN_FILTER.get(status_title) == status_filter
 
     def _validate_requirement_status_transition(
         self,
