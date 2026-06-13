@@ -4,15 +4,29 @@
 
 ### Descripción
 
-La validación del seguro escolar garantiza la cobertura de accidentes de los estudiantes durante el desarrollo de sus actividades profesionales. La obligatoriedad de este seguro varía estrictamente según la naturaleza temporal del período en el que se ejecuta la práctica.
+La validación del seguro escolar garantiza que una práctica estival no sea
+autorizada formalmente sin cobertura institucional o una excepción
+administrativa trazable.
+
+Para esta regla se distinguen dos momentos:
+
+- **Creación de solicitud:** `POST /internships` registra los antecedentes en
+  estado `Pendiente`. Todavía no autoriza al estudiante a iniciar la práctica.
+- **Formalización:** una transición administrativa que deja la práctica en
+  estado `Aprobada`. En este momento se aplican los requisitos obligatorios.
 
 ### Definición de la Regla
 
-- **Práctica Semestral (`internship_period`: "Semestre"):** El seguro escolar **no es requerido** de forma obligatoria por parte de la plataforma para registrar la práctica, dado que el estudiante mantiene la carga académica y cobertura regular del periodo lectivo.
+- **Práctica Semestral (`internship_period = "Semestre"`):** el seguro escolar
+  no bloquea la creación ni la aprobación de la práctica.
 
-- **Práctica Estival (`internship_period`: "Verano" o "Invierno"):** El seguro escolar es **estrictamente obligatorio**. No se permitirá el registro de ninguna práctica estival cuando el backend determine que el estudiante no cuenta con cobertura vigente o excepción administrativa aplicable.
+- **Práctica Estival (`internship_period = "Verano"` o `"Invierno"`):** se
+  permite crear y revisar la solicitud, pero no puede quedar `Aprobada` si el
+  estudiante no tiene seguro escolar institucional vigente ni una excepción
+  administrativa para esa práctica.
 
-  > **Excepción Administrativa:** Contemplada para ser implementada en el **Sprint 9** (gestión de casos excepcionales por secretaría de estudios o dirección de carrera).
+La creación en estado `Pendiente` no representa inscripción académica,
+habilitación para iniciar actividades ni confirmación de cobertura.
 
 ### Base Legal y Contexto Institucional
 
@@ -20,15 +34,40 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
 
 - **Reglamento de Prácticas FICA:** Dispone que toda actividad realizada fuera del periodo académico ordinario (periodo estival) requiere una extensión explícita de la cobertura del seguro para resguardar la integridad del alumno y la responsabilidad de la institución.
 
----
+### Fuente de verdad institucional
+
+- El estudiante no declara ni puede enviar `has_school_insurance` en
+  `POST /internships`.
+- La fuente de verdad es `student_registration_requirements`, usando
+  `requirement = "school_insurance"` e `is_completed`.
+- `Internship.has_school_insurance` es una copia de compatibilidad calculada por
+  backend. No debe usarse como fuente autoritativa para aprobar.
+- Al intentar la aprobación final, el backend vuelve a consultar el requisito
+  institucional vigente. Así, una cobertura regularizada después de crear la
+  solicitud permite continuar sin recrearla.
+
+### Gestión administrativa del seguro
+
+Los roles `Encargado de practica` y `Director de carrera` pueden consultar y
+actualizar el requisito institucional mediante:
+
+- `GET /admin/students/{student_id}/registration-requirements`
+- `PATCH /admin/students/{student_id}/registration-requirements/school-insurance`
+
+El `PATCH` crea el requisito si todavía no existe y registra `completed_at` y
+`updated_by`. Enviar `is_completed = false` revoca el cumplimiento registrado y
+limpia `completed_at`.
 
 ### Excepción Administrativa 
  
-- Cuando una práctica estival no cuenta con seguro escolar (`has_school_insurance = False` como valor calculado por backend), un actor administrativo autorizado puede registrar una excepción justificada que habilita el trámite sin modificar el registro base de cumplimiento del estudiante.
+- Cuando una práctica estival no cuenta con seguro institucional vigente, un
+  actor autorizado puede registrar una excepción justificada para esa práctica.
 
 #### Principio de invariante
  
-- `has_school_insurance` **nunca se muta** por vía administrativa. El campo refleja la realidad registrada internamente para el estudiante. La excepción registra el desvío y habilita el flujo, pero no convierte `False` en `True` ni implica cumplimiento real del requisito.
+- La excepción no modifica `student_registration_requirements.is_completed` ni
+  implica que el seguro exista. Solo autoriza el desvío para la práctica
+  indicada y conserva la justificación y el responsable.
  
 #### Roles autorizados para otorgar la excepción
  
@@ -41,12 +80,15 @@ La validación del seguro escolar garantiza la cobertura de accidentes de los es
  
 #### Condición de disparo
  
-La excepción solo es relevante cuando se cumplen **las tres condiciones simultáneamente**:
+La excepción solo es relevante cuando se cumplen estas condiciones:
  
 1. `internship_period` es `"Verano"` o `"Invierno"`.
-2. `has_school_insurance = False`.
-3. El actor intenta avanzar el flujo de la práctica (acción `approve`).
-Si no se registró una excepción activa para la regla `school_insurance`, el sistema bloquea el avance con `409 Conflict`.
+2. El requisito institucional `school_insurance` no está completado.
+3. La acción `approve` dejaría la práctica en estado `Aprobada`.
+
+Una llamada a `approve` que solo produce `Pendiente -> En revisión` no queda
+bloqueada por esta regla. Si la transición final intenta llegar a `Aprobada` sin
+seguro ni excepción, el sistema responde `409 Conflict`.
  
 #### Idempotencia
  
@@ -66,14 +108,32 @@ Esta es una decisión de diseño consciente, pendiente de revisión en una tarea
 
 ---
 
-## Especificación Técnica (API Contract)
+## Especificación Técnica
 
 ### Endpoint: `POST /internships`
 
-#### Caso 1 — Rechazo: Práctica Estival sin Seguro (al aprobar)
+#### Caso 1 — Crear solicitud estival sin seguro
 
-Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y el backend calcula que el estudiante no tiene seguro ni excepción administrativa vigente, el sistema denegará la petición.
-La validación del seguro escolar no ocurre al crear la práctica, sino al momento de aprobarla (`POST /internships/{internship_id}/approve`). Si la práctica es estival y el estudiante no tiene seguro escolar ni una excepción registrada, el sistema bloquea el avance.
+La solicitud se crea en estado `Pendiente`. Esta operación no formaliza la
+práctica y no exige seguro.
+
+**Respuesta:** `201 Created`
+
+#### Caso 2 — Enviar solicitud estival a revisión sin seguro
+
+Si `POST /internships/{internship_id}/approve` produce solamente
+`Pendiente -> En revisión`, la operación se permite.
+
+**Respuesta:** `200 OK`, con estado `En revisión`.
+
+---
+
+### Endpoint: `POST /internships/{internship_id}/approve`
+
+#### Caso 3 — Rechazo de aprobación final estival sin seguro
+
+Cuando la transición dejaría la práctica en `Aprobada`, el backend consulta el
+requisito institucional vigente. Si no está completado y no existe excepción:
 
 **Respuesta:** `409 Conflict`
 
@@ -86,71 +146,21 @@ La validación del seguro escolar no ocurre al crear la práctica, sino al momen
 }
 ```
 
----
+#### Caso 4 — Práctica semestral
 
-#### Caso 2 — Éxito: Práctica Semestral (Seguro No Requerido)
+La solicitud y su aprobación se permiten sin seguro escolar.
 
-Permite el registro sin necesidad de contar con seguro escolar activo.
+#### Caso 5 — Práctica estival con seguro regularizado
 
-  **Respuesta:** `201 Created`
+Si el seguro se registra después de crear la solicitud y antes de su aprobación
+final, la consulta vigente permite aprobarla. No es necesario crear otra
+práctica.
 
-```json
-{
-  "org_name": "Empresa SA",
-  "sector": "Tecnología",
-  "address": "Av. Principal 123",
-  "city": "Temuco",
-  "supervisor_name": "Ana Pérez",
-  "supervisor_profession": "Ingeniera Civil Informática",
-  "supervisor_position": "Jefa de Proyectos",
-  "supervisor_department": "Tecnología",
-  "supervisor_email": "ana.perez@empresa.cl",
-  "supervisor_phone": "+56987654321",
-  "start_date": "2026-06-01",
-  "end_date": "2026-08-31",
-  "schedule": "08:00 - 17:00",
-  "days": "Lunes a Viernes",
-  "modality": "Presencial",
-  "internship_address": "Av. Principal 123",
-  "act_description": "Desarrollo de software backend",
-  "ben_description": "Aplicar conocimientos académicos",
-  "internship_period": "Semestre",
-  "internship_type": "Práctica de Estudio I"
-}
-```
+#### Caso 6 — Práctica estival con excepción
 
----
+Una excepción `school_insurance` permite la aprobación final, pero el requisito
+institucional permanece incompleto.
 
-#### Caso 3 — Éxito: Práctica Estival con Seguro Registrado (Obligatorio Cumplido)
-
-Permite el registro en periodo estival siempre que el backend registre cumplimiento vigente de seguro escolar para el estudiante.
-
-  **Respuesta:** `201 Created`
-
-```json
-{
-  "org_name": "Empresa SA",
-  "sector": "Tecnología",
-  "address": "Av. Principal 123",
-  "city": "Temuco",
-  "supervisor_name": "Ana Pérez",
-  "supervisor_profession": "Ingeniera Civil Informática",
-  "supervisor_position": "Jefa de Proyectos",
-  "supervisor_department": "Tecnología",
-  "supervisor_email": "ana.perez@empresa.cl",
-  "supervisor_phone": "+56987654321",
-  "start_date": "2026-01-05",
-  "end_date": "2026-02-07",
-  "schedule": "08:00 - 17:00",
-  "days": "Lunes a Viernes",
-  "modality": "Presencial",
-  "internship_address": "Av. Principal 123",
-  "act_description": "Desarrollo de software backend",
-  "ben_description": "Aplicar conocimientos académicos",
-  "internship_period": "Verano",
-  "internship_type": "Práctica de Estudio I"
-}
-```
 ---
 
 ## RN-02: Matriz de Transiciones de Estados y Permisología por Rol
@@ -193,13 +203,13 @@ una excepción administrativa.
 
 ### Definición de la Regla
 
-- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no al registro inicial (`create_internship`).
+- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no a la creación inicial de la solicitud (`create_internship`).
 - Si la práctica en aprobación es de tipo `Práctica de Estudio I`, el sistema verifica que el estudiante tenga inducción aprobada en `student_registration_requirements` o un intento aprobado en `induction_attempts`.
 - Si no existe inducción aprobada para Práctica I, se bloquea el avance con `409 Conflict`.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
 - Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
 - El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.
-- La creación de Práctica II se permite sin restricciones de secuencialidad. El estudiante puede registrar la práctica, pero no podrá avanzarla hasta cumplir la regla u obtener una excepción.
+- La creación de una solicitud de Práctica II se permite sin restricciones de secuencialidad, pero no podrá formalizarse hasta cumplir la regla u obtener una excepción.
 
 > **Nota técnica:** La regla actual considera el estado `Aprobada` como criterio oficial para satisfacer la secuencialidad. Si negocio define otro hito académico en el futuro (ej. "Evaluación aprobada" como hito intermedio), la regla deberá ajustarse.
 
@@ -308,9 +318,9 @@ Esta es una decisión de diseño consciente, pendiente de revisión en una tarea
 }
 ```
  
-### Endpoint: `POST /internships/{internship_id}/approve` (con práctica estival sin seguro)
+### Endpoint: `POST /internships/{internship_id}/approve` (aprobación final estival)
  
-#### Caso 8 — Rechazo: Estival sin seguro ni excepción activa
+#### Caso 8 — Rechazo: transición a `Aprobada` sin seguro ni excepción
  
 **Respuesta:** `409 Conflict`
  
@@ -377,7 +387,7 @@ Un estudiante no puede avanzar la **Tesis** mediante `approve()` mientras su
 ### Definición de la Regla
 
 - La validación se aplica **exclusivamente al momento de aprobación** (`approve`),
-  no al registro inicial (`create_internship`).
+  no a la creación inicial de la solicitud (`create_internship`).
 - Si la práctica en aprobación es de tipo `Tesis`, el sistema verifica que el
   estudiante tenga al menos una `Práctica de Estudio II` con estado `Aprobada`
   en `StudentInternshipRequirement`.
@@ -425,7 +435,7 @@ administrativa para permitir el avance.
 ### Definición de la Regla
 
 - La validación se aplica **exclusivamente al momento de aprobación** (`approve`),
-  no al registro inicial (`create_internship`).
+  no a la creación inicial de la solicitud (`create_internship`).
 - Si la práctica en aprobación es de tipo `Práctica Controlada`, el sistema
   exige una excepción administrativa de tipo `"parallel_course"`.
 - Sin la excepción, el sistema bloquea el avance con `409 Conflict`.

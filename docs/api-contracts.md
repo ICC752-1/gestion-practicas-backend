@@ -7,7 +7,8 @@ y referencia las fuentes de verdad existentes.
 ## Fuentes relacionadas
 
 - `docs/admin.md`: contrato oficial de endpoints `/admin/*`.
-- `docs/business_rules.md`: regla de seguro escolar para `POST /internships`.
+- `docs/business_rules.md`: regla de seguro escolar para creación y aprobación
+  de prácticas.
 - Swagger/OpenAPI local: disponible al levantar FastAPI y consultar `/docs` o `/openapi.json`.
 
 ## Autenticacion
@@ -221,9 +222,18 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
  
 Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascendente. Accesible para el propietario de la práctica y roles privilegiados de lectura.
  
-### Elegibilidad de registro
+### Elegibilidad para formalizar una solicitud de práctica
 
-`GET /internships/registration-eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+`GET /internships/registration-eligibility` retorna el estado de los
+prerrequisitos del estudiante autenticado. Acepta los queries opcionales:
+
+- `internship_period`: `Semestre`, `Verano` o `Invierno`.
+- `internship_type`: tipo de práctica.
+
+La ausencia de seguro solo activa `blocked` cuando el periodo consultado es
+`Verano` o `Invierno`. La inducción solo activa `blocked` al consultar
+`Práctica de Estudio I`. Si se omiten los queries, la respuesta mantiene los
+datos informativos, pero no supone un bloqueo contextual.
 
 **Respuesta (`RegistrationEligibilityResponse`):**
 
@@ -236,11 +246,14 @@ Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascende
   "sequentiality_blocked": true,
   "has_sequentiality_exception": false,
   "blocked": false,
-  "next_step": "Puede registrar una nueva práctica."
+  "next_step": "Puede crear la solicitud y continuar con su revisión administrativa."
 }
 ```
 
-Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiality_exception` son informativos. El campo `blocked` no se activa por secuencialidad, solo por seguro escolar faltante o inducción no aprobada.
+Los campos `has_approved_practice_1`, `sequentiality_blocked` y
+`has_sequentiality_exception` son informativos. `blocked` describe impedimentos
+para la aprobación o formalización; no impide crear la solicitud en estado
+`Pendiente`.
 
 ---
 
@@ -280,6 +293,37 @@ El frontend no debe usar fallback silencioso desde `/admin/*` hacia
 `/internships` para el dashboard coordinador. Si `/admin/*` retorna `403`, el
 problema es de permisos/rol y debe mostrarse como error.
 
+### Seguro escolar institucional
+
+| Método | Ruta | Acceso | Request | Response |
+| --- | --- | --- | --- | --- |
+| `GET` | `/admin/students/{student_id}/registration-requirements` | Encargado de practica, Director de carrera | - | `list[AdminRegistrationRequirementItem]` |
+| `PATCH` | `/admin/students/{student_id}/registration-requirements/school-insurance` | Encargado de practica, Director de carrera | `AdminUpdateSchoolInsuranceRequest` | `AdminRegistrationRequirementItem` |
+
+Request:
+
+```json
+{
+  "is_completed": true
+}
+```
+
+Respuesta:
+
+```json
+{
+  "id": 8,
+  "user_id": 1,
+  "requirement": "school_insurance",
+  "is_completed": true,
+  "completed_at": "2026-06-12T18:30:00Z",
+  "updated_by": 5
+}
+```
+
+El `PATCH` crea o actualiza el registro institucional. Esta operación no otorga
+una excepción y no aprueba automáticamente ninguna práctica.
+
 ### Tracking de estados
 
 `GET /internships/{internship_id}/tracking` retorna el historial cronologico de
@@ -316,7 +360,7 @@ Respuesta resumida:
       "first_name": "Juan",
       "last_name": "Perez"
     },
-    "reason": "Registro inicial de práctica",
+    "reason": "Creación inicial de solicitud de práctica",
     "changed_at": "2026-06-03T10:30:00",
     "metadata": {
       "event": "internship_created"
@@ -398,7 +442,10 @@ Valores validos relevantes:
 - `modality`: `Presencial`, `Remoto`, `Híbrido`.
 - `internship_period`: `Semestre`, `Verano`, `Invierno`.
 - `internship_type`: `Práctica de Estudio I`, `Práctica de Estudio II`, `Práctica Controlada`, `Tesis`.
-- `has_school_insurance` no se envía en `POST /internships`; el backend lo calcula desde los prerrequisitos registrados del estudiante y las excepciones administrativas vigentes.
+- `has_school_insurance` no se envía en `POST /internships`; el backend genera
+  una copia de compatibilidad desde el prerrequisito institucional. La
+  aprobación final vuelve a consultar el requisito vigente. Una excepción no
+  convierte este valor en `true`.
 
 ## Mapeo esperado desde formulario frontend
 
@@ -427,10 +474,11 @@ Valores validos relevantes:
 | `paymentAmount` | `amount` |
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
-`internship_period` e `internship_type`. Para mostrar el estado de seguro e
-inducción, consultar `GET /internships/registration-eligibility` antes de enviar el
-formulario.
-`internship_period`, `internship_type`.
+`internship_period` e `internship_type`. Para mostrar advertencias contextuales
+de seguro e inducción, consultar
+`GET /internships/registration-eligibility?internship_period=...&internship_type=...`.
+La respuesta no debe usarse para impedir la creación de la solicitud; el
+bloqueo se aplica al intentar formalizarla.
 
 ## Documentos
 

@@ -15,22 +15,28 @@
 
 ## Resumen operativo
 
-El módulo `admin` expone endpoints administrativos para el rol `Encargado de practica`.
+El módulo `admin` expone endpoints administrativos para el rol
+`Encargado de practica`. La gestión del seguro escolar también admite al
+`Director de carrera`.
 Permite:
 
 - ver resumen general del sistema;
 - listar estudiantes y prácticas registradas;
 - consultar el detalle administrativo de una práctica registrada;
 - listar requisitos de práctica por estudiante;
-- actualizar el estado de un requisito de práctica con trazabilidad básica.
+- actualizar el estado de un requisito de práctica con trazabilidad básica;
+- consultar y registrar el cumplimiento institucional del seguro escolar.
 
 ---
 
 ## Ámbito y responsabilidades
 
 El módulo `admin` no modifica la entidad `Internship` ni su flujo de creación.
-Su alcance se centra en lectura administrativa y gestión de requisitos de práctica
-del estudiante (`StudentInternshipRequirement`).
+Su alcance se centra en lectura administrativa y gestión de:
+
+- requisitos académicos de práctica (`StudentInternshipRequirement`);
+- prerrequisitos institucionales (`StudentRegistrationRequirement`), como el
+  seguro escolar.
 
 Para el dashboard del coordinador, el contrato oficial acordado es usar el
 módulo `admin`:
@@ -52,12 +58,15 @@ Responsabilidades clave:
 - agregaciones y listados administrativos del sistema;
 - visibilidad de estudiantes y prácticas existentes;
 - gestión de estados de requisitos de práctica académica.
+- registro institucional del seguro escolar usado por la aprobación de
+  prácticas estivales.
 
 ---
 
 ## Endpoints disponibles
 
-Todos los endpoints requieren autenticación y el rol `Encargado de practica`.
+Todos los endpoints requieren autenticación. La tabla indica los roles
+autorizados para cada operación.
 
 | Método | Ruta | Propósito | Rol |
 | --- | --- | --- | --- |
@@ -67,6 +76,8 @@ Todos los endpoints requieren autenticación y el rol `Encargado de practica`.
 | GET | `/admin/internships/{internship_id}` | Detalle administrativo de práctica | Encargado de practica |
 | GET | `/admin/students/{student_id}/internship-requirements` | Listado de requisitos de práctica | Encargado de practica |
 | PATCH | `/admin/students/{student_id}/internship-requirements/{requirement_id}/status` | Actualiza estado de requisito | Encargado de practica |
+| GET | `/admin/students/{student_id}/registration-requirements` | Lista prerrequisitos institucionales | Encargado de practica, Director de carrera |
+| PATCH | `/admin/students/{student_id}/registration-requirements/school-insurance` | Crea o actualiza el seguro escolar vigente | Encargado de practica, Director de carrera |
 
 ---
 
@@ -133,7 +144,7 @@ normalizados para el dashboard:
   "status": {
     "id": 2,
     "title": "En revisión",
-    "description": "La práctica fue registrada y se encuentra en revisión administrativa."
+    "description": "La solicitud de práctica fue creada y se encuentra en revisión administrativa."
   }
 }
 ```
@@ -165,6 +176,33 @@ normalizados para el dashboard:
 }
 ```
 
+### Seguro escolar institucional
+
+`AdminRegistrationRequirementItem`
+
+```json
+{
+  "id": 8,
+  "user_id": 1,
+  "requirement": "school_insurance",
+  "is_completed": true,
+  "completed_at": "2026-06-12T18:30:00Z",
+  "updated_by": 5
+}
+```
+
+El endpoint de actualización recibe:
+
+```json
+{
+  "is_completed": true
+}
+```
+
+La operación es un `upsert`: crea el requisito si no existe y actualiza el
+registro existente en llamadas posteriores. Al enviar `false`, se limpia
+`completed_at`.
+
 ---
 
 ## Reglas de negocio
@@ -187,10 +225,23 @@ Transiciones permitidas:
 
 Las transiciones inválidas retornan error `400`.
 
+El seguro escolar no utiliza la matriz anterior. Es un prerrequisito
+institucional booleano:
+
+- `is_completed = true`: existe cobertura registrada.
+- `is_completed = false`: no existe cobertura vigente registrada.
+- solo bloquea la aprobación final de prácticas `Verano` o `Invierno`;
+- no bloquea la creación de una solicitud en estado `Pendiente`;
+- una excepción de práctica no cambia el valor institucional.
+
 ---
 
 ## Consideraciones operativas
 
-- Todos los endpoints exigen autenticación y rol `Encargado de practica`.
+- Todos los endpoints exigen autenticación.
+- Los endpoints de seguro aceptan `Encargado de practica` y
+  `Director de carrera`; los demás mantienen el rol indicado en la tabla.
 - Si el requisito no existe para el estudiante indicado, se retorna `404`.
 - El cambio de estado actualiza `status_updated_at` y `status_updated_by`.
+- El `PATCH` de seguro retorna `404` si el usuario no existe o no posee rol
+  `Estudiante`.

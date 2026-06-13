@@ -34,7 +34,7 @@ Cada notificacion se persiste en la tabla `notification` con estos campos clave:
 
 | Evento funcional | `event_type` | Emisor | Destinatario | Referencias minimas |
 | --- | --- | --- | --- | --- |
-| Registro de practica | `custom` | `InternshipService.create_internship` | Revisores con rol `Encargado de practica` o `Director de carrera` | `internship_id`, `student_user_id` |
+| Creación de solicitud de práctica | `custom` | `InternshipService.create_internship` | Revisores con rol `Encargado de practica` o `Director de carrera` | `internship_id`, `student_user_id` |
 | Practica aprobada | `internship_approved` | `InternshipService.approve` | Estudiante propietario | `internship_id` |
 | Practica rechazada | `internship_rejected` | `InternshipService.reject` | Estudiante propietario | `internship_id`, `reason` |
 | Practica derivada a DIRAE | `internship_derived` | `InternshipService.derive` | Estudiante propietario | `internship_id`, `reason` |
@@ -47,7 +47,7 @@ Los eventos funcionales que usan `event_type=custom` incorporan el nombre del
 
 ## Payloads
 
-### Registro De Practica
+### Creación de solicitud de práctica
 
 ```json
 {
