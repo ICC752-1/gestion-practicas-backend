@@ -11,7 +11,11 @@ from typing import Any
 
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
-from app.modules.internships.models.internship_model import Internship, PracticeTypeEnum
+from app.modules.internships.models.internship_model import (
+    Internship,
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+)
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
@@ -59,7 +63,7 @@ TERMINAL_STATES = {
 
 SEASONAL_PERIODS = {"Verano", "Invierno"}
 
-INITIAL_HISTORY_REASON = "Registro inicial de práctica"
+INITIAL_HISTORY_REASON = "Creación inicial de solicitud de práctica"
 STATUS_LABEL_TO_DASHBOARD_STATUS: dict[str, DashboardInternshipStatus] = {
     PENDING_STATUS_TITLE: "submitted",
     IN_REVIEW_STATUS_TITLE: "in_review",
@@ -546,8 +550,9 @@ class InternshipService:
         - ``En revisión DIRAE`` → ``Aprobada``.
 
         Para practicas estivales sin seguro escolar, se verifica la existencia
-        de una excepcion administrativa antes de permitir el avance. La excepcion
-        no modifica ``has_school_insurance``; solo habilita el flujo.
+        de una excepcion administrativa solo cuando la transicion termina en
+        ``Aprobada``. La excepcion no modifica el requisito institucional; solo
+        habilita esa aprobacion.
 
         Args:
             internship_id: Identificador de la practica a aprobar.
@@ -588,7 +593,6 @@ class InternshipService:
                            "No se puede tramitar la aprobación administrativa sin este prerrequisito.",
                 )
 
-        await self._check_school_insurance_or_exception(internship)
         await self._check_sequentiality_or_exception(internship)
         await self._check_thesis_sequentiality(internship)
         await self._check_parallel_course_or_exception(internship)
@@ -608,6 +612,9 @@ class InternshipService:
                 status_code=409,
                 detail=f"El estado actual '{current_title}' no permite aprobación.",
             )
+
+        if next_title == APPROVED_STATUS_TITLE:
+            await self._check_school_insurance_or_exception(internship)
 
         try:
             self._validate_status_transition(current_title, next_title)
@@ -996,11 +1003,10 @@ class InternshipService:
     ) -> None:
         """Verifica que la practica cumpla la regla de seguro escolar o tenga excepcion vigente.
 
-        Para practicas en periodo estival (``Verano`` o ``Invierno``) con
-        ``has_school_insurance=False``, el avance solo se permite si existe
-        una excepcion administrativa registrada para la regla
-        ``"school_insurance"``. La excepcion no modifica el valor del campo;
-        solo habilita el flujo.
+        Para practicas en periodo estival (``Verano`` o ``Invierno``), consulta
+        el prerrequisito institucional vigente del estudiante. Si no esta
+        completado, la aprobacion solo se permite si existe una excepcion
+        administrativa para la regla ``"school_insurance"``.
 
         Args:
             internship: Practica a verificar.
@@ -1010,7 +1016,22 @@ class InternshipService:
                 y tampoco tiene excepcion administrativa registrada.
         """
         is_seasonal = internship.internship_period.value in SEASONAL_PERIODS
-        if not is_seasonal or internship.has_school_insurance:
+        if not is_seasonal:
+            return
+
+        insurance_requirement = (
+            await self.internship_repository.get_student_requirement(
+                user_id=internship.user_id,
+                requirement="school_insurance",
+            )
+        )
+        has_current_insurance = (
+            insurance_requirement is not None
+            and insurance_requirement.is_completed
+        )
+        internship.has_school_insurance = has_current_insurance
+
+        if has_current_insurance:
             return
 
         logger.info("Evaluando seguro escolar estival requerido para práctica ID: %s en periodo: %s", 
@@ -1337,14 +1358,18 @@ class InternshipService:
     async def get_registration_eligibility(
         self,
         user_id: int,
+        internship_period: PracticePeriodEnum | None = None,
+        internship_type: PracticeTypeEnum | None = None,
     ) -> RegistrationEligibilityResponse:
-        """Evalúa la elegibilidad del estudiante para registrar prácticas.
+        """Evalúa requisitos para formalizar una solicitud de práctica.
 
-        Considera el estado del seguro escolar, inducción obligatoria,
-        excepciones vigentes y bloqueos activos.
+        La ausencia de seguro solo bloquea periodos estivales y la inducción
+        solo bloquea la Práctica de Estudio I.
 
         Args:
             user_id: Identificador del estudiante.
+            internship_period: Periodo de la práctica que se desea evaluar.
+            internship_type: Tipo de práctica que se desea evaluar.
 
         Returns:
             ``RegistrationEligibilityResponse`` con el estado de cada
@@ -1379,18 +1404,26 @@ class InternshipService:
             for internship in internships
         )
 
-        blocked = False
-        next_step = "Puede registrar una nueva práctica."
+        insurance_blocked = (
+            internship_period is not None
+            and internship_period.value in SEASONAL_PERIODS
+            and not has_insurance
+        )
+        induction_blocked = (
+            internship_type == PracticeTypeEnum.practice_1
+            and not has_induction
+        )
+        blocked = insurance_blocked or induction_blocked
+        next_step = (
+            "Puede crear la solicitud y continuar con su revisión administrativa."
+        )
 
-        if not has_insurance:
-            blocked = True
+        if insurance_blocked:
             next_step = (
                 "Debe registrar el seguro escolar ante la unidad correspondiente "
-                "antes de iniciar una práctica en periodo estival."
+                "o contar con una excepción antes de aprobar la práctica estival."
             )
-
-        if not has_induction:
-            blocked = True
+        elif induction_blocked:
             next_step = (
                 "Debe completar la inducción obligatoria y aprobar el cuestionario "
                 "antes de tramitar la aprobación de la Práctica de Estudio I."

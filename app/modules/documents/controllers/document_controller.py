@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
 from app.modules.documents.schemas.document_schema import (
+    DocumentPackageResponse,
     DocumentResponse,
     DocumentStatusUpdateRequest,
     DocumentTypeResponse,
@@ -152,6 +153,69 @@ async def list_internship_documents(
         DocumentResponse.model_validate(document)
         for document in documents
     ]
+
+
+@router.get(
+    "/internships/{internship_id}/documents/package",
+    response_model=DocumentPackageResponse,
+)
+async def get_document_package(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> DocumentPackageResponse:
+    """Obtiene el paquete documental de una practica.
+
+    Args:
+        internship_id: Identificador de la practica.
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario autenticado.
+
+    Returns:
+        Resumen documental y estado de exportabilidad DIRAE.
+    """
+
+    service = _build_service(db)
+    package = await service.get_document_package(
+        internship_id=internship_id,
+        actor=current_user,
+    )
+
+    return DocumentPackageResponse.model_validate(package)
+
+
+@router.get("/dirae/document-packages/export")
+async def export_dirae_document_packages(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DOCUMENT_ADMIN_ROLES))],
+    internship_ids: Annotated[list[int] | None, Query()] = None,
+) -> Response:
+    """Exporta paquetes documentales DIRAE en formato CSV.
+
+    Args:
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario documental autenticado.
+        internship_ids: Practicas especificas a exportar, si aplica.
+
+    Returns:
+        CSV con filas exportables o solo encabezado.
+    """
+
+    service = _build_service(db)
+    export = await service.export_dirae_document_packages(
+        actor=current_user,
+        internship_ids=internship_ids,
+    )
+
+    return Response(
+        content=export.content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{export.filename}"'
+            )
+        },
+    )
 
 
 @router.get("/documents/{document_id}/download")

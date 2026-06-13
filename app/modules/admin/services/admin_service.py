@@ -1,7 +1,7 @@
 """Servicios de negocio del modulo admin.
 
-Este modulo define `AdminService`, encargado de orquestar los casos de uso de
-lectura administrativa y transformar entidades ORM a schemas HTTP propios.
+Este modulo define `AdminService`, encargado de orquestar consultas
+administrativas y la gestion de requisitos del estudiante.
 """
 
 import logging
@@ -11,19 +11,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.repositories.admin_repository import AdminRepository
 from app.modules.admin.schemas.admin_schema import (
-    AdminStudentInternshipRequirementItem,
-    AdminUpdateStudentInternshipRequirementStatusRequest,
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
+    AdminInternshipStatusFilter,
     AdminInternshipStatusInfo,
     AdminInternshipStudentInfo,
+    AdminRegistrationRequirementItem,
+    AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryByStatusItem,
     AdminSummaryResponse,
+    AdminUpdateSchoolInsuranceRequest,
+    AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.student_internship_requirement_model import (
+    RegistrationRequirementType,
+    StudentRegistrationRequirement,
+)
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -36,10 +43,24 @@ from app.modules.notifications.utils.notification_event_helpers import (
 logger = logging.getLogger(__name__)
 
 UNKNOWN_STATUS = "Sin estado"
+PENDING_STATUS_TITLE = "Pendiente"
+IN_REVIEW_STATUS_TITLE = "En revisión"
+IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
+APPROVED_STATUS_TITLE = "Aprobada"
+REJECTED_STATUS_TITLE = "Rechazada"
+LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+STATUS_LABEL_TO_ADMIN_FILTER: dict[str, AdminInternshipStatusFilter] = {
+    PENDING_STATUS_TITLE: "submitted",
+    IN_REVIEW_STATUS_TITLE: "in_review",
+    IN_REVIEW_DIRAE_STATUS_TITLE: "in_review",
+    APPROVED_STATUS_TITLE: "approved",
+    REJECTED_STATUS_TITLE: "rejected",
+    LEGACY_REJECTED_STATUS_TITLE: "rejected",
+}
 
 
 class AdminService:
-    """Orquesta casos de uso administrativos de solo lectura.
+    """Orquesta casos de uso administrativos.
 
     Attributes:
         db : Sesion asincrona utilizada durante el request.
@@ -104,16 +125,32 @@ class AdminService:
 
         return student_items
 
-    async def get_internships(self) -> list[AdminInternshipListItem]:
+    async def get_internships(
+        self,
+        status_filter: AdminInternshipStatusFilter | None = None,
+    ) -> list[AdminInternshipListItem]:
         """Obtiene el listado administrativo de practicas.
+
+        Args:
+            status_filter: Estado normalizado opcional para dashboard.
 
         Returns:
             Lista de practicas en formato de respuesta del modulo `admin`.
         """
 
-        logger.info("Administrative internships list requested")
+        logger.info(
+            "Administrative internships list requested",
+            extra={"status_filter": status_filter},
+        )
 
         internships = await self.repository.get_internships()
+
+        if status_filter is not None:
+            internships = [
+                internship
+                for internship in internships
+                if self._matches_status_filter(internship, status_filter)
+            ]
 
         internship_items = self._build_internship_list_items(internships)
 
@@ -266,6 +303,76 @@ class AdminService:
             updated_at=updated_requirement.updated_at,
         )
 
+    async def get_student_registration_requirements(
+        self,
+        student_id: int,
+    ) -> list[AdminRegistrationRequirementItem] | None:
+        """Obtiene los prerrequisitos institucionales de un estudiante."""
+
+        student = await self.repository.get_user_by_id(student_id)
+        if student is None or not self._is_student(student):
+            return None
+
+        requirements = await self.repository.list_student_registration_requirements(
+            student_id
+        )
+
+        return [
+            AdminRegistrationRequirementItem.model_validate(requirement)
+            for requirement in requirements
+        ]
+
+    async def update_school_insurance_requirement(
+        self,
+        student_id: int,
+        payload: AdminUpdateSchoolInsuranceRequest,
+        updated_by_user_id: int,
+    ) -> AdminRegistrationRequirementItem | None:
+        """Registra o actualiza el cumplimiento institucional del seguro escolar."""
+
+        student = await self.repository.get_user_by_id(student_id)
+        if student is None or not self._is_student(student):
+            return None
+
+        requirement = (
+            await self.repository.get_student_registration_requirement(
+                student_id=student_id,
+                requirement=RegistrationRequirementType.SCHOOL_INSURANCE.value,
+            )
+        )
+        previous_status = None if requirement is None else requirement.is_completed
+
+        if requirement is None:
+            requirement = StudentRegistrationRequirement(
+                user_id=student_id,
+                requirement=RegistrationRequirementType.SCHOOL_INSURANCE,
+            )
+
+        requirement.is_completed = payload.is_completed
+        requirement.completed_at = (
+            datetime.now(timezone.utc) if payload.is_completed else None
+        )
+        requirement.updated_by = updated_by_user_id
+
+        updated_requirement = (
+            await self.repository.save_student_registration_requirement(requirement)
+        )
+
+        await self._dispatch_requirement_notification(
+            recipient_user_id=student_id,
+            recipient_email=student.email,
+            requirement_id=updated_requirement.id,
+            requirement_type=RegistrationRequirementType.SCHOOL_INSURANCE.value,
+            new_status="Completado" if payload.is_completed else "Pendiente",
+            previous_status=(
+                None
+                if previous_status is None
+                else ("Completado" if previous_status else "Pendiente")
+            ),
+        )
+
+        return AdminRegistrationRequirementItem.model_validate(updated_requirement)
+
     def _build_student_info(
         self,
         student: User | None,
@@ -284,6 +391,15 @@ class AdminService:
         )
 
         return student_info
+
+    def _is_student(self, user: User) -> bool:
+        """Indica si el usuario posee el rol de estudiante."""
+
+        return any(
+            user_role.role.name == "Estudiante"
+            for user_role in user.roles
+            if user_role.role is not None
+        )
 
     def _build_student_list_items(
         self,
@@ -370,6 +486,19 @@ class AdminService:
         )
 
         return status_info
+
+    def _matches_status_filter(
+        self,
+        internship: Internship,
+        status_filter: AdminInternshipStatusFilter,
+    ) -> bool:
+        """Evalua si una practica corresponde al filtro normalizado admin."""
+
+        status_title = PENDING_STATUS_TITLE
+        if internship.status is not None and internship.status.title:
+            status_title = internship.status.title
+
+        return STATUS_LABEL_TO_ADMIN_FILTER.get(status_title) == status_filter
 
     def _validate_requirement_status_transition(
         self,

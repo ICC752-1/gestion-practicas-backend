@@ -147,8 +147,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organización.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -368,8 +367,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organización.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type
@@ -423,8 +421,7 @@ collection:
               "ben_description": "Fortalecimiento de procesos digitales de la organización.",
               "amount": 150000,
               "internship_period": "Semestre",
-              "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": false
+              "internship_type": "Práctica de Estudio I"
             }
         headers:
           - name: Content-Type

@@ -188,7 +188,10 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert internship.supervisor_email == "ana.perez@acme.example"
     assert repository.created_initial_status.title == "Pendiente"
     assert repository.created_actor_id == 42
-    assert repository.created_history_reason == "Registro inicial de práctica"
+    assert (
+        repository.created_history_reason
+        == "Creación inicial de solicitud de práctica"
+    )
     assert repository.created_history_metadata == {"event": "internship_created"}
 
 

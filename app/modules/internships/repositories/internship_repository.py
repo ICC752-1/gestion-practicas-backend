@@ -28,7 +28,8 @@ from app.modules.internships.models.internship_status_history_model import (
 from app.modules.internships.models.student_internship_requirement_model import (
     StudentInternshipRequirement,
     StudentRegistrationRequirement,
-)     
+)
+
 
 class InternshipRepository:
     """Implementa operaciones de lectura y escritura sobre practicas.
@@ -65,7 +66,11 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
 
     async def create_internship_with_history(
         self,
@@ -104,7 +109,11 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
 
     async def get_internship_by_id(self, internship_id: int) -> Internship | None:
         """Obtiene una practica por su identificador.
@@ -121,8 +130,8 @@ class InternshipRepository:
             .where(Internship.id == internship_id)
             .options(
                 selectinload(Internship.status),
-                selectinload(Internship.student),  
-                selectinload(Internship.exceptions)
+                selectinload(Internship.student),
+                selectinload(Internship.exceptions),
             )
         )
         result = await self.db.execute(query)
@@ -161,9 +170,9 @@ class InternshipRepository:
             select(Internship)
             .where(Internship.user_id == user_id)
             .options(
-            selectinload(Internship.status),       # ← agregar
-            selectinload(Internship.exceptions),   # ← agregar
-        )
+                selectinload(Internship.status),
+                selectinload(Internship.exceptions),
+            )
             .order_by(Internship.upload_date.desc())
         )
         result = await self.db.execute(query)
@@ -270,7 +279,11 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(internship)
 
-        return internship
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
 
     async def update_internship_admin_fields_with_history(
         self,
@@ -356,7 +369,6 @@ class InternshipRepository:
         )
         return result.scalar_one_or_none()
 
-
     async def create_exception(
         self,
         internship_id: int,
@@ -385,7 +397,6 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(exception, ["actor"])
         return exception
-
 
     async def list_exceptions(
         self,

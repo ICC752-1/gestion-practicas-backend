@@ -100,6 +100,82 @@ class DocumentRepository:
 
         return result.scalar_one_or_none()
 
+    async def list_required_document_types(self) -> list[DocumentType]:
+        """Lista tipos documentales requeridos y activos.
+
+        Returns:
+            Lista de `DocumentType` obligatorios para el paquete documental.
+        """
+
+        query = (
+            select(DocumentType)
+            .where(
+                DocumentType.is_active.is_(True),
+                DocumentType.is_required.is_(True),
+            )
+            .order_by(DocumentType.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def list_package_documents_by_internship(
+        self,
+        internship_id: int,
+    ) -> list[Document]:
+        """Lista documentos candidatos para armar el paquete documental.
+
+        Args:
+            internship_id: Identificador entero de la practica.
+
+        Returns:
+            Documentos no eliminados con su tipo documental.
+        """
+
+        query = (
+            select(Document)
+            .where(
+                Document.internship_id == internship_id,
+                Document.deleted_at.is_(None),
+                Document.status != DocumentStatusEnum.deleted,
+            )
+            .options(selectinload(Document.document_type))
+            .order_by(
+                Document.type_id.asc(),
+                Document.upload_date.desc(),
+                Document.id.desc(),
+            )
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def list_internships_for_dirae_export(
+        self,
+        internship_ids: list[int] | None = None,
+    ) -> list[Internship]:
+        """Lista practicas candidatas para exportacion DIRAE.
+
+        Args:
+            internship_ids: IDs especificos solicitados. Si es `None`, retorna
+                todas las practicas para que el servicio filtre exportables.
+
+        Returns:
+            Practicas con estado y estudiante precargados.
+        """
+
+        query = select(Internship).options(
+            selectinload(Internship.status),
+            selectinload(Internship.student),
+        )
+        if internship_ids is not None:
+            query = query.where(Internship.id.in_(internship_ids))
+
+        query = query.order_by(Internship.id.asc())
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
     async def create_document(self, document: Document) -> Document:
         """Persiste un documento.
 
@@ -163,7 +239,9 @@ class DocumentRepository:
             .options(
                 selectinload(Document.document_type),
                 selectinload(Document.internship).selectinload(Internship.status),
-                selectinload(Document.internship).selectinload(Internship.student),
+                selectinload(Document.internship).selectinload(
+                    Internship.student,
+                ),
             )
         )
         result = await self.db.execute(query)

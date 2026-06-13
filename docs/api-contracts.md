@@ -7,14 +7,15 @@ y referencia las fuentes de verdad existentes.
 ## Fuentes relacionadas
 
 - `docs/admin.md`: contrato oficial de endpoints `/admin/*`.
-- `docs/business_rules.md`: regla de seguro escolar para `POST /internships`.
+- `docs/business_rules.md`: regla de seguro escolar para creación y aprobación
+  de prácticas.
 - Swagger/OpenAPI local: disponible al levantar FastAPI y consultar `/docs` o `/openapi.json`.
 
 ## Autenticacion
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
-| POST | `/auth/login` | Publico | `LoginRequest` | `TokenResponse` |
+| POST | `/auth/login` | Publico | `OAuth2PasswordRequestForm` | `TokenResponse` |
 | GET | `/auth/me` | Bearer token | Header `Authorization` | `CurrentUserResponse` |
 | POST | `/auth/logout` | Bearer token | `LogoutRequest` opcional | `204 No Content` |
 | GET | `/auth/google/login` | Publico | - | `307 Redirect` a Google |
@@ -89,6 +90,14 @@ Limitaciones:
 - En produccion, usar HTTPS publico; no registrar URLs internas de Docker ni
   callbacks sin TLS.
 
+`POST /auth/login` usa `application/x-www-form-urlencoded`, no JSON. El campo
+`username` corresponde al email del usuario:
+
+```text
+username=claudio.navarro@ufrontera.cl
+password=my_secure_password
+```
+
 ## Usuarios y roles
 
 Estos routers estan registrados en la aplicacion FastAPI desde Sprint 8.2.
@@ -109,10 +118,12 @@ Todos requieren token y un rol administrativo permitido por el backend.
 
 ## Practicas
 
-`GET /internships` existe solo para el dashboard de coordinador/director. El
-listado del estudiante autenticado sigue siendo `GET /internships/me`. Los
-listados administrativos del modulo `admin` estan en `/admin/internships` y se
-documentan en `docs/admin.md`.
+El dashboard del coordinador debe consumir el contrato administrativo oficial
+del modulo `admin`: `GET /admin/summary`, `GET /admin/internships` y
+`GET /admin/internships/{internship_id}`. El listado del estudiante autenticado
+sigue siendo `GET /internships/me`. Las acciones de flujo de práctica
+(`approve`, `reject`, `derive`) permanecen bajo `/internships/{id}/...` porque
+modifican el estado de la entidad `Internship`.
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
@@ -211,9 +222,18 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
  
 Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascendente. Accesible para el propietario de la práctica y roles privilegiados de lectura.
  
-### Elegibilidad de registro
+### Elegibilidad para formalizar una solicitud de práctica
 
-`GET /internships/registration-eligibility` retorna el estado de los prerrequisitos del estudiante autenticado.
+`GET /internships/registration-eligibility` retorna el estado de los
+prerrequisitos del estudiante autenticado. Acepta los queries opcionales:
+
+- `internship_period`: `Semestre`, `Verano` o `Invierno`.
+- `internship_type`: tipo de práctica.
+
+La ausencia de seguro solo activa `blocked` cuando el periodo consultado es
+`Verano` o `Invierno`. La inducción solo activa `blocked` al consultar
+`Práctica de Estudio I`. Si se omiten los queries, la respuesta mantiene los
+datos informativos, pero no supone un bloqueo contextual.
 
 **Respuesta (`RegistrationEligibilityResponse`):**
 
@@ -226,11 +246,14 @@ Retorna `list[InternshipExceptionResponse]` ordenado por `authorized_at` ascende
   "sequentiality_blocked": true,
   "has_sequentiality_exception": false,
   "blocked": false,
-  "next_step": "Puede registrar una nueva práctica."
+  "next_step": "Puede crear la solicitud y continuar con su revisión administrativa."
 }
 ```
 
-Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiality_exception` son informativos. El campo `blocked` no se activa por secuencialidad, solo por seguro escolar faltante o inducción no aprobada.
+Los campos `has_approved_practice_1`, `sequentiality_blocked` y
+`has_sequentiality_exception` son informativos. `blocked` describe impedimentos
+para la aprobación o formalización; no impide crear la solicitud en estado
+`Pendiente`.
 
 ---
 
@@ -243,6 +266,7 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `403` | Rol sin permisos | `"Insufficient permissions"` |
 | `404` | Práctica no existe | `"Práctica no encontrada (Internship not found)"` |
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
+| `409` | Práctica I sin inducción aprobada | `"La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. ..."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
 | `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
@@ -252,12 +276,53 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 
 ### Dashboard coordinador
 
-Filtros validos para `GET /internships?status=`:
+Fuente oficial para 10.17:
+
+- `GET /admin/summary`: tarjetas/resumen del dashboard.
+- `GET /admin/internships`: tabla principal de prácticas.
+- `GET /admin/internships/{internship_id}`: detalle administrativo.
+
+Filtros validos para `GET /admin/internships?status=`:
 
 - `submitted`: practicas sin estado o con estado `Pendiente`.
-- `in_review`: practicas con estado `En revisión`.
+- `in_review`: practicas con estado `En revisión` o `En revisión DIRAE`.
 - `approved`: practicas con estado `Aprobada`.
 - `rejected`: practicas con estado `Rechazada` o `Reprobada`.
+
+El frontend no debe usar fallback silencioso desde `/admin/*` hacia
+`/internships` para el dashboard coordinador. Si `/admin/*` retorna `403`, el
+problema es de permisos/rol y debe mostrarse como error.
+
+### Seguro escolar institucional
+
+| Método | Ruta | Acceso | Request | Response |
+| --- | --- | --- | --- | --- |
+| `GET` | `/admin/students/{student_id}/registration-requirements` | Encargado de practica, Director de carrera | - | `list[AdminRegistrationRequirementItem]` |
+| `PATCH` | `/admin/students/{student_id}/registration-requirements/school-insurance` | Encargado de practica, Director de carrera | `AdminUpdateSchoolInsuranceRequest` | `AdminRegistrationRequirementItem` |
+
+Request:
+
+```json
+{
+  "is_completed": true
+}
+```
+
+Respuesta:
+
+```json
+{
+  "id": 8,
+  "user_id": 1,
+  "requirement": "school_insurance",
+  "is_completed": true,
+  "completed_at": "2026-06-12T18:30:00Z",
+  "updated_by": 5
+}
+```
+
+El `PATCH` crea o actualiza el registro institucional. Esta operación no otorga
+una excepción y no aprueba automáticamente ninguna práctica.
 
 ### Tracking de estados
 
@@ -295,7 +360,7 @@ Respuesta resumida:
       "first_name": "Juan",
       "last_name": "Perez"
     },
-    "reason": "Registro inicial de práctica",
+    "reason": "Creación inicial de solicitud de práctica",
     "changed_at": "2026-06-03T10:30:00",
     "metadata": {
       "event": "internship_created"
@@ -377,6 +442,10 @@ Valores validos relevantes:
 - `modality`: `Presencial`, `Remoto`, `Híbrido`.
 - `internship_period`: `Semestre`, `Verano`, `Invierno`.
 - `internship_type`: `Práctica de Estudio I`, `Práctica de Estudio II`, `Práctica Controlada`, `Tesis`.
+- `has_school_insurance` no se envía en `POST /internships`; el backend genera
+  una copia de compatibilidad desde el prerrequisito institucional. La
+  aprobación final vuelve a consultar el requisito vigente. Una excepción no
+  convierte este valor en `true`.
 
 ## Mapeo esperado desde formulario frontend
 
@@ -405,7 +474,11 @@ Valores validos relevantes:
 | `paymentAmount` | `amount` |
 
 Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
-`internship_period`, `internship_type`.
+`internship_period` e `internship_type`. Para mostrar advertencias contextuales
+de seguro e inducción, consultar
+`GET /internships/registration-eligibility?internship_period=...&internship_type=...`.
+La respuesta no debe usarse para impedir la creación de la solicitud; el
+bloqueo se aplica al intentar formalizarla.
 
 ## Documentos
 
@@ -421,9 +494,11 @@ documenta en `docs/documents-privacy.md`.
 | GET | `/documents/types` | Bearer token | - | `list[DocumentTypeResponse]` |
 | POST | `/internships/{internship_id}/documents` | Estudiante propietario | `multipart/form-data` con `document_type_id` y `file` | `DocumentResponse` |
 | GET | `/internships/{internship_id}/documents` | Propietario o rol documental | Path `internship_id` | `list[DocumentResponse]` |
+| GET | `/internships/{internship_id}/documents/package` | Propietario o rol documental | Path `internship_id` | `DocumentPackageResponse` |
 | GET | `/documents/{document_id}/download` | Propietario o rol documental | Path `document_id` | Archivo binario |
 | PATCH | `/documents/{document_id}/status` | Rol documental | `DocumentStatusUpdateRequest` | `DocumentResponse` |
 | DELETE | `/documents/{document_id}` | Propietario si no esta aprobado, o rol documental | Path `document_id` | `204 No Content` |
+| GET | `/dirae/document-packages/export` | Rol documental | Query opcional `internship_ids` repetible | CSV `text/csv` |
 
 Roles documentales autorizados:
 
@@ -504,6 +579,93 @@ Estados documentales:
 - `approved`
 - `deleted`
 
+### DIRAE / Paquete documental
+
+`GET /internships/{internship_id}/documents/package` calcula el paquete
+documental de una practica. Puede consultarlo el estudiante propietario o un
+rol documental autorizado. La respuesta indica si la practica es exportable a
+DIRAE sin crear lotes persistidos.
+
+Reglas de exportabilidad:
+
+- la practica debe estar en estado `Aprobada`;
+- cada `DocumentType` activo con `is_required = true` debe tener un documento
+  `approved` no eliminado;
+- si existe mas de un documento aprobado para el mismo tipo, se usa el mas
+  reciente por `upload_date DESC, id DESC`;
+- `reasons` usa valores estables: `internship_not_approved` y
+  `missing_required_documents`.
+
+Respuesta resumida:
+
+```json
+{
+  "internship_id": 7,
+  "status": "Aprobada",
+  "exportable": true,
+  "reasons": [],
+  "student": {
+    "id": 10,
+    "rut": "12.345.678-9",
+    "enrollment": "12345678923",
+    "first_name": "Juan",
+    "last_name": "Perez",
+    "email": "juan.perez@correo.cl",
+    "degree": "Ingenieria Civil Informatica",
+    "cod_degree": "INF-001"
+  },
+  "internship": {
+    "type": "Práctica de Estudio I",
+    "period": "Semestre",
+    "organization": "Empresa Demo SpA",
+    "city": "Temuco",
+    "start_date": "2026-06-01",
+    "end_date": "2026-08-31"
+  },
+  "required_documents": [
+    {
+      "type_id": 1,
+      "type_name": "Formulario de inscripción",
+      "status": "approved",
+      "document": {
+        "id": 15,
+        "file_name": "formulario.pdf",
+        "extension": "pdf",
+        "status": "approved"
+      }
+    }
+  ],
+  "optional_documents": []
+}
+```
+
+`GET /dirae/document-packages/export` exporta CSV con:
+
+```text
+internship_id,student_id,student_rut,student_enrollment,student_first_name,student_last_name,student_email,degree,cod_degree,internship_type,internship_period,organization,city,start_date,end_date,approved_document_ids,required_document_type_ids,exported_at
+```
+
+`student_enrollment` se calcula como RUT sin puntos ni guion más los dos últimos
+dígitos del año de ingreso cuando ese dato está disponible en el usuario. Si el
+año de ingreso todavía no existe en el modelo de datos, el campo se retorna vacío
+en CSV y `null` en el paquete JSON.
+
+El query `internship_ids` es opcional y repetible:
+
+```text
+/dirae/document-packages/export?internship_ids=1&internship_ids=2
+```
+
+Si se omite, exporta todas las practicas aprobadas y exportables. Si no hay
+filas exportables, responde `200 OK` con solo el encabezado CSV. La respuesta
+incluye `Content-Disposition` con nombre
+`dirae_document_packages_YYYYMMDD_HHMMSS.csv`.
+
+La exportación define el evento interno `dirae_export_generated` con actor,
+fecha, prácticas, documentos, archivo y resultado de generación para integración
+posterior con auditoría. En el MVP no se persiste un lote DIRAE propio ni se
+envía el archivo a sistemas externos.
+
 Errores esperados:
 
 - `400 Bad Request`: extension invalida, archivo vacio, tamano excedido o
@@ -512,3 +674,5 @@ Errores esperados:
 - `404 Not Found`: practica, tipo documental, documento o archivo inexistente.
 - `409 Conflict`: carga en practica terminal o estudiante intentando eliminar
   un documento aprobado.
+- `409 Conflict`: exportacion DIRAE solicitada explicitamente para una practica
+  no exportable.

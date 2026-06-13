@@ -1,6 +1,6 @@
 """Schemas Pydantic para contratos HTTP de documentos."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,3 +70,59 @@ class DocumentStatusUpdateRequest(BaseModel):
 
     status: Literal["observed", "approved"]
     comment: str | None = Field(default=None, max_length=1000)
+
+
+class DocumentPackageStudentResponse(BaseModel):
+    """Datos del estudiante incluidos en un paquete documental."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int | None
+    rut: str | None
+    enrollment: str | None
+    first_name: str | None
+    last_name: str | None
+    email: str | None
+    degree: str | None
+    cod_degree: str | None
+
+
+class DocumentPackageInternshipResponse(BaseModel):
+    """Datos de la practica incluidos en un paquete documental."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: str | None
+    period: str | None
+    organization: str | None
+    city: str | None
+    start_date: date | None
+    end_date: date | None
+
+
+class DocumentPackageItemResponse(BaseModel):
+    """Estado de un tipo documental dentro del paquete."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type_id: int
+    type_name: str
+    status: Literal["approved", "missing"]
+    document: DocumentResponse | None
+
+
+class DocumentPackageResponse(BaseModel):
+    """Resumen documental exportable a DIRAE."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    internship_id: int
+    status: str | None
+    exportable: bool
+    reasons: list[
+        Literal["internship_not_approved", "missing_required_documents"]
+    ]
+    student: DocumentPackageStudentResponse
+    internship: DocumentPackageInternshipResponse
+    required_documents: list[DocumentPackageItemResponse]
+    optional_documents: list[DocumentPackageItemResponse]

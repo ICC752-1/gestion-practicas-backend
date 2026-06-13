@@ -1,6 +1,8 @@
 """Tests unitarios para el servicio documental."""
 
-from datetime import datetime
+from csv import DictReader
+from datetime import date, datetime
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
@@ -22,6 +24,9 @@ class FakeDocumentRepository:
         self.internship_by_id = _internship(user_id=10)
         self.documents_by_id = {}
         self.listed_documents = []
+        self.package_documents = []
+        self.required_document_types = [self.document_types[1]]
+        self.export_internships = [self.internship_by_id]
         self.created_document = None
         self.updated_document = None
         self.deleted_document = None
@@ -44,6 +49,29 @@ class FakeDocumentRepository:
 
     async def list_documents_by_internship(self, internship_id: int):
         return self.listed_documents
+
+    async def list_required_document_types(self):
+        return self.required_document_types
+
+    async def list_package_documents_by_internship(self, internship_id: int):
+        return [
+            document
+            for document in self.package_documents
+            if document.internship_id == internship_id
+        ]
+
+    async def list_internships_for_dirae_export(
+        self,
+        internship_ids: list[int] | None = None,
+    ):
+        if internship_ids is None:
+            return self.export_internships
+
+        return [
+            internship
+            for internship in self.export_internships
+            if internship.id in internship_ids
+        ]
 
     async def get_document_by_id(self, document_id: int):
         return self.documents_by_id.get(document_id)
@@ -95,6 +123,18 @@ def _status(title: str) -> SimpleNamespace:
     return SimpleNamespace(title=title)
 
 
+def _student(user_id: int) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=user_id,
+        rut="12.345.678-9",
+        first_name="Juan",
+        last_name="Perez",
+        email="juan.perez@correo.cl",
+        degree="Ingenieria Civil Informatica",
+        cod_degree="INF-001",
+    )
+
+
 def _internship(
     user_id: int,
     status_title: str = "Pendiente",
@@ -103,15 +143,27 @@ def _internship(
         id=7,
         user_id=user_id,
         status=_status(status_title),
+        student=_student(user_id),
+        org_name="Empresa Demo SpA",
+        city="Temuco",
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 8, 31),
+        internship_period="Semestre",
+        internship_type="Práctica de Estudio I",
     )
 
 
-def _document_type(document_type_id: int) -> SimpleNamespace:
+def _document_type(
+    document_type_id: int,
+    *,
+    is_required: bool = True,
+    name: str = "Formulario",
+) -> SimpleNamespace:
     return SimpleNamespace(
         id=document_type_id,
-        name="Formulario",
+        name=name,
         description="Formulario de inscripción",
-        is_required=True,
+        is_required=is_required,
         category=DocumentCategoryEnum.academic,
         is_active=True,
     )
@@ -122,29 +174,35 @@ def _document(
     status: DocumentStatusEnum = DocumentStatusEnum.uploaded,
     internship=None,
     file_path: str = "7/test.pdf",
+    document_id: int = 55,
+    document_type=None,
+    upload_date: datetime | None = None,
+    deleted_at: datetime | None = None,
 ) -> SimpleNamespace:
     if internship is None:
         internship = _internship(user_id=user_id)
+    if document_type is None:
+        document_type = _document_type(1)
 
     return SimpleNamespace(
-        id=55,
+        id=document_id,
         file_name="formulario.pdf",
         file_path=file_path,
         extension=DocumentExtensionEnum.pdf,
         status=status,
         size_bytes=4,
-        upload_date=datetime(2026, 6, 1, 9, 0, 0),
+        upload_date=upload_date or datetime(2026, 6, 1, 9, 0, 0),
         update_date=datetime(2026, 6, 1, 9, 0, 0),
         internship_id=internship.id,
-        type_id=1,
+        type_id=document_type.id,
         user_id=user_id,
         reviewed_at=None,
         reviewed_by=None,
         review_comment=None,
-        deleted_at=None,
+        deleted_at=deleted_at,
         deleted_by=None,
         internship=internship,
-        document_type=_document_type(1),
+        document_type=document_type,
     )
 
 
@@ -463,3 +521,379 @@ async def test_admin_can_soft_delete_approved_document(tmp_path):
 
     assert document.status == DocumentStatusEnum.deleted
     assert document.deleted_by == 99
+
+
+def _package_repository(
+    *,
+    status_title: str = "Aprobada",
+    documents: list[SimpleNamespace] | None = None,
+    required_types: list[SimpleNamespace] | None = None,
+) -> FakeDocumentRepository:
+    repository = FakeDocumentRepository()
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title=status_title,
+    )
+    if required_types is None:
+        required_types = [
+            _document_type(1, name="Formulario de inscripción"),
+        ]
+    repository.required_document_types = required_types
+    repository.export_internships = [repository.internship_by_id]
+    if documents is None:
+        documents = [
+            _document(
+                status=DocumentStatusEnum.approved,
+                internship=repository.internship_by_id,
+                document_type=required_types[0],
+            )
+        ]
+    repository.package_documents = documents
+
+    return repository
+
+
+def _admin_user() -> SimpleNamespace:
+    return _user(99, "Secretaria de Carrera")
+
+
+@pytest.mark.asyncio
+async def test_package_is_exportable_with_approved_internship_and_docs(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.exportable is True
+    assert package.reasons == []
+    assert package.status == "Aprobada"
+    assert package.required_documents[0].status == "approved"
+    assert package.required_documents[0].document.id == 55
+
+
+@pytest.mark.asyncio
+async def test_package_builds_student_enrollment_when_year_is_available(
+    tmp_path,
+):
+    repository = _package_repository()
+    repository.internship_by_id.student.admission_year = 2023
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.student.enrollment == "12345678923"
+
+
+@pytest.mark.asyncio
+async def test_package_keeps_student_enrollment_empty_without_year(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.student.enrollment is None
+
+
+@pytest.mark.asyncio
+async def test_package_not_exportable_when_internship_is_not_approved(tmp_path):
+    repository = _package_repository(status_title="Pendiente")
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["internship_not_approved"]
+
+
+@pytest.mark.asyncio
+async def test_package_not_exportable_when_required_document_missing(tmp_path):
+    repository = _package_repository(documents=[])
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["missing_required_documents"]
+    assert package.required_documents[0].status == "missing"
+    assert package.required_documents[0].document is None
+
+
+@pytest.mark.asyncio
+async def test_package_requires_all_required_document_types(tmp_path):
+    required_types = [
+        _document_type(1, name="Formulario de inscripción"),
+        _document_type(2, name="Carta de aceptación"),
+    ]
+    repository = _package_repository(required_types=required_types)
+    repository.package_documents = [
+        _document(
+            status=DocumentStatusEnum.approved,
+            internship=repository.internship_by_id,
+            document_type=required_types[0],
+        )
+    ]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["missing_required_documents"]
+    assert package.required_documents[0].status == "approved"
+    assert package.required_documents[1].status == "missing"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "document_status",
+    [DocumentStatusEnum.uploaded, DocumentStatusEnum.observed],
+)
+async def test_package_ignores_non_approved_documents(tmp_path, document_status):
+    repository = _package_repository()
+    repository.package_documents = [
+        _document(
+            status=document_status,
+            internship=repository.internship_by_id,
+            document_type=repository.required_document_types[0],
+        )
+    ]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["missing_required_documents"]
+
+
+@pytest.mark.asyncio
+async def test_package_ignores_deleted_document(tmp_path):
+    repository = _package_repository()
+    repository.package_documents = [
+        _document(
+            status=DocumentStatusEnum.deleted,
+            internship=repository.internship_by_id,
+            document_type=repository.required_document_types[0],
+            deleted_at=datetime(2026, 6, 2, 9, 0, 0),
+        )
+    ]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["missing_required_documents"]
+
+
+@pytest.mark.asyncio
+async def test_package_selects_latest_approved_document_by_type(tmp_path):
+    repository = _package_repository()
+    document_type = repository.required_document_types[0]
+    older = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=55,
+        document_type=document_type,
+        upload_date=datetime(2026, 6, 1, 9, 0, 0),
+    )
+    newer = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=56,
+        document_type=document_type,
+        upload_date=datetime(2026, 6, 2, 9, 0, 0),
+    )
+    repository.package_documents = [older, newer]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is True
+    assert package.required_documents[0].document.id == 56
+
+
+@pytest.mark.asyncio
+async def test_package_tiebreaks_latest_approved_document_by_id(tmp_path):
+    repository = _package_repository()
+    document_type = repository.required_document_types[0]
+    upload_date = datetime(2026, 6, 1, 9, 0, 0)
+    lower_id = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=55,
+        document_type=document_type,
+        upload_date=upload_date,
+    )
+    higher_id = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=56,
+        document_type=document_type,
+        upload_date=upload_date,
+    )
+    repository.package_documents = [lower_id, higher_id]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is True
+    assert package.required_documents[0].document.id == 56
+
+
+@pytest.mark.asyncio
+async def test_package_access_allows_owner_and_document_admin(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    owner_package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+    admin_package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert owner_package.exportable is True
+    assert admin_package.exportable is True
+
+
+@pytest.mark.asyncio
+async def test_package_access_rejects_cross_student(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_document_package(
+            internship_id=7,
+            actor=_user(99, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_authorized(tmp_path):
+    repository = _package_repository()
+    repository.internship_by_id.student.admission_year = 2023
+    service = _service(tmp_path, repository=repository)
+
+    export = await service.export_dirae_document_packages(
+        actor=_admin_user(),
+        internship_ids=[7],
+    )
+    rows = list(DictReader(StringIO(export.content)))
+
+    assert export.filename.startswith("dirae_document_packages_")
+    assert export.filename.endswith(".csv")
+    assert rows[0]["internship_id"] == "7"
+    assert rows[0]["student_rut"] == "12.345.678-9"
+    assert rows[0]["student_enrollment"] == "12345678923"
+    assert rows[0]["approved_document_ids"] == "55"
+    assert rows[0]["required_document_type_ids"] == "1"
+    assert export.audit_event.name == "dirae_export_generated"
+    assert export.audit_event.actor_id == 99
+    assert export.audit_event.internship_ids == [7]
+    assert export.audit_event.approved_document_ids == [55]
+    assert export.audit_event.result == "generated"
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_rejects_non_document_admin(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.export_dirae_document_packages(
+            actor=_user(10, "Estudiante"),
+            internship_ids=[7],
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_returns_404_for_unknown_requested_id(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.export_dirae_document_packages(
+            actor=_admin_user(),
+            internship_ids=[404],
+        )
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_returns_409_for_requested_non_exportable(tmp_path):
+    repository = _package_repository(status_title="Pendiente")
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.export_dirae_document_packages(
+            actor=_admin_user(),
+            internship_ids=[7],
+        )
+
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
+    repository = _package_repository(status_title="Pendiente")
+    service = _service(tmp_path, repository=repository)
+
+    export = await service.export_dirae_document_packages(
+        actor=_admin_user(),
+    )
+
+    assert export.content.strip().split(",") == [
+        "internship_id",
+        "student_id",
+        "student_rut",
+        "student_enrollment",
+        "student_first_name",
+        "student_last_name",
+        "student_email",
+        "degree",
+        "cod_degree",
+        "internship_type",
+        "internship_period",
+        "organization",
+        "city",
+        "start_date",
+        "end_date",
+        "approved_document_ids",
+        "required_document_type_ids",
+        "exported_at",
+    ]

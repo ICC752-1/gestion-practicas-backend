@@ -264,7 +264,10 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert internship.supervisor_email == "ana.perez@acme.example"
     assert repository.created_initial_status.title == "Pendiente"
     assert repository.created_actor_id == 42
-    assert repository.created_history_reason == "Registro inicial de práctica"
+    assert (
+        repository.created_history_reason
+        == "Creación inicial de solicitud de práctica"
+    )
     assert repository.created_history_metadata == {"event": "internship_created"}
 
 
@@ -542,16 +545,22 @@ async def test_approve_seasonal_internship_raises_409_without_insurance_or_excep
     service = InternshipService(internship_repository=repository)
     actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
     
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=False,
+    )
     repository.internship_by_id = SimpleNamespace(
         id=7,
         user_id=10,
         org_name="Acme Chile",
         student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
-        status_id=1,
-        status=_status(1, "Pendiente"),
+        status_id=2,
+        status=_status(2, "En revisión"),
         internship_period=PracticePeriodEnum.summer,   # Tarea 10.20: Envoltura Enum corregida para .value
-        internship_type=PracticeTypeEnum.practice_2,  
-        has_school_insurance=False,                   
+        internship_type=PracticeTypeEnum.practice_1,
+        has_school_insurance=True,
     )
     repository.exception_by_rule = None
 
@@ -568,15 +577,21 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
     service = InternshipService(internship_repository=repository)
     actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
     
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=False,
+    )
     internship_mock = SimpleNamespace(
         id=7,
         user_id=10,
         org_name="Acme Chile",
         student=SimpleNamespace(email="camila.rojas@ufromail.cl"),
-        status_id=1,
-        status=_status(1, "Pendiente"),
+        status_id=2,
+        status=_status(2, "En revisión"),
         internship_period=PracticePeriodEnum.summer,   # Tarea 10.20: Envoltura Enum corregida para .value
-        internship_type=PracticeTypeEnum.practice_2,
+        internship_type=PracticeTypeEnum.practice_1,
         has_school_insurance=False,  
     )
     repository.internship_by_id = internship_mock
@@ -585,7 +600,7 @@ async def test_approve_seasonal_internship_allows_advance_with_exception_active(
     updated_internship = await service.approve(internship_id=7, actor=actor, comment="Aprobado con bypass de excepción")
 
     assert updated_internship is internship_mock
-    assert repository.updated_new_status.title == "En revisión"
+    assert repository.updated_new_status.title == "Aprobada"
 
 
 """REGLA DE NEGOCIO PARA INDUCCIÓN OBLIGATORIA (PRÁCTICA I VS II)"""
@@ -834,7 +849,7 @@ async def test_approve_practice_2_without_induction_allows_advance() -> None:
     assert repository.updated_reason == "Procesando Práctica II"
 
 
-"""REGLA DE NEGOCIO: ELEGIBILIDAD DE REGISTRO - SECUENCIALIDAD"""
+"""REGLA DE NEGOCIO: ELEGIBILIDAD PARA FORMALIZAR - SECUENCIALIDAD"""
 
 
 @pytest.mark.asyncio

@@ -322,6 +322,34 @@ VALUES ('Claudio', 'Navarro', 'claudio.navarro@ufrontera.cl', '$argon2id$v=19$m=
 INSERT INTO user_roles(user_id, role_id) VALUES (1, 1);
 INSERT INTO user_roles(user_id, role_id) VALUES (2, 2);
 
+-- Contenido minimo de induccion para flujos demo/Insomnia.
+-- Permite que el estudiante complete el prerrequisito inexceptuable antes
+-- de aprobar una Practica de Estudio I.
+INSERT INTO induction_content_versions (title, description, status, is_active, min_score, published_at)
+VALUES (
+    'Induccion obligatoria demo',
+    'Contenido minimo para validar el flujo de induccion en ambiente local.',
+    'published',
+    TRUE,
+    1,
+    CURRENT_TIMESTAMP
+);
+
+INSERT INTO induction_videos (content_version_id, title, video_url, "order")
+SELECT id, 'Video introductorio demo', 'https://example.com/induccion-demo', 1
+FROM induction_content_versions
+WHERE title = 'Induccion obligatoria demo';
+
+INSERT INTO induction_questions (content_version_id, question_text, options, correct_answer, "order")
+SELECT
+    id,
+    'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
+    '{"choices": ["Entiendo y acepto", "No acepto"]}'::jsonb,
+    'Entiendo y acepto',
+    1
+FROM induction_content_versions
+WHERE title = 'Induccion obligatoria demo';
+
 -- 4. Función del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
 RETURNS TRIGGER AS $$

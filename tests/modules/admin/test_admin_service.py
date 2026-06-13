@@ -1,6 +1,11 @@
 from datetime import date, datetime, UTC
+from types import SimpleNamespace
 
+from app.modules.admin.schemas.admin_schema import AdminUpdateSchoolInsuranceRequest
 from app.modules.admin.services.admin_service import AdminService
+from app.modules.internships.models.student_internship_requirement_model import (
+    RegistrationRequirementType,
+)
 
 
 class FakeStudent:
@@ -19,6 +24,9 @@ class FakeStudent:
         self.last_name = last_name
         self.rut = rut
         self.is_active = is_active
+        self.roles = [
+            SimpleNamespace(role=SimpleNamespace(name="Estudiante")),
+        ]
 
 
 class FakeStatus:
@@ -63,6 +71,21 @@ class FakeInternship:
         self.status = status
 
 
+class FakeRegistrationRequirement:
+    def __init__(
+        self,
+        requirement_id: int,
+        user_id: int,
+        is_completed: bool,
+    ) -> None:
+        self.id = requirement_id
+        self.user_id = user_id
+        self.requirement = RegistrationRequirementType.SCHOOL_INSURANCE
+        self.is_completed = is_completed
+        self.completed_at = None
+        self.updated_by = None
+
+
 def _internship(
     internship_id: int = 10,
     student: FakeStudent | None = None,
@@ -83,6 +106,9 @@ class FakeAdminRepository:
         self.students: list[FakeStudent] = []
         self.internships: list[FakeInternship] = []
         self.internship_by_id: FakeInternship | None = None
+        self.registration_requirements: list[FakeRegistrationRequirement] = []
+        self.registration_requirement: FakeRegistrationRequirement | None = None
+        self.saved_registration_requirement = None
 
     async def get_students_count(self) -> int:
         return self.students_count
@@ -101,6 +127,35 @@ class FakeAdminRepository:
 
     async def get_internship_by_id(self, internship_id: int) -> FakeInternship | None:
         return self.internship_by_id
+
+    async def get_user_by_id(self, user_id: int) -> FakeStudent | None:
+        return next(
+            (student for student in self.students if student.id == user_id),
+            None,
+        )
+
+    async def list_student_registration_requirements(
+        self,
+        student_id: int,
+    ) -> list[FakeRegistrationRequirement]:
+        return [
+            requirement
+            for requirement in self.registration_requirements
+            if requirement.user_id == student_id
+        ]
+
+    async def get_student_registration_requirement(
+        self,
+        student_id: int,
+        requirement: str,
+    ) -> FakeRegistrationRequirement | None:
+        return self.registration_requirement
+
+    async def save_student_registration_requirement(self, requirement):
+        if getattr(requirement, "id", None) is None:
+            requirement.id = 1
+        self.saved_registration_requirement = requirement
+        return requirement
 
 
 # Caso de prueba:
@@ -231,6 +286,75 @@ async def test_get_internships_allows_none_status() -> None:
 
 
 # Caso de prueba:
+# el dashboard del coordinador consume `/admin/internships?status=...`.
+# El servicio debe filtrar usando estados normalizados sin exigir que el
+# frontend consulte `/internships`.
+async def test_get_internships_filters_by_dashboard_status() -> None:
+    repository = FakeAdminRepository()
+    student = FakeStudent(
+        student_id=1,
+        email="student@example.com",
+        first_name="Juan",
+        last_name="Perez",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    repository.internships = [
+        _internship(
+            internship_id=1,
+            student=student,
+            status=FakeStatus(
+                status_id=1,
+                title="Pendiente",
+                description="Pendiente.",
+            ),
+        ),
+        _internship(
+            internship_id=2,
+            student=student,
+            status=FakeStatus(
+                status_id=2,
+                title="En revisión",
+                description="En revisión administrativa.",
+            ),
+        ),
+        _internship(
+            internship_id=3,
+            student=student,
+            status=FakeStatus(
+                status_id=3,
+                title="En revisión DIRAE",
+                description="Derivada a DIRAE.",
+            ),
+        ),
+        _internship(
+            internship_id=4,
+            student=student,
+            status=FakeStatus(
+                status_id=4,
+                title="Aprobada",
+                description="Aprobada.",
+            ),
+        ),
+        _internship(
+            internship_id=5,
+            student=student,
+            status=None,
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    submitted = await service.get_internships(status_filter="submitted")
+    in_review = await service.get_internships(status_filter="in_review")
+    approved = await service.get_internships(status_filter="approved")
+
+    assert [internship.id for internship in submitted] == [1, 5]
+    assert [internship.id for internship in in_review] == [2, 3]
+    assert [internship.id for internship in approved] == [4]
+
+
+# Caso de prueba:
 # cuando la practica existe, el servicio debe devolver el detalle completo
 # y mantener disponibles las relaciones necesarias para que el controller
 # pueda responder el recurso administrativo sin transformaciones extra.
@@ -281,3 +405,121 @@ async def test_get_internship_detail_returns_none() -> None:
     internship = await service.get_internship_detail(internship_id=404)
 
     assert internship is None
+
+
+async def test_get_student_registration_requirements_returns_institutional_data() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    repository.registration_requirements = [
+        FakeRegistrationRequirement(
+            requirement_id=3,
+            user_id=7,
+            is_completed=True,
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    requirements = await service.get_student_registration_requirements(7)
+
+    assert requirements is not None
+    assert len(requirements) == 1
+    assert requirements[0].requirement == "school_insurance"
+    assert requirements[0].is_completed is True
+
+
+async def test_update_school_insurance_creates_missing_requirement() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_school_insurance_requirement(
+        student_id=7,
+        payload=AdminUpdateSchoolInsuranceRequest(is_completed=True),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.requirement == "school_insurance"
+    assert result.is_completed is True
+    assert result.completed_at is not None
+    assert result.updated_by == 20
+
+
+async def test_update_school_insurance_clears_completion_when_revoked() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    requirement = FakeRegistrationRequirement(
+        requirement_id=3,
+        user_id=7,
+        is_completed=True,
+    )
+    requirement.completed_at = datetime(2026, 6, 1, tzinfo=UTC)
+    repository.registration_requirement = requirement
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_school_insurance_requirement(
+        student_id=7,
+        payload=AdminUpdateSchoolInsuranceRequest(is_completed=False),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.is_completed is False
+    assert result.completed_at is None
+    assert result.updated_by == 20
+
+
+async def test_update_school_insurance_returns_none_for_non_student() -> None:
+    repository = FakeAdminRepository()
+    user = FakeStudent(
+        student_id=7,
+        email="director@example.com",
+        first_name="Dora",
+        last_name="Directora",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    user.roles = [
+        SimpleNamespace(role=SimpleNamespace(name="Director de carrera")),
+    ]
+    repository.students = [user]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_school_insurance_requirement(
+        student_id=7,
+        payload=AdminUpdateSchoolInsuranceRequest(is_completed=True),
+        updated_by_user_id=20,
+    )
+
+    assert result is None

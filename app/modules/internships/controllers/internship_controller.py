@@ -17,7 +17,11 @@ from app.core.config import config
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import (
+    Internship,
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+)
 from app.modules.internships.repositories.internship_repository import (
     InternshipRepository,
 )
@@ -310,22 +314,30 @@ async def submit_induction_attempt(
 async def get_registration_eligibility(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
+    internship_period: Annotated[PracticePeriodEnum | None, Query()] = None,
+    internship_type: Annotated[PracticeTypeEnum | None, Query()] = None,
 ) -> RegistrationEligibilityResponse:
-    """Evalúa la elegibilidad del estudiante autenticado para registrar prácticas.
+    """Evalúa requisitos para formalizar una solicitud de práctica.
 
     Retorna el estado del seguro escolar, la inducción obligatoria,
-    excepciones vigentes y el siguiente paso sugerido.
+    excepciones vigentes y el siguiente paso sugerido según periodo y tipo.
 
     Args:
         db: Sesión asincrona de base de datos.
         current_user: Usuario autenticado.
+        internship_period: Periodo de la práctica que se desea evaluar.
+        internship_type: Tipo de práctica que se desea evaluar.
 
     Returns:
         ``RegistrationEligibilityResponse`` con el diagnóstico de elegibilidad.
     """
     logger.info("HTTP GET /internships/registration-eligibility - Consulta de elegibilidad por usuario ID: %s", current_user.id)
     service = _build_service(db)
-    eligibility = await service.get_registration_eligibility(user_id=current_user.id)
+    eligibility = await service.get_registration_eligibility(
+        user_id=current_user.id,
+        internship_period=internship_period,
+        internship_type=internship_type,
+    )
     logger.info("Elegibilidad para usuario ID: %s - seguro=%s, inducción=%s, bloqueado=%s",
                 current_user.id, eligibility.has_school_insurance, eligibility.has_induction, eligibility.blocked)
     return eligibility

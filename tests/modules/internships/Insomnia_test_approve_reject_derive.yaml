@@ -207,7 +207,6 @@ collection:
               "supervisor_phone": "+56987654321",
               "internship_period": "Semestre",
               "internship_type": "Práctica de Estudio I",
-              "has_school_insurance": true,
               "amount": 300000
             }
         headers:
