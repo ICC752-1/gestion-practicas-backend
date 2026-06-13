@@ -142,16 +142,15 @@ Para conocer la matriz de transiciones detallada y las reglas de negocio que evi
 
 #### Aprobación (`POST /internships/{internship_id}/approve`)
 
-* **Payload (`ApproveRequest`):**
+* **Payload (`InternshipActionRequest`):**
 
 ```json
 {
-  "comment": "Comentario opcional de aprobación",
-  "skip_review": false
+  "comment": "Comentario opcional de aprobación"
 }
 ```
 
-**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** o el flag `skip_review: true` la avanzará a **Aprobada**. El rol de **Encargado** (con `skip_review: false`) la avanzará a **En revisión**.
+**Comportamiento Dinámico:** Si la práctica está **Pendiente**, el rol de **Director** la avanzará directamente a **Aprobada**. El rol de **Encargado** la avanzará a **En revisión**.
 
 #### Rechazo (`POST /internships/{internship_id}/reject`)
 
@@ -196,7 +195,7 @@ Para la especificación completa de la regla ver **`docs/business_rules.md` (RN-
 }
 ```
  
-- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`.
+- `rule`: valores permitidos: `"school_insurance"`, `"sequentiality"`, `"sequentiality_thesis"`, `"parallel_course"`.
 - `reason`: obligatorio, no puede estar vacío ni contener solo espacios.
 **Respuesta exitosa** `201 Created` **(`InternshipExceptionResponse`):**
  
@@ -255,7 +254,9 @@ Los campos `has_approved_practice_1`, `sequentiality_blocked` y `has_sequentiali
 | `409` | Práctica I sin inducción aprobada | `"La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. ..."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
- 
+| `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
+| `409` | Paralelo: Práctica Controlada sin excepción de ramo en paralelo | `{"rule": "parallel_course", "message": "La Práctica Controlada requiere que los co-requisitos estén resueltos. ..."}` |
+
 ---
 
 ### Dashboard coordinador
@@ -417,12 +418,16 @@ Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
 `internship_period` e `internship_type`. Para mostrar el estado de seguro e
 inducción, consultar `GET /internships/registration-eligibility` antes de enviar el
 formulario.
+`internship_period`, `internship_type`.
 
 ## Documentos
 
 El modulo `documents` centraliza la carga y revision de archivos asociados a
 practicas. Los archivos se guardan en storage privado local y nunca se exponen
 como URL publica; toda descarga pasa por endpoint autenticado.
+
+La politica de almacenamiento, privacidad, retencion y operacion en VPS se
+documenta en `docs/documents-privacy.md`.
 
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |

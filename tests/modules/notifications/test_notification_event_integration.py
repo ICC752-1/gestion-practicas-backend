@@ -178,6 +178,20 @@ class FakeInternshipRepository:
         internship.status_id = new_status.id
         return internship
 
+    async def get_exception_by_rule(self, internship_id: int, rule: str):
+        if rule == "parallel_course":
+            return SimpleNamespace(id=1, rule="parallel_course")
+        return None
+
+    async def upsert_academic_requirement_status(
+        self,
+        user_id: int,
+        practice_type: str,
+        new_status: str,
+        updated_by: int,
+    ):
+        return SimpleNamespace(status=new_status)
+
 
 class FakeDocumentRepository:
     def __init__(self) -> None:
