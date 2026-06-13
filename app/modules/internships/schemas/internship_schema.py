@@ -451,12 +451,12 @@ class InductionAttemptResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────
-# Schema de Elegibilidad para Registro
+# Schema de elegibilidad para formalizar una solicitud
 # ──────────────────────────────────────────────
 
 
 class RegistrationEligibilityResponse(BaseModel):
-    """Elegibilidad del estudiante para registrar una práctica.
+    """Diagnóstico de requisitos para formalizar una solicitud de práctica.
 
     Attributes:
         has_school_insurance: ``True`` si el estudiante tiene registrado
@@ -473,8 +473,8 @@ class RegistrationEligibilityResponse(BaseModel):
         has_sequentiality_exception: ``True`` si existe una excepción
             administrativa activa de secuencialidad en alguna práctica
             del estudiante.
-        blocked: ``True`` si existe algún bloqueo activo que impida
-            el registro o aprobación.
+        blocked: ``True`` si existe un bloqueo contextual que impide la
+            aprobación o formalización. No impide crear la solicitud pendiente.
         next_step: Texto descriptivo de la siguiente acción recomendada
             para el estudiante.
     """

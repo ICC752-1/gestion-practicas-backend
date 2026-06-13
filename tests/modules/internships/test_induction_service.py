@@ -356,21 +356,27 @@ class TestIntegratedRules:
 
     @pytest.mark.asyncio
     async def test_approve_seasonal_without_insurance_raises_409(self):
-        """3.a. Bloqueo de práctica estival sin seguro ni excepción."""
+        """3.a. La aprobación final estival exige seguro vigente o excepción."""
         repo = FakeInductionRepository()
         service = InternshipService(internship_repository=repo)
         actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=False,
+        )
 
         repo.internship_by_id = SimpleNamespace(
             id=7,
             user_id=10,
             org_name="Acme Chile",
             student=SimpleNamespace(email="test@ufro.cl"),
-            status_id=1,
-            status=_status(1, PENDING_STATUS_TITLE),
+            status_id=2,
+            status=_status(2, IN_REVIEW_STATUS_TITLE),
             internship_period=PracticePeriodEnum.summer,
-            internship_type=PracticeTypeEnum.practice_2,
-            has_school_insurance=False,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=True,
         )
         repo._exception_by_rule_value = None
 
@@ -382,10 +388,43 @@ class TestIntegratedRules:
 
     @pytest.mark.asyncio
     async def test_approve_seasonal_with_exception_allows_advance(self):
-        """3.b. Excepción administrativa permite avance pese a falta de seguro."""
+        """3.b. Excepción administrativa permite la aprobación final."""
         repo = FakeInductionRepository()
         service = InternshipService(internship_repository=repo)
         actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=False,
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=7,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=2,
+            status=_status(2, IN_REVIEW_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=False,
+        )
+        repo._exception_by_rule_value = SimpleNamespace(id=1, rule="school_insurance")
+
+        result = await service.approve(internship_id=7, actor=actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_seasonal_request_can_advance_to_review_without_insurance(self):
+        """3.c. Crear y revisar la solicitud no formaliza la práctica."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
 
         repo.internship_by_id = SimpleNamespace(
             id=7,
@@ -395,14 +434,43 @@ class TestIntegratedRules:
             status_id=1,
             status=_status(1, PENDING_STATUS_TITLE),
             internship_period=PracticePeriodEnum.summer,
-            internship_type=PracticeTypeEnum.practice_2,
+            internship_type=PracticeTypeEnum.practice_1,
             has_school_insurance=False,
         )
-        repo._exception_by_rule_value = SimpleNamespace(id=1, rule="school_insurance")
 
         result = await service.approve(internship_id=7, actor=actor, comment=None)
 
         assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_approval_uses_current_insurance_instead_of_creation_snapshot(self):
+        """3.d. Un seguro regularizado después de crear permite aprobar."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=True,
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=7,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=2,
+            status=_status(2, IN_REVIEW_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=False,
+        )
+
+        result = await service.approve(internship_id=7, actor=actor, comment=None)
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+        assert result.has_school_insurance is True
 
     @pytest.mark.asyncio
     async def test_approve_practice_1_blocked_without_induction(self):
@@ -808,7 +876,11 @@ class TestRegistrationEligibility:
         )
         service = InternshipService(internship_repository=repo)
 
-        result = await service.get_registration_eligibility(user_id=10)
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
 
         assert result.blocked is True
         assert result.has_school_insurance is False
@@ -826,7 +898,11 @@ class TestRegistrationEligibility:
         )
         service = InternshipService(internship_repository=repo)
 
-        result = await service.get_registration_eligibility(user_id=10)
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
 
         assert result.blocked is False
         assert result.has_school_insurance is True
@@ -842,10 +918,35 @@ class TestRegistrationEligibility:
         repo._passed_induction_for_user[10] = SimpleNamespace(passed=True)
         service = InternshipService(internship_repository=repo)
 
-        result = await service.get_registration_eligibility(user_id=10)
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
 
         assert result.blocked is False
         assert result.has_induction is True
+
+    @pytest.mark.asyncio
+    async def test_semester_does_not_block_when_school_insurance_is_missing(self):
+        """El seguro faltante no bloquea una práctica semestral."""
+        repo = FakeInductionRepository()
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=False,
+        )
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
+
+        assert result.blocked is False
+        assert result.has_school_insurance is False
 
 
 # ── Tests: Schema InternshipExceptionRequest ──────────────────────────────────

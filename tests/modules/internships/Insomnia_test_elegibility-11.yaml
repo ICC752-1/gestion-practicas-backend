@@ -207,8 +207,8 @@ collection:
       sortKey: -1781145983146
       description: ""
     children:
-      - url: http://localhost:8000/internships/registration-eligibility
-        name: eligibility_with_practice
+      - url: http://localhost:8000/internships/registration-eligibility?internship_period=Verano&internship_type=Pr%C3%A1ctica%20de%20Estudio%20I
+        name: eligibility_summer_practice_1
         meta:
           id: req_ef888981a25d4c7da246d013eb8fad3f
           created: 1780970862449
@@ -233,8 +233,8 @@ collection:
             send: true
             store: true
           rebuildPath: true
-      - url: http://localhost:8000/internships/registration-eligibility
-        name: eligibility_without_practice
+      - url: http://localhost:8000/internships/registration-eligibility?internship_period=Semestre&internship_type=Pr%C3%A1ctica%20de%20Estudio%20I
+        name: eligibility_semester_practice_1
         meta:
           id: req_6a0f27591aa742c2af45c18c62efe6dd
           created: 1781145993480
