@@ -13,6 +13,7 @@ from app.modules.internships.models.internship_status_history_model import (
 )
 from app.modules.internships.models.student_internship_requirement_model import (
     StudentInternshipRequirement,
+    StudentRegistrationRequirement,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "Internship",
     "InternshipStatusHistory",
     "StudentInternshipRequirement",
+    "StudentRegistrationRequirement",
 ]

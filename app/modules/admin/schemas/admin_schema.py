@@ -216,3 +216,25 @@ class AdminUpdateStudentInternshipRequirementStatusRequest(BaseModel):
     """Payload para actualizar el estado de un requisito de práctica."""
 
     status: StudentInternshipRequirementStatus
+
+
+RegistrationRequirementType = Literal["school_insurance", "induction"]
+
+
+class AdminRegistrationRequirementItem(BaseModel):
+    """Representa un prerrequisito institucional asociado a un estudiante."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    requirement: RegistrationRequirementType
+    is_completed: bool
+    completed_at: datetime | None
+    updated_by: int | None
+
+
+class AdminUpdateSchoolInsuranceRequest(BaseModel):
+    """Payload administrativo para registrar el seguro escolar vigente."""
+
+    is_completed: bool

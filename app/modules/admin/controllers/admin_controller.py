@@ -1,7 +1,6 @@
 """Controlador HTTP del modulo admin.
 
-Este modulo define las rutas administrativas de solo lectura orientadas al rol
-`Encargado de practica`.
+Este modulo define rutas administrativas de consulta y gestion de requisitos.
 """
 
 import logging
@@ -16,9 +15,11 @@ from app.modules.admin.schemas.admin_schema import (
     AdminInternshipStatusFilter,
     AdminInternshipDetailResponse,
     AdminInternshipListItem,
+    AdminRegistrationRequirementItem,
     AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryResponse,
+    AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.admin.services.admin_service import AdminService
@@ -36,6 +37,10 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = logging.getLogger(__name__)
 
 PRACTICE_MANAGER_ROLE = "Encargado de practica"
+SCHOOL_INSURANCE_ADMIN_ROLES = [
+    PRACTICE_MANAGER_ROLE,
+    "Director de carrera",
+]
 
 
 def _build_service(db: AsyncSession) -> AdminService:
@@ -232,6 +237,75 @@ async def update_student_internship_requirement_status(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Student internship requirement not found",
+        )
+
+    return requirement
+
+
+@router.get(
+    "/students/{student_id}/registration-requirements",
+    response_model=list[AdminRegistrationRequirementItem],
+)
+async def get_student_registration_requirements(
+    student_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(SCHOOL_INSURANCE_ADMIN_ROLES)),
+    ],
+) -> list[AdminRegistrationRequirementItem]:
+    """Obtiene prerrequisitos institucionales del estudiante."""
+
+    logger.info(
+        "Admin student registration requirements request received",
+        extra={"user_id": current_user.id, "student_id": student_id},
+    )
+
+    requirements = await _build_service(db).get_student_registration_requirements(
+        student_id
+    )
+    if requirements is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found",
+        )
+
+    return requirements
+
+
+@router.patch(
+    "/students/{student_id}/registration-requirements/school-insurance",
+    response_model=AdminRegistrationRequirementItem,
+)
+async def update_school_insurance_requirement(
+    student_id: int,
+    payload: AdminUpdateSchoolInsuranceRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(SCHOOL_INSURANCE_ADMIN_ROLES)),
+    ],
+) -> AdminRegistrationRequirementItem:
+    """Registra o actualiza el seguro escolar institucional del estudiante."""
+
+    logger.info(
+        "Admin school insurance requirement update request received",
+        extra={
+            "user_id": current_user.id,
+            "student_id": student_id,
+            "is_completed": payload.is_completed,
+        },
+    )
+
+    requirement = await _build_service(db).update_school_insurance_requirement(
+        student_id=student_id,
+        payload=payload,
+        updated_by_user_id=current_user.id,
+    )
+    if requirement is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student not found",
         )
 
     return requirement

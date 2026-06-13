@@ -1,7 +1,7 @@
 """Servicios de negocio del modulo admin.
 
-Este modulo define `AdminService`, encargado de orquestar los casos de uso de
-lectura administrativa y transformar entidades ORM a schemas HTTP propios.
+Este modulo define `AdminService`, encargado de orquestar consultas
+administrativas y la gestion de requisitos del estudiante.
 """
 
 import logging
@@ -16,15 +16,21 @@ from app.modules.admin.schemas.admin_schema import (
     AdminInternshipStatusFilter,
     AdminInternshipStatusInfo,
     AdminInternshipStudentInfo,
+    AdminRegistrationRequirementItem,
     AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryByStatusItem,
     AdminSummaryResponse,
+    AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.student_internship_requirement_model import (
+    RegistrationRequirementType,
+    StudentRegistrationRequirement,
+)
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -54,7 +60,7 @@ STATUS_LABEL_TO_ADMIN_FILTER: dict[str, AdminInternshipStatusFilter] = {
 
 
 class AdminService:
-    """Orquesta casos de uso administrativos de solo lectura.
+    """Orquesta casos de uso administrativos.
 
     Attributes:
         db : Sesion asincrona utilizada durante el request.
@@ -297,6 +303,76 @@ class AdminService:
             updated_at=updated_requirement.updated_at,
         )
 
+    async def get_student_registration_requirements(
+        self,
+        student_id: int,
+    ) -> list[AdminRegistrationRequirementItem] | None:
+        """Obtiene los prerrequisitos institucionales de un estudiante."""
+
+        student = await self.repository.get_user_by_id(student_id)
+        if student is None or not self._is_student(student):
+            return None
+
+        requirements = await self.repository.list_student_registration_requirements(
+            student_id
+        )
+
+        return [
+            AdminRegistrationRequirementItem.model_validate(requirement)
+            for requirement in requirements
+        ]
+
+    async def update_school_insurance_requirement(
+        self,
+        student_id: int,
+        payload: AdminUpdateSchoolInsuranceRequest,
+        updated_by_user_id: int,
+    ) -> AdminRegistrationRequirementItem | None:
+        """Registra o actualiza el cumplimiento institucional del seguro escolar."""
+
+        student = await self.repository.get_user_by_id(student_id)
+        if student is None or not self._is_student(student):
+            return None
+
+        requirement = (
+            await self.repository.get_student_registration_requirement(
+                student_id=student_id,
+                requirement=RegistrationRequirementType.SCHOOL_INSURANCE.value,
+            )
+        )
+        previous_status = None if requirement is None else requirement.is_completed
+
+        if requirement is None:
+            requirement = StudentRegistrationRequirement(
+                user_id=student_id,
+                requirement=RegistrationRequirementType.SCHOOL_INSURANCE,
+            )
+
+        requirement.is_completed = payload.is_completed
+        requirement.completed_at = (
+            datetime.now(timezone.utc) if payload.is_completed else None
+        )
+        requirement.updated_by = updated_by_user_id
+
+        updated_requirement = (
+            await self.repository.save_student_registration_requirement(requirement)
+        )
+
+        await self._dispatch_requirement_notification(
+            recipient_user_id=student_id,
+            recipient_email=student.email,
+            requirement_id=updated_requirement.id,
+            requirement_type=RegistrationRequirementType.SCHOOL_INSURANCE.value,
+            new_status="Completado" if payload.is_completed else "Pendiente",
+            previous_status=(
+                None
+                if previous_status is None
+                else ("Completado" if previous_status else "Pendiente")
+            ),
+        )
+
+        return AdminRegistrationRequirementItem.model_validate(updated_requirement)
+
     def _build_student_info(
         self,
         student: User | None,
@@ -315,6 +391,15 @@ class AdminService:
         )
 
         return student_info
+
+    def _is_student(self, user: User) -> bool:
+        """Indica si el usuario posee el rol de estudiante."""
+
+        return any(
+            user_role.role.name == "Estudiante"
+            for user_role in user.roles
+            if user_role.role is not None
+        )
 
     def _build_student_list_items(
         self,

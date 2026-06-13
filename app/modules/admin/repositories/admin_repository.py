@@ -17,6 +17,7 @@ from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.internship_model import Internship
 from app.modules.internships.models.student_internship_requirement_model import (
     StudentInternshipRequirement,
+    StudentRegistrationRequirement,
 )
 
 
@@ -229,6 +230,48 @@ class AdminRepository:
         requirement: StudentInternshipRequirement,
     ) -> StudentInternshipRequirement:
         """Persiste cambios en un requisito de práctica."""
+
+        self.db.add(requirement)
+        await self.db.commit()
+        await self.db.refresh(requirement)
+
+        return requirement
+
+    async def list_student_registration_requirements(
+        self,
+        student_id: int,
+    ) -> list[StudentRegistrationRequirement]:
+        """Obtiene los prerrequisitos institucionales de un estudiante."""
+
+        query = (
+            select(StudentRegistrationRequirement)
+            .where(StudentRegistrationRequirement.user_id == student_id)
+            .order_by(StudentRegistrationRequirement.id.asc())
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def get_student_registration_requirement(
+        self,
+        student_id: int,
+        requirement: str,
+    ) -> StudentRegistrationRequirement | None:
+        """Obtiene un prerrequisito institucional por estudiante y tipo."""
+
+        query = select(StudentRegistrationRequirement).where(
+            StudentRegistrationRequirement.user_id == student_id,
+            StudentRegistrationRequirement.requirement == requirement,
+        )
+        result = await self.db.execute(query)
+
+        return result.scalar_one_or_none()
+
+    async def save_student_registration_requirement(
+        self,
+        requirement: StudentRegistrationRequirement,
+    ) -> StudentRegistrationRequirement:
+        """Crea o actualiza un prerrequisito institucional."""
 
         self.db.add(requirement)
         await self.db.commit()
