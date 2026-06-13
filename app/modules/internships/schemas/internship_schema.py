@@ -315,12 +315,18 @@ class InternshipExceptionRequest(BaseModel):
 
     Attributes:
         rule: Regla de negocio que se exceptua. Valores habilitados:
-            ``"school_insurance"``, ``"sequentiality"``.
+            ``"school_insurance"``, ``"sequentiality"``,
+            ``"sequentiality_thesis"``, ``"parallel_course"``.
         reason: Justificacion obligatoria de la excepcion. No puede
             estar vacia ni contener solo espacios en blanco.
     """
 
-    rule: Literal["school_insurance", "sequentiality"] = Field(
+    rule: Literal[
+        "school_insurance",
+        "sequentiality",
+        "sequentiality_thesis",
+        "parallel_course",
+    ] = Field(
         description="Regla de negocio exceptuada."
     )
     reason: str = Field(

@@ -1,0 +1,314 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: My first collection
+meta:
+  id: wrk_efdb1be8377442e6977c95c42d0642c3
+  created: 1780000336765
+  modified: 1780000336765
+  description: ""
+collection:
+  - name: test_validacion_seguro
+    meta:
+      id: fld_ef4fcd9bc7474b548acb90fbe13cdd95
+      created: 1780005196253
+      modified: 1780005196253
+      sortKey: -1780005196254
+      description: ""
+    children:
+      - url: http://localhost:8000/auth/login
+        name: Auth_token
+        meta:
+          id: req_0e12c540abb54278b306dc4cb3fb2137
+          created: 1780000336895
+          modified: 1781148171717
+          isPrivate: false
+          description: ""
+          sortKey: -1780005201394
+        method: POST
+        body:
+          mimeType: application/x-www-form-urlencoded
+          params:
+            - name: username
+              value: juan.perez@correo.cl
+            - name: password
+              value: my_secure_password
+              description: ""
+              disabled: false
+        headers:
+          - name: Content-Type
+            value: application/x-www-form-urlencoded
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships
+        name: test_register_semester_ok
+        meta:
+          id: req_b041634a03c146f39a5958c4f526b85b
+          created: 1780003599062
+          modified: 1781149866977
+          isPrivate: false
+          description: ""
+          sortKey: -1780005201544
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "org_name": "Empresa SA",
+              "sector": "Tecnología",
+              "address": "Av. Principal 123",
+              "city": "Temuco",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "08:00 - 17:00",
+              "days": "Lunes a Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Principal 123",
+              "act_description": "Desarrollo de software backend",
+              "ben_description": "Aplicar conocimientos académicos",
+              "supervisor_name": "Claudio Quezada",
+              "supervisor_profession": "Ingeniero Civil Informático",
+              "supervisor_position": "Líder técnico de Desarrollo",
+              "supervisor_department": "Área de Ingeniería",
+              "supervisor_email": "claudio.quezada@empresa.cl",
+              "supervisor_phone": "+56987654321",
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I",
+              "amount": 300000
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwidHlwZSI6ImFjY2VzcyIsImV4cCI6MTc4MTE1MTYzOX0.wCu4sgKIG3Bfwmlv5gUnb7D1Lst2Z8zD2C4XAz_SPxc
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: test_internship_actions
+    meta:
+      id: fld_dbfcfd22815b4ce1ab739474e9744ed2
+      created: 1780546612997
+      modified: 1780546612997
+      sortKey: -1780546612997
+      description: ""
+    children:
+      - url: http://localhost:8000/auth/login
+        name: Auth_token
+        meta:
+          id: req_05f9670351c748c1a028a3c55a0a31a3
+          created: 1780546621525
+          modified: 1781146852551
+          isPrivate: false
+          description: ""
+          sortKey: -1780546975336
+        method: POST
+        body:
+          mimeType: application/x-www-form-urlencoded
+          params:
+            - name: username
+              value: claudio.navarro@ufrontera.cl
+            - name: password
+              value: my_secure_password
+              description: ""
+              disabled: false
+        parameters:
+          - name: username
+            value: claudio.navarro@ufrontera.cl
+            description: ""
+            disabled: false
+          - name: password
+            value: my_secure_password
+            description: ""
+            disabled: false
+        headers:
+          - name: Content-Type
+            value: application/x-www-form-urlencoded
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: ""
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/1/approve
+        name: approve_director
+        meta:
+          id: req_04ba5fa80b9642049f8aca41db30a6c8
+          created: 1780547011854
+          modified: 1781149931036
+          isPrivate: false
+          description: ""
+          sortKey: -1780546975436
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "comment": "Revisada la documentación técnica y cumple con el perfil de egreso.",
+              "skip_review": false
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJjbGF1ZGlvLm5hdmFycm9AdWZyb250ZXJhLmNsIiwicm9sZXMiOlsiRGlyZWN0b3IgZGUgY2FycmVyYSJdLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxMTUxNjkxfQ.Qg6ZR4CSwkCSmsx-p9LvNTctMMEy6wy1WJg9-_40Aa0
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: test_exception
+    meta:
+      id: fld_ce1347fd25154b12bd165f7835fc4efb
+      created: 1780890526007
+      modified: 1781145938939
+      sortKey: -1780890526007
+      description: ""
+  - name: test_practice_registration
+    meta:
+      id: fld_9e26bf6d18fd4641b1368fc4d56d7a2b
+      created: 1781145983146
+      modified: 1781145983146
+      sortKey: -1781145983146
+      description: ""
+    children:
+      - url: http://localhost:8000/internships/registration-eligibility
+        name: eligibility_with_practice
+        meta:
+          id: req_ef888981a25d4c7da246d013eb8fad3f
+          created: 1780970862449
+          modified: 1781148192499
+          isPrivate: false
+          description: ""
+          sortKey: -1781146886103
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwidHlwZSI6ImFjY2VzcyIsImV4cCI6MTc4MTE0OTk3M30.vLpTQxhlrKuundtg_5XmLsOiDGz9TGYyDCLzAjdV3Og
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/registration-eligibility
+        name: eligibility_without_practice
+        meta:
+          id: req_6a0f27591aa742c2af45c18c62efe6dd
+          created: 1781145993480
+          modified: 1781149196623
+          isPrivate: false
+          description: ""
+          sortKey: -1781146886003
+        method: GET
+        body:
+          mimeType: application/json
+          text: ""
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZW1haWwiOiJqdWFuLnBlcmV6QGNvcnJlby5jbCIsInJvbGVzIjpbIkVzdHVkaWFudGUiXSwidHlwZSI6ImFjY2VzcyIsImV4cCI6MTc4MTE1MDkyNX0.pvki1ahxlcFnKshfkbQsuw1P19urLB_YyLaHKe_P_nM
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - url: http://localhost:8000/internships/1/exceptions
+        name: Exeception_practica_1
+        meta:
+          id: req_394f8ddb9625453b80ea587c85c3396b
+          created: 1781148223211
+          modified: 1781184564575
+          isPrivate: false
+          description: ""
+          sortKey: -1781146886203
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "rule": "sequentiality",
+              "reason": "Autorización excepcional de prueba"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            description: ""
+            disabled: false
+        authentication:
+          type: bearer
+          token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZW1haWwiOiJjbGF1ZGlvLm5hdmFycm9AdWZyb250ZXJhLmNsIiwicm9sZXMiOlsiRGlyZWN0b3IgZGUgY2FycmVyYSJdLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxMTUwOTQwfQ.Nvtj4Q_iV0prFSAAr1w2-S9pMfl_RUXKCKWvWplZ4O4
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_3f197dee75478330de42d74f074498bb81d917c7
+    created: 1780000336777
+    modified: 1780000336777
+environments:
+  name: Base Environment
+  meta:
+    id: env_3f197dee75478330de42d74f074498bb81d917c7
+    created: 1780000336771
+    modified: 1780586765947
+    isPrivate: false
