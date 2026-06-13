@@ -19,6 +19,8 @@ from app.core.database.database import Base
 class ExceptableRule(str, enum.Enum):
     SCHOOL_INSURANCE = "school_insurance"
     SEQUENTIALITY = "sequentiality"
+    SEQUENTIALITY_THESIS = "sequentiality_thesis"
+    PARALLEL_COURSE = "parallel_course"
 
 class InternshipException(Base):
     """Registra una excepcion administrativa sobre una regla de negocio.

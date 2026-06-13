@@ -51,11 +51,18 @@ Si no se registró una excepción activa para la regla `school_insurance`, el si
 #### Idempotencia
  
 Si ya existe una excepción registrada para la misma práctica y regla, el endpoint retorna la existente sin crear un duplicado.
- 
 #### Restricción de estado terminal
- 
+
 No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
- 
+
+#### Permanencia de la excepción
+
+En esta versión, las excepciones administrativas son **permanentes**:
+- No tienen vigencia configurable (no existe campo `expires_at` ni `is_active`).
+- No existe mecanismo de revocación desde la API.
+- Una excepción mal otorgada solo puede eliminarse físicamente desde la base de datos.
+
+Esta es una decisión de diseño consciente, pendiente de revisión en una tarea futura si el negocio requiere expiración o revocación.
 
 ---
 
@@ -63,17 +70,18 @@ No se puede registrar una excepción sobre una práctica en estado terminal (`Ap
 
 ### Endpoint: `POST /internships`
 
-#### Caso 1 — Rechazo: Práctica Estival sin Seguro
+#### Caso 1 — Rechazo: Práctica Estival sin Seguro (al aprobar)
 
 Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Invierno"`) y el backend calcula que el estudiante no tiene seguro ni excepción administrativa vigente, el sistema denegará la petición.
+La validación del seguro escolar no ocurre al crear la práctica, sino al momento de aprobarla (`POST /internships/{internship_id}/approve`). Si la práctica es estival y el estudiante no tiene seguro escolar ni una excepción registrada, el sistema bloquea el avance.
 
-**Respuesta:** `400 Bad Request`
+**Respuesta:** `409 Conflict`
 
 ```json
 {
   "detail": {
-    "field": "has_school_insurance",
-    "message": "No es posible registrar práctica estival sin respaldo de seguro escolar vigente (D.S. 313)"
+    "rule": "school_insurance",
+    "message": "La práctica es estival y no cuenta con seguro escolar. Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
   }
 }
 ```
@@ -84,7 +92,7 @@ Si se intenta registrar una práctica en periodo estival (`"Verano"` o `"Inviern
 
 Permite el registro sin necesidad de contar con seguro escolar activo.
 
-**Respuesta:** `201 Created`
+  **Respuesta:** `201 Created`
 
 ```json
 {
@@ -117,7 +125,7 @@ Permite el registro sin necesidad de contar con seguro escolar activo.
 
 Permite el registro en periodo estival siempre que el backend registre cumplimiento vigente de seguro escolar para el estudiante.
 
-**Respuesta:** `201 Created`
+  **Respuesta:** `201 Created`
 
 ```json
 {
@@ -224,6 +232,15 @@ Si ya existe una excepción registrada para la misma práctica y regla `sequenti
 #### Restricción de estado terminal
 
 No se puede registrar una excepción sobre una práctica en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
+
+#### Permanencia de la excepción
+
+En esta versión, las excepciones administrativas son **permanentes**:
+- No tienen vigencia configurable (no existe campo `expires_at` ni `is_active`).
+- No existe mecanismo de revocación desde la API.
+- Una excepción mal otorgada solo puede eliminarse físicamente desde la base de datos.
+
+Esta es una decisión de diseño consciente, pendiente de revisión en una tarea futura si el negocio requiere expiración o revocación.
 
 ---
 
@@ -349,6 +366,95 @@ consultarlo, revisarlo o eliminarlo.
 | Eliminar documento no aprobado | Sí | No | Sí | Sí | Sí |
 | Eliminar documento aprobado | No | No | Sí | Sí | Sí |
 
+## RN-05: Secuencialidad de Titulación (Tesis)
+
+### Descripción
+
+Un estudiante no puede avanzar la **Tesis** mediante `approve()` mientras su
+**Práctica de Estudio II** no se encuentre aprobada. La creación de la Tesis
+(`create_internship`) no está sujeta a esta restricción.
+
+### Definición de la Regla
+
+- La validación se aplica **exclusivamente al momento de aprobación** (`approve`),
+  no al registro inicial (`create_internship`).
+- Si la práctica en aprobación es de tipo `Tesis`, el sistema verifica que el
+  estudiante tenga al menos una `Práctica de Estudio II` con estado `Aprobada`
+  en `StudentInternshipRequirement`.
+- Si no existe dicha práctica II aprobada, se bloquea el avance con `409 Conflict`.
+- El bloqueo puede omitirse mediante una excepción administrativa de tipo
+  `"sequentiality_thesis"`.
+
+### Excepción Administrativa
+
+- Cuando no existe una Práctica II aprobada, un actor administrativo autorizado
+  puede registrar una excepción de secuencialidad (`sequentiality_thesis`) que
+  habilita el trámite sin modificar el estado de la Práctica II.
+- La excepción se registra sobre la **Tesis** (la que se intenta aprobar).
+
+#### Roles autorizados
+
+| Rol | Puede otorgar excepción (`grant_exception`) |
+| :--- | :---: |
+| Encargado de práctica | **Sí** |
+| Director de carrera | **Sí** |
+| Secretaria de Carrera | No |
+| Estudiante | No |
+
+#### Condición de disparo
+
+1. `internship_type` es `"Tesis"`.
+2. El estudiante **no** tiene una `Práctica de Estudio II` en estado `Aprobada`
+   en `StudentInternshipRequirement`.
+3. El actor intenta aprobar la práctica (acción `approve`).
+
+Sin una excepción activa para la regla `sequentiality_thesis`, el sistema
+bloquea con `409 Conflict`.
+
+---
+
+## RN-06: Práctica Controlada y Rama en Paralelo
+
+### Descripción
+
+La **Práctica Controlada** requiere que los co-requisitos (ramos cursados en
+paralelo) estén resueltos. Como el sistema aún no modela la malla curricular,
+se asume que hay co-requisitos pendientes y se exige una excepción
+administrativa para permitir el avance.
+
+### Definición de la Regla
+
+- La validación se aplica **exclusivamente al momento de aprobación** (`approve`),
+  no al registro inicial (`create_internship`).
+- Si la práctica en aprobación es de tipo `Práctica Controlada`, el sistema
+  exige una excepción administrativa de tipo `"parallel_course"`.
+- Sin la excepción, el sistema bloquea el avance con `409 Conflict`.
+
+### Excepción Administrativa
+
+- Un actor administrativo autorizado puede registrar una excepción
+  (`parallel_course`) que habilita el trámite.
+- La excepción se registra sobre la **Práctica Controlada**.
+
+#### Roles autorizados
+
+| Rol | Puede otorgar excepción (`grant_exception`) |
+| :--- | :---: |
+| Encargado de práctica | **Sí** |
+| Director de carrera | **Sí** |
+| Secretaria de Carrera | No |
+| Estudiante | No |
+
+#### Condición de disparo
+
+1. `internship_type` es `"Práctica Controlada"`.
+2. El actor intenta aprobar la práctica (acción `approve`).
+
+Sin una excepción activa para la regla `parallel_course`, el sistema bloquea con
+`409 Conflict`.
+
+---
+
 ### Restricciones Técnicas
 
 - Extensiones permitidas: `pdf`, `docx`, `jpg`, `png`, `zip`.
@@ -357,6 +463,12 @@ consultarlo, revisarlo o eliminarlo.
   exponerse en respuestas JSON.
 - Las descargas siempre pasan por `GET /documents/{document_id}/download` con
   autenticación y autorización.
+- La eliminacion documental es logica; el archivo fisico se conserva mientras no
+  exista una politica institucional de retencion y limpieza fisica.
+- En produccion VPS, el storage documental debe montarse como volumen persistente
+  privado y no debe exponerse como contenido estatico por Nginx.
+
+Para la politica operacional completa revisar `docs/documents-privacy.md`.
 
 ---
 
