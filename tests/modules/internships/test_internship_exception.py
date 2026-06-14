@@ -167,6 +167,9 @@ class FakeInternshipRepository:
         self.requested_user_id = user_id
         return self.internships_by_user
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def list_dashboard_internships(self):
         return self.dashboard_internships
 
