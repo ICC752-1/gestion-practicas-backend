@@ -18,6 +18,7 @@ from app.modules.internships.models.internship_model import (
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
+DuplicateInternshipDetailCode = Literal["duplicate_internship_type"]
 
 
 class InternshipCreateRequest(BaseModel):
@@ -204,6 +205,8 @@ class InternshipResponse(BaseModel):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
+        blocks_new_registration: Indica si impide crear otra solicitud del
+            mismo tipo para el mismo estudiante.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -240,8 +243,19 @@ class InternshipResponse(BaseModel):
     cancelled_at: datetime | None
     cancelled_by: int | None
     cancellation_reason: str | None
+    blocks_new_registration: bool
 
     exceptions: list["InternshipExceptionResponse"] = []
+
+
+class DuplicateInternshipTypeDetail(BaseModel):
+    """Detalle estable para solicitudes duplicadas por tipo de practica."""
+
+    code: DuplicateInternshipDetailCode
+    existing_internship_id: int
+    internship_type: PracticeTypeEnum
+    existing_status: str | None
+    message: str
 
 
 class InternshipAdminUpdateRequest(BaseModel):
@@ -543,6 +557,11 @@ class RegistrationEligibilityResponse(BaseModel):
         has_sequentiality_exception: ``True`` si existe una excepción
             administrativa activa de secuencialidad en alguna práctica
             del estudiante.
+        has_blocking_internship: ``True`` si ya existe una solicitud vigente
+            que bloquea crear otra del mismo tipo.
+        blocking_internship_id: Identificador de la solicitud bloqueante.
+        blocking_internship_status: Estado actual de la solicitud bloqueante.
+        can_create_request: ``False`` cuando existe duplicidad bloqueante.
         blocked: ``True`` si existe un bloqueo contextual que impide la
             aprobación o formalización. No impide crear la solicitud pendiente.
         next_step: Texto descriptivo de la siguiente acción recomendada
@@ -555,5 +574,9 @@ class RegistrationEligibilityResponse(BaseModel):
     has_approved_practice_1: bool = False
     sequentiality_blocked: bool = False
     has_sequentiality_exception: bool = False
+    has_blocking_internship: bool = False
+    blocking_internship_id: int | None = None
+    blocking_internship_status: str | None = None
+    can_create_request: bool = True
     blocked: bool
     next_step: str

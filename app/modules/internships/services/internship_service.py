@@ -7,6 +7,7 @@ import logging
 
 from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from typing import Any
 
@@ -35,6 +36,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
     RegistrationEligibilityResponse,
+    DuplicateInternshipTypeDetail,
     StudentInternshipActionAvailabilityResponse,
     StudentInternshipUpdateRequest,
 )
@@ -179,7 +181,7 @@ class InternshipService:
         self.student_edit_window_hours = (
             student_edit_window_hours
             if student_edit_window_hours is not None
-            else config.STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS
+            else config.STUDENT_EFFECTIVE_CORRECTION_WINDOW_HOURS
         )
 
     async def create_internship(
@@ -211,21 +213,43 @@ class InternshipService:
         )
         data["has_school_insurance"] = insurance_req.is_completed if insurance_req else False
 
+        blocking_internship = (
+            await self.internship_repository.get_blocking_internship_for_registration(
+                user_id=user_id,
+                internship_type=internship_data.internship_type,
+            )
+        )
+        if blocking_internship is not None:
+            self._raise_duplicate_internship_type(blocking_internship)
+
         internship = Internship(
             **data,
             user_id=user_id,
             status_id=initial_status.id,
+            blocks_new_registration=True,
         )
 
-        created_internship = (
-            await self.internship_repository.create_internship_with_history(
-                internship=internship,
-                initial_status=initial_status,
-                actor_id=user_id,
-                reason=INITIAL_HISTORY_REASON,
-                metadata={"event": "internship_created"},
+        try:
+            created_internship = (
+                await self.internship_repository.create_internship_with_history(
+                    internship=internship,
+                    initial_status=initial_status,
+                    actor_id=user_id,
+                    reason=INITIAL_HISTORY_REASON,
+                    metadata={"event": "internship_created"},
+                )
             )
-        )
+        except IntegrityError:
+            await self.internship_repository.rollback()
+            blocking_internship = (
+                await self.internship_repository.get_blocking_internship_for_registration(
+                    user_id=user_id,
+                    internship_type=internship_data.internship_type,
+                )
+            )
+            if blocking_internship is not None:
+                self._raise_duplicate_internship_type(blocking_internship)
+            raise
 
         await self._dispatch_internship_created_notifications(created_internship)
 
@@ -975,6 +999,17 @@ class InternshipService:
                 detail="Debe informar al menos un campo editable.",
             )
 
+        if (
+            "internship_type" in updates
+            and updates["internship_type"] != internship.internship_type
+            and internship.blocks_new_registration
+        ):
+            await self._require_no_blocking_internship_type(
+                user_id=actor.id,
+                internship_type=updates["internship_type"],
+                exclude_internship_id=internship.id,
+            )
+
         start_date = updates.get("start_date", internship.start_date)
         end_date = updates.get("end_date", internship.end_date)
         if end_date < start_date:
@@ -983,14 +1018,24 @@ class InternshipService:
                 detail="La fecha de término no puede ser anterior a la fecha de inicio.",
             )
 
-        return await self.internship_repository.update_internship_admin_fields_with_history(
-            internship=internship,
-            updates=updates,
-            actor_id=actor.id,
-            reason=reason,
-            changed_fields=list(updates.keys()),
-            action="student_update",
-        )
+        try:
+            return await self.internship_repository.update_internship_admin_fields_with_history(
+                internship=internship,
+                updates=updates,
+                actor_id=actor.id,
+                reason=reason,
+                changed_fields=list(updates.keys()),
+                action="student_update",
+            )
+        except IntegrityError:
+            await self.internship_repository.rollback()
+            if "internship_type" in updates:
+                await self._require_no_blocking_internship_type(
+                    user_id=actor.id,
+                    internship_type=updates["internship_type"],
+                    exclude_internship_id=internship.id,
+                )
+            raise
 
     async def cancel_by_student(
         self,
@@ -1035,6 +1080,45 @@ class InternshipService:
             reason=clean_reason,
             action="student_cancel",
         )
+
+    def _raise_duplicate_internship_type(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Responde con detalle estable cuando existe una solicitud bloqueante."""
+
+        detail = DuplicateInternshipTypeDetail(
+            code="duplicate_internship_type",
+            existing_internship_id=internship.id,
+            internship_type=internship.internship_type,
+            existing_status=self._status_title_or_default(internship.status),
+            message=(
+                "Ya existe una solicitud vigente para este tipo de práctica. "
+                "Revisa el registro existente antes de crear una nueva solicitud."
+            ),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail.model_dump(mode="json"),
+        )
+
+    async def _require_no_blocking_internship_type(
+        self,
+        user_id: int,
+        internship_type: PracticeTypeEnum,
+        exclude_internship_id: int | None = None,
+    ) -> None:
+        """Valida que no exista otro registro bloqueante para el tipo."""
+
+        blocking_internship = (
+            await self.internship_repository.get_blocking_internship_for_registration(
+                user_id=user_id,
+                internship_type=internship_type,
+                exclude_internship_id=exclude_internship_id,
+            )
+        )
+        if blocking_internship is not None:
+            self._raise_duplicate_internship_type(blocking_internship)
 
     def _require_editable_internship(
         self,
@@ -1656,6 +1740,15 @@ class InternshipService:
             any(exc.rule == "sequentiality" for exc in (internship.exceptions or []))
             for internship in internships
         )
+        blocking_internship = None
+        if internship_type is not None:
+            blocking_internship = (
+                await self.internship_repository.get_blocking_internship_for_registration(
+                    user_id=user_id,
+                    internship_type=internship_type,
+                )
+            )
+        has_blocking_internship = blocking_internship is not None
 
         insurance_blocked = (
             internship_period is not None
@@ -1671,7 +1764,12 @@ class InternshipService:
             "Puede crear la solicitud y continuar con su revisión administrativa."
         )
 
-        if insurance_blocked:
+        if has_blocking_internship:
+            next_step = (
+                "Ya existe una solicitud vigente para este tipo de práctica. "
+                "Revisa el registro existente antes de crear una nueva solicitud."
+            )
+        elif insurance_blocked:
             next_step = (
                 "Debe registrar el seguro escolar ante la unidad correspondiente "
                 "o contar con una excepción antes de aprobar la práctica estival."
@@ -1689,6 +1787,16 @@ class InternshipService:
             has_approved_practice_1=has_approved_practice_1,
             sequentiality_blocked=sequentiality_blocked,
             has_sequentiality_exception=has_sequentiality_exception,
+            has_blocking_internship=has_blocking_internship,
+            blocking_internship_id=blocking_internship.id
+            if blocking_internship is not None
+            else None,
+            blocking_internship_status=self._status_title_or_default(
+                blocking_internship.status,
+            )
+            if blocking_internship is not None
+            else None,
+            can_create_request=not has_blocking_internship,
             blocked=blocked,
             next_step=next_step,
         )
