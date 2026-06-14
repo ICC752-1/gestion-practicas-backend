@@ -5,7 +5,8 @@ operaciones de persistencia relacionadas con la entidad `Internship` usando una
 sesion asincrona de SQLAlchemy.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from enum import Enum
 from typing import Any
 
 from sqlalchemy import select
@@ -292,8 +293,18 @@ class InternshipRepository:
         actor_id: int,
         reason: str,
         changed_fields: list[str],
+        action: str = "admin_update",
     ) -> Internship:
         """Actualiza campos administrativos y registra trazabilidad."""
+
+        previous_values = {
+            field_name: self._serialize_history_value(getattr(internship, field_name))
+            for field_name in changed_fields
+        }
+        new_values = {
+            field_name: self._serialize_history_value(updates[field_name])
+            for field_name in changed_fields
+        }
 
         for field_name, value in updates.items():
             setattr(internship, field_name, value)
@@ -305,8 +316,10 @@ class InternshipRepository:
             actor_id=actor_id,
             reason=reason,
             metadata_json={
-                "action": "admin_update",
+                "action": action,
                 "changed_fields": changed_fields,
+                "previous_values": previous_values,
+                "new_values": new_values,
             },
         )
         self.db.add(status_history)
@@ -320,6 +333,7 @@ class InternshipRepository:
         internship: Internship,
         actor_id: int,
         reason: str,
+        action: str = "cancel",
     ) -> Internship:
         """Marca una practica como anulada y registra trazabilidad."""
 
@@ -334,13 +348,24 @@ class InternshipRepository:
             new_status_id=internship.status_id,
             actor_id=actor_id,
             reason=reason,
-            metadata_json={"action": "cancel"},
+            metadata_json={"action": action},
         )
         self.db.add(status_history)
         await self.db.commit()
         await self.db.refresh(internship)
 
         return internship
+
+    def _serialize_history_value(self, value: Any) -> Any:
+        """Convierte valores de dominio a tipos compatibles con JSONB."""
+
+        if isinstance(value, Enum):
+            return value.value
+
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+
+        return value
 
     async def get_exception_by_rule(
         self,

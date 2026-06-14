@@ -33,6 +33,9 @@ class Config(BaseSettings):
     DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
     DOCUMENT_RETENTION_DAYS: int = 0
 
+    # Practicas
+    STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS: int = 24
+
     # notificaciones
     NOTIFICATION_MODE: str = "simulated"
 

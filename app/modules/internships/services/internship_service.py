@@ -5,10 +5,12 @@ del modulo `internships` y delegar operaciones de persistencia al repositorio.
 """
 import logging
 
+from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
 
 from typing import Any
 
+from app.core.config import config
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
@@ -33,6 +35,8 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
     RegistrationEligibilityResponse,
+    StudentInternshipActionAvailabilityResponse,
+    StudentInternshipUpdateRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_exception_model import InternshipException
@@ -128,6 +132,18 @@ INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
     "Encargado de practica",
     "Director de carrera",
 }
+STUDENT_ALLOWED_HISTORY_ACTIONS = {
+    None,
+    "student_update",
+}
+STUDENT_BLOCKING_HISTORY_ACTIONS = {
+    "admin_update",
+    "approve",
+    "reject",
+    "derive",
+    "cancel",
+    "student_cancel",
+}
 
 
 class InternshipService:
@@ -143,6 +159,7 @@ class InternshipService:
         self,
         internship_repository: InternshipRepository,
         notification_service: NotificationService | None = None,
+        student_edit_window_hours: int | None = None,
     ) -> None:
         """Inicializa el servicio con sus dependencias.
 
@@ -152,10 +169,18 @@ class InternshipService:
             notification_service: Servicio de notificaciones para despachar
                 eventos tras acciones administrativas. Si es `None`, no se
                 generan notificaciones.
+            student_edit_window_hours: Ventana temporal para correcciones y
+                anulaciones recientes del propietario. Si es `None`, se usa la
+                configuracion de aplicacion.
         """
 
         self.internship_repository = internship_repository
         self.notification_service = notification_service
+        self.student_edit_window_hours = (
+            student_edit_window_hours
+            if student_edit_window_hours is not None
+            else config.STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS
+        )
 
     async def create_internship(
         self,
@@ -881,6 +906,136 @@ class InternshipService:
             reason=clean_reason,
         )
 
+    async def get_student_action_availability(
+        self,
+        internship_id: int,
+        actor: User,
+    ) -> StudentInternshipActionAvailabilityResponse:
+        """Obtiene disponibilidad de correccion/anulacion para el propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante autenticado que consulta sus acciones.
+
+        Returns:
+            Disponibilidad y razones estables para que el frontend oculte
+            acciones no permitidas.
+
+        Raises:
+            HTTPException 403: Si el actor no es propietario de la practica.
+            HTTPException 404: Si la practica no existe.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+
+        return await self._build_student_action_availability(internship)
+
+    async def update_student_fields(
+        self,
+        internship_id: int,
+        actor: User,
+        payload: StudentInternshipUpdateRequest,
+    ) -> Internship:
+        """Corrige una solicitud reciente desde el estudiante propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante propietario.
+            payload: Campos permitidos y motivo obligatorio de correccion.
+
+        Returns:
+            La practica actualizada.
+
+        Raises:
+            HTTPException 400: Si falta motivo o no hay campos para corregir.
+            HTTPException 403: Si el actor no es propietario.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si el estado, ventana o historial lo bloquean.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+        await self._require_student_action_available(
+            internship,
+            action_label="corregir",
+        )
+
+        reason = payload.reason.strip()
+        if not reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de corrección es obligatorio.",
+            )
+
+        updates = payload.model_dump(exclude={"reason"}, exclude_none=True)
+        if not updates:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe informar al menos un campo editable.",
+            )
+
+        start_date = updates.get("start_date", internship.start_date)
+        end_date = updates.get("end_date", internship.end_date)
+        if end_date < start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de término no puede ser anterior a la fecha de inicio.",
+            )
+
+        return await self.internship_repository.update_internship_admin_fields_with_history(
+            internship=internship,
+            updates=updates,
+            actor_id=actor.id,
+            reason=reason,
+            changed_fields=list(updates.keys()),
+            action="student_update",
+        )
+
+    async def cancel_by_student(
+        self,
+        internship_id: int,
+        actor: User,
+        reason: str,
+    ) -> Internship:
+        """Anula una solicitud reciente desde el estudiante propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante propietario.
+            reason: Motivo obligatorio de anulacion.
+
+        Returns:
+            La practica marcada como anulada.
+
+        Raises:
+            HTTPException 400: Si falta el motivo.
+            HTTPException 403: Si el actor no es propietario.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si el estado, ventana o historial lo bloquean.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+        await self._require_student_action_available(
+            internship,
+            action_label="anular",
+        )
+
+        clean_reason = reason.strip()
+        if not clean_reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de anulación es obligatorio.",
+            )
+
+        return await self.internship_repository.cancel_internship_with_history(
+            internship=internship,
+            actor_id=actor.id,
+            reason=clean_reason,
+            action="student_cancel",
+        )
+
     def _require_editable_internship(
         self,
         internship: Internship,
@@ -903,6 +1058,104 @@ class InternshipService:
                     f"terminal: {current_title}."
                 ),
             )
+
+    def _require_student_owner(
+        self,
+        internship: Internship,
+        actor: User,
+    ) -> None:
+        """Valida ownership estricto para acciones del estudiante."""
+
+        if internship.user_id != actor.id:
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions",
+            )
+
+    async def _require_student_action_available(
+        self,
+        internship: Internship,
+        action_label: str,
+    ) -> None:
+        """Bloquea correccion/anulacion cuando backend no la permite."""
+
+        availability = await self._build_student_action_availability(internship)
+        allowed = availability.can_update if action_label == "corregir" else availability.can_cancel
+        if allowed:
+            return
+
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"No se puede {action_label} esta solicitud.",
+                "reasons": availability.reasons,
+                "editable_until": availability.editable_until.isoformat()
+                if availability.editable_until is not None
+                else None,
+            },
+        )
+
+    async def _build_student_action_availability(
+        self,
+        internship: Internship,
+    ) -> StudentInternshipActionAvailabilityResponse:
+        """Construye razones estables para habilitar u ocultar acciones."""
+
+        reasons = []
+        editable_until = self._get_student_edit_deadline(internship)
+
+        if internship.is_cancelled:
+            reasons.append("internship_cancelled")
+
+        current_title = self._status_title_or_default(internship.status)
+        if current_title != PENDING_STATUS_TITLE:
+            reasons.append("status_not_pending")
+
+        if (
+            editable_until is not None
+            and datetime.now(UTC).replace(tzinfo=None) > editable_until
+        ):
+            reasons.append("window_expired")
+
+        if await self._has_blocking_history_action(internship):
+            reasons.append("administrative_action_exists")
+
+        can_act = len(reasons) == 0
+        return StudentInternshipActionAvailabilityResponse(
+            can_update=can_act,
+            can_cancel=can_act,
+            editable_until=editable_until,
+            reasons=reasons,
+        )
+
+    def _get_student_edit_deadline(
+        self,
+        internship: Internship,
+    ) -> datetime | None:
+        """Calcula el limite temporal de correccion reciente."""
+
+        upload_date = getattr(internship, "upload_date", None)
+        if upload_date is None:
+            return None
+
+        return upload_date + timedelta(hours=self.student_edit_window_hours)
+
+    async def _has_blocking_history_action(
+        self,
+        internship: Internship,
+    ) -> bool:
+        """Detecta acciones administrativas previas sobre la solicitud."""
+
+        history = await self.internship_repository.list_internship_status_history(
+            internship_id=internship.id,
+        )
+        for entry in history:
+            metadata = entry.metadata_json or {}
+            action = metadata.get("action")
+            if action not in STUDENT_ALLOWED_HISTORY_ACTIONS:
+                return True
+
+        return False
 
     async def _get_or_404(self, internship_id: int) -> Internship:
         """Busca una practica o lanza 404 si no existe.

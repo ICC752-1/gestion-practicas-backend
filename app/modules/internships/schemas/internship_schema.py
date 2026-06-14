@@ -273,12 +273,82 @@ class InternshipAdminUpdateRequest(BaseModel):
     amount: int | None = None
 
 
+class StudentInternshipUpdateRequest(BaseModel):
+    """Payload para correccion reciente realizada por el estudiante propietario.
+
+    La correccion no acepta campos calculados o administrativos como
+    ``has_school_insurance``, ``status_id`` o ``user_id``. La ventana temporal,
+    el estado ``Pendiente`` y el ownership se validan en el servicio.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=1000)
+    org_name: str | None = Field(default=None, min_length=1, max_length=255)
+    sector: str | None = Field(default=None, min_length=1, max_length=255)
+    address: str | None = Field(default=None, min_length=1, max_length=255)
+    city: str | None = Field(default=None, min_length=1, max_length=255)
+    org_phone: str | None = Field(default=None, max_length=255)
+    web: str | None = Field(default=None, max_length=255)
+    supervisor_name: str | None = Field(default=None, min_length=1, max_length=255)
+    supervisor_profession: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_position: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_department: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_email: EmailStr | None = None
+    supervisor_phone: str | None = Field(default=None, min_length=1, max_length=255)
+    start_date: date | None = None
+    end_date: date | None = None
+    schedule: str | None = Field(default=None, min_length=1, max_length=255)
+    days: str | None = Field(default=None, min_length=1, max_length=255)
+    modality: Modality | None = None
+    internship_address: str | None = Field(default=None, min_length=1, max_length=255)
+    act_description: str | None = Field(default=None, min_length=1, max_length=255)
+    ben_description: str | None = Field(default=None, min_length=1, max_length=255)
+    amount: int | None = Field(default=None, ge=0)
+    internship_period: PracticePeriodEnum | None = None
+    internship_type: PracticeTypeEnum | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "StudentInternshipUpdateRequest":
+        """Valida rango cuando ambas fechas son parte de la correccion."""
+
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError("end_date must be greater than or equal to start_date")
+
+        return self
+
+
 class InternshipCancelRequest(BaseModel):
     """Payload para anulacion logica de una practica."""
 
     model_config = ConfigDict(extra="forbid")
 
     reason: str
+
+
+class StudentInternshipActionAvailabilityResponse(BaseModel):
+    """Disponibilidad de acciones recientes para el estudiante propietario."""
+
+    can_update: bool
+    can_cancel: bool
+    editable_until: datetime | None
+    reasons: list[str] = []
 
 
 class InternshipCancelResponse(BaseModel):
