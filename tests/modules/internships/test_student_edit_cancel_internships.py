@@ -38,6 +38,7 @@ def _internship(
         status_id=1,
         status=_state(status_title),
         is_cancelled=is_cancelled,
+        blocks_new_registration=True,
         upload_date=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours_old),
         start_date=date(2026, 1, 1),
         end_date=date(2026, 2, 1),
@@ -75,6 +76,7 @@ class FakeStudentEditRepository:
         internship.is_cancelled = True
         internship.cancelled_by = kwargs["actor_id"]
         internship.cancellation_reason = kwargs["reason"]
+        internship.blocks_new_registration = False
         return internship
 
 
@@ -136,6 +138,7 @@ async def test_student_cancel_records_student_cancel_action() -> None:
     )
 
     assert result.is_cancelled is True
+    assert result.blocks_new_registration is False
     assert repository.cancelled_kwargs["actor_id"] == 10
     assert repository.cancelled_kwargs["reason"] == "Me equivoque de empresa"
     assert repository.cancelled_kwargs["action"] == "student_cancel"
