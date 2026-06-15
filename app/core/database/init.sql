@@ -222,6 +222,39 @@ read_at TIMESTAMP
 CREATE INDEX ix_notification_recipient_user_id ON notification(recipient_user_id);
 CREATE INDEX ix_notification_read_at ON notification(read_at);
 
+CREATE TABLE supervisor_evaluation_invitations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    sent_at TIMESTAMP,
+    used_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX ix_supervisor_evaluation_invitations_internship_id ON supervisor_evaluation_invitations(internship_id);
+CREATE INDEX ix_supervisor_evaluation_invitations_token_hash ON supervisor_evaluation_invitations(token_hash);
+
+CREATE TABLE supervisor_evaluations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER UNIQUE NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    invitation_id INTEGER UNIQUE REFERENCES supervisor_evaluation_invitations(id) ON DELETE SET NULL,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    criteria_scores JSONB NOT NULL,
+    observations TEXT,
+    recommendation VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'submitted',
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_supervisor_evaluations_internship_id ON supervisor_evaluations(internship_id);
+
 CREATE TABLE internship_exceptions (
     id SERIAL PRIMARY KEY,
     internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
