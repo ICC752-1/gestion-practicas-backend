@@ -215,8 +215,12 @@ content TEXT NOT NULL,
 status "enumNotificationStatus" NOT NULL,
 payload JSONB,
 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-sent_at TIMESTAMP
+sent_at TIMESTAMP,
+read_at TIMESTAMP
 );
+
+CREATE INDEX ix_notification_recipient_user_id ON notification(recipient_user_id);
+CREATE INDEX ix_notification_read_at ON notification(read_at);
 
 CREATE TABLE internship_exceptions (
     id SERIAL PRIMARY KEY,
