@@ -14,6 +14,8 @@ CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
 CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
 CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
+CREATE TYPE "enumPresentationPurpose" AS ENUM ('initial_interview', 'final_presentation');
+CREATE TYPE "enumPresentationStatus" AS ENUM ('available', 'scheduled', 'completed', 'cancelled', 'no_show', 'closed');
 
 CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
@@ -185,13 +187,35 @@ INSERT INTO DocumentType (name, description, is_required, category) VALUES
 CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,
     date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    duration_minutes INTEGER NOT NULL DEFAULT 30,
     modality "enumModality" NOT NULL,
-    status "enumStatus" NOT NULL,
+    purpose "enumPresentationPurpose" NOT NULL DEFAULT 'initial_interview',
+    status "enumPresentationStatus" NOT NULL DEFAULT 'available',
     result "enumResult",
+    location TEXT,
+    timezone VARCHAR(64) NOT NULL DEFAULT 'America/Santiago',
     comments TEXT,
+    cancel_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reserved_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
     internship_id INTEGER REFERENCES Internship(id),
-    user_id INTEGER REFERENCES Users(id)
+    user_id INTEGER REFERENCES Users(id),
+    owner_id INTEGER NOT NULL REFERENCES Users(id),
+    CONSTRAINT ck_presentation_time_range CHECK (end_time > start_time),
+    CONSTRAINT ck_presentation_duration_positive CHECK (duration_minutes > 0)
 );
+
+CREATE INDEX ix_presentation_date ON Presentation(date);
+CREATE INDEX ix_presentation_owner_date ON Presentation(owner_id, date);
+CREATE INDEX ix_presentation_user_date ON Presentation(user_id, date);
+CREATE INDEX ix_presentation_status ON Presentation(status);
+CREATE UNIQUE INDEX uq_presentation_owner_block
+ON Presentation(owner_id, date, start_time, end_time, purpose)
+WHERE status IN ('available', 'scheduled', 'completed', 'no_show');
 
 CREATE TABLE LogAction (
 id SERIAL PRIMARY KEY,

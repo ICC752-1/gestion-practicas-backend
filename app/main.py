@@ -16,6 +16,9 @@ from app.modules.documents.controllers.document_controller import (
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
+from app.modules.scheduling.controllers.scheduling_controller import (
+    router as scheduling_router,
+)
 from app.modules.internships.controllers.internship_controller import (
     router as internships_router,
 )
@@ -51,3 +54,4 @@ app.include_router(admin_router)
 app.include_router(notifications_router)
 app.include_router(internships_router)
 app.include_router(documents_router)
+app.include_router(scheduling_router)
