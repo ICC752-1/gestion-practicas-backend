@@ -13,19 +13,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database.database import get_db
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
+from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 from app.modules.auth.schemas.rol_schema import AssignRoleRequest, UserRoleResponse
 from app.modules.auth.schemas.user_schema import (
+    UserAdminResponse,
     UserCreateRequest,
+    UserListResponse,
     UserResponse,
     UserUpdateRequest,
 )
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.role_service import RoleService
 from app.modules.auth.services.user_service import UserService
-from app.modules.auth.utils.roles import USER_ADMIN_ROLES
+from app.modules.auth.utils.roles import SUPERADMIN_ROLE, USER_ADMIN_ROLES
 
 router = APIRouter(prefix="/users", tags=["Users"])
 logger = logging.getLogger(__name__)
@@ -45,12 +48,50 @@ def _build_role_service(db: AsyncSession) -> RoleService:
     )
 
 
-@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def _role_names(user: User) -> list[str]:
+    return [user_role.role.name for user_role in user.roles]
+
+
+def _admin_response(user: User) -> UserAdminResponse:
+    return UserAdminResponse(
+        **UserResponse.model_validate(user).model_dump(),
+        roles=_role_names(user),
+    )
+
+
+def _has_role(user: User, role_name: str) -> bool:
+    return role_name in _role_names(user)
+
+
+async def _ensure_can_remove_superadmin_access(
+    *,
+    actor: User,
+    target: User,
+    user_repository: UserRepository,
+) -> None:
+    if actor.id == target.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Superadmin cannot remove own administration access",
+        )
+
+    if target.is_active and _has_role(target, SUPERADMIN_ROLE):
+        active_superadmins = await user_repository.count_active_users_with_role(
+            SUPERADMIN_ROLE,
+        )
+        if active_superadmins <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot remove the last active Superadmin",
+            )
+
+
+@router.post("", response_model=UserAdminResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: UserCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
-) -> UserResponse:
+) -> UserAdminResponse:
     """Crea un usuario nuevo.
 
     Requiere roles administrativos. Valida unicidad de email y RUT antes de
@@ -92,24 +133,48 @@ async def create_user(
             detail="RUT already exists",
         )
 
+    role_repository = RoleRepository(db)
+    roles_to_assign = []
+    for role_id in set(payload.role_ids):
+        role = await role_repository.get_role_by_id(role_id)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found",
+            )
+        roles_to_assign.append(role)
+
     service = _build_service(db)
     user = await service.create_user(payload)
+
+    if roles_to_assign:
+        role_service = _build_role_service(db)
+        for role in roles_to_assign:
+            await role_service.assign_role(user=user, role=role)
+
+        refreshed_user = await user_repository.get_user_by_id(user.id)
+        if refreshed_user:
+            user = refreshed_user
 
     logger.info(
         "User created",
         extra={"actor_id": current_user.id, "user_id": user.id},
     )
 
-    return UserResponse.model_validate(user)
+    return _admin_response(user)
 
 
-@router.get("", response_model=list[UserResponse])
+@router.get("", response_model=UserListResponse)
 async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
     is_active: bool | None = Query(default=None),
     email: str | None = Query(default=None),
-) -> list[UserResponse]:
+    search: str | None = Query(default=None, min_length=1),
+    role: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> UserListResponse:
     """Lista usuarios con filtros opcionales.
 
     Requiere roles administrativos. Permite filtrar por estado y correo exacto.
@@ -132,22 +197,40 @@ async def list_users(
         },
     )
     service = _build_service(db)
-    users = await service.list_users(is_active=is_active, email=email)
+    users = await service.list_users(
+        is_active=is_active,
+        email=email,
+        search=search,
+        role_name=role,
+        limit=limit,
+        offset=offset,
+    )
+    total = await service.count_users(
+        is_active=is_active,
+        email=email,
+        search=search,
+        role_name=role,
+    )
 
     logger.info(
         "List users completed",
         extra={"actor_id": current_user.id, "count": len(users)},
     )
 
-    return [UserResponse.model_validate(user) for user in users]
+    return UserListResponse(
+        items=[_admin_response(user) for user in users],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
-@router.get("/{user_id}", response_model=UserResponse)
+@router.get("/{user_id}", response_model=UserAdminResponse)
 async def get_user(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
-) -> UserResponse:
+) -> UserAdminResponse:
     """Obtiene un usuario por identificador.
 
     Requiere roles administrativos.
@@ -185,16 +268,16 @@ async def get_user(
         extra={"actor_id": current_user.id, "user_id": user_id},
     )
 
-    return UserResponse.model_validate(user)
+    return _admin_response(user)
 
 
-@router.patch("/{user_id}", response_model=UserResponse)
+@router.patch("/{user_id}", response_model=UserAdminResponse)
 async def update_user(
     user_id: int,
     payload: UserUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
-) -> UserResponse:
+) -> UserAdminResponse:
     """Actualiza datos de un usuario.
 
     Requiere roles administrativos. Solo se modifican los campos enviados.
@@ -228,15 +311,39 @@ async def update_user(
             detail="User not found",
         )
 
+    if payload.rut:
+        existing_rut = await user_repository.get_user_by_rut(payload.rut)
+        if existing_rut and existing_rut.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="RUT already exists",
+            )
+
+    if payload.is_active is False and user.is_active:
+        await _ensure_can_remove_superadmin_access(
+            actor=current_user,
+            target=user,
+            user_repository=user_repository,
+        )
+
     service = _build_service(db)
     user = await service.update_user(user, payload)
+
+    if payload.is_active is False:
+        revoked_count = await RefreshTokenRepository(db).revoke_active_tokens_for_user(
+            user_id,
+        )
+        logger.info(
+            "Refresh tokens revoked after user deactivation",
+            extra={"actor_id": current_user.id, "user_id": user_id, "count": revoked_count},
+        )
 
     logger.info(
         "User updated",
         extra={"actor_id": current_user.id, "user_id": user_id},
     )
 
-    return UserResponse.model_validate(user)
+    return _admin_response(user)
 
 
 @router.get("/{user_id}/roles", response_model=list[UserRoleResponse])
@@ -351,14 +458,11 @@ async def assign_user_role(
         role_id=payload.role_id,
     )
     if existing:
-        logger.warning(
-            "Assign role failed: role already assigned",
+        logger.info(
+            "Assign role skipped: role already assigned",
             extra={"actor_id": current_user.id, "user_id": user_id, "role_id": payload.role_id},
         )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Role already assigned to user",
-        )
+        return UserRoleResponse.model_validate(role)
 
     service = _build_role_service(db)
     await service.assign_role(user=user, role=role)
@@ -421,13 +525,17 @@ async def remove_user_role(
     )
 
     if not user_role:
-        logger.warning(
-            "Remove role failed: role assignment not found",
+        logger.info(
+            "Remove role skipped: role assignment not found",
             extra={"actor_id": current_user.id, "user_id": user_id, "role_id": role_id},
         )
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role assignment not found",
+        return None
+
+    if user_role.role.name == SUPERADMIN_ROLE:
+        await _ensure_can_remove_superadmin_access(
+            actor=current_user,
+            target=user,
+            user_repository=user_repository,
         )
 
     service = _build_role_service(db)
