@@ -1,5 +1,5 @@
 -- 1. Creación de Enumeraciones (Enums)
-CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera');
+CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera', 'FICA', 'Superadmin');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
@@ -311,6 +311,8 @@ INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol corres
 INSERT INTO Roles (name, description) VALUES ('Supervisor de practica', 'Rol correspondiente al supervisor externo de practicas');
 INSERT INTO Roles (name, description) VALUES ('Encargado de practica', 'Rol correspondiente al encargado de practicas');
 INSERT INTO Roles (name, description) VALUES ('Secretaria de Carrera', 'Rol correspondiente a secretaria de carrera');
+INSERT INTO Roles (name, description) VALUES ('FICA', 'Rol institucional de consulta agregada transversal');
+INSERT INTO Roles (name, description) VALUES ('Superadmin', 'Rol tecnico para administracion de usuarios y roles');
 
 INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone)
 VALUES ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432');

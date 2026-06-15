@@ -25,13 +25,7 @@ from app.modules.auth.schemas.user_schema import (
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.role_service import RoleService
 from app.modules.auth.services.user_service import UserService
-
-ADMIN_ROLES = [
-    "Supervisor de practica",
-    "Encargado de practica",
-    "Director de carrera",
-    "Secretaria de Carrera",
-]
+from app.modules.auth.utils.roles import USER_ADMIN_ROLES
 
 router = APIRouter(prefix="/users", tags=["Users"])
 logger = logging.getLogger(__name__)
@@ -55,7 +49,7 @@ def _build_role_service(db: AsyncSession) -> RoleService:
 async def create_user(
     payload: UserCreateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> UserResponse:
     """Crea un usuario nuevo.
 
@@ -112,7 +106,7 @@ async def create_user(
 @router.get("", response_model=list[UserResponse])
 async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
     is_active: bool | None = Query(default=None),
     email: str | None = Query(default=None),
 ) -> list[UserResponse]:
@@ -152,7 +146,7 @@ async def list_users(
 async def get_user(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> UserResponse:
     """Obtiene un usuario por identificador.
 
@@ -199,7 +193,7 @@ async def update_user(
     user_id: int,
     payload: UserUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> UserResponse:
     """Actualiza datos de un usuario.
 
@@ -249,7 +243,7 @@ async def update_user(
 async def list_user_roles(
     user_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> list[UserRoleResponse]:
     """Lista los roles asociados a un usuario.
 
@@ -303,7 +297,7 @@ async def assign_user_role(
     user_id: int,
     payload: AssignRoleRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> UserRoleResponse:
     """Asigna un rol a un usuario.
 
@@ -385,7 +379,7 @@ async def remove_user_role(
     user_id: int,
     role_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> None:
     """Elimina un rol asociado a un usuario.
 
