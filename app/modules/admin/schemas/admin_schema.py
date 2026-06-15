@@ -1,7 +1,7 @@
 """Schemas HTTP del modulo admin.
 
 Este modulo define los contratos de salida utilizados por los endpoints
-administrativos orientados al rol `Encargado de practica`.
+administrativos orientados a `Encargado de practica` y `Director de carrera`.
 """
 
 from datetime import date, datetime
