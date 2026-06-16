@@ -1347,13 +1347,25 @@ class InternshipService:
             user_id=user_id,
             requirement="induction",
         )
-        if req is not None and req.is_completed:
+        active_content = await self.internship_repository.get_active_induction_content()
+        requires_retake = (
+            active_content is not None
+            and active_content.requires_retake
+        )
+
+        if req is not None and req.is_completed and not requires_retake:
             return True
 
         passed_attempt = await self.internship_repository.get_passed_induction_attempt(
             user_id=user_id,
         )
-        return passed_attempt is not None
+        if passed_attempt is None:
+            return False
+
+        if requires_retake:
+            return passed_attempt.content_version_id == active_content.id
+
+        return True
 
     async def get_registration_eligibility(
         self,

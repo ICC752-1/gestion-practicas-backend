@@ -32,6 +32,7 @@ class InductionContentVersion(Base):
         status: Estado del contenido (draft/published).
         is_active: Indica si es la versión activa actual.
         min_score: Puntaje mínimo requerido para aprobar el cuestionario.
+        requires_retake: Indica si la version publicada exige repetir induccion.
         published_at: Fecha de publicación, si fue publicado.
         created_at: Fecha de creación.
         updated_at: Fecha de última actualización.
@@ -59,6 +60,11 @@ class InductionContentVersion(Base):
     min_score: Mapped[int] = mapped_column(
         Integer,
         default=5,
+        nullable=False,
+    )
+    requires_retake: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
         nullable=False,
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -282,6 +282,7 @@ CREATE TABLE induction_content_versions (
     status "content_status_enum" NOT NULL DEFAULT 'draft',
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
     min_score INTEGER NOT NULL DEFAULT 5,
+    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     published_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
