@@ -72,9 +72,15 @@ from app.modules.notifications.models.notification_model import (
 )
 
 
+STUDENT_DEMO_EMAIL = "estudiante.demo@ufromail.cl"
+STUDENT_OTHER_EMAIL = "estudiante.otro@ufromail.cl"
+LEGACY_DEMO_EMAILS = ("estudiante.demo@correo.cl", "estudiante.otro@correo.cl")
+INDUCTION_OPTIONS = {"accept": "Entiendo y acepto", "reject": "No acepto"}
+INDUCTION_CORRECT_ANSWER = "accept"
+
 DEMO_USERS = [
     {
-        "email": "estudiante.demo@correo.cl",
+        "email": STUDENT_DEMO_EMAIL,
         "rut": "21000001-1",
         "first_name": "Estudiante",
         "last_name": "Demo",
@@ -83,7 +89,7 @@ DEMO_USERS = [
         "cod_degree": "ICI",
     },
     {
-        "email": "estudiante.otro@correo.cl",
+        "email": STUDENT_OTHER_EMAIL,
         "rut": "21000002-1",
         "first_name": "Estudiante",
         "last_name": "Otro",
@@ -135,7 +141,7 @@ DEMO_USERS = [
     },
 ]
 
-DEMO_EMAILS = [user["email"] for user in DEMO_USERS]
+DEMO_EMAILS = [user["email"] for user in DEMO_USERS] + list(LEGACY_DEMO_EMAILS)
 DEMO_ORG_PREFIX = "Demo QA"
 
 
@@ -247,7 +253,7 @@ class DemoSeeder:
     async def _ensure_users(self, roles: dict[str, Role]) -> dict[str, User]:
         users: dict[str, User] = {}
         for data in DEMO_USERS:
-            user = await self._get_user_by_email(data["email"])
+            user = await self._get_user_by_email_or_rut(data["email"], data["rut"])
             if user is None:
                 user = User(
                     email=data["email"],
@@ -266,7 +272,7 @@ class DemoSeeder:
                 self.stats["created"] += 1
             else:
                 changed = False
-                for field_name in ("first_name", "last_name", "rut", "degree", "cod_degree"):
+                for field_name in ("email", "first_name", "last_name", "rut", "degree", "cod_degree"):
                     next_value = data.get(field_name)
                     if getattr(user, field_name) != next_value:
                         setattr(user, field_name, next_value)
@@ -322,32 +328,76 @@ class DemoSeeder:
                     order=1,
                 )
             )
-            self.session.add(
-                InductionQuestion(
-                    content_version_id=content.id,
-                    question_text="Confirma que revisaste la induccion demo.",
-                    options={"choices": ["Entiendo y acepto", "No acepto"]},
-                    correct_answer="Entiendo y acepto",
-                    order=1,
-                )
+            question = InductionQuestion(
+                content_version_id=content.id,
+                question_text="Confirma que revisaste la induccion demo.",
+                options=INDUCTION_OPTIONS,
+                correct_answer=INDUCTION_CORRECT_ANSWER,
+                order=1,
             )
+            self.session.add(question)
+            await self.session.flush()
             self.stats["created"] += 1
+        else:
+            content.status = ContentStatusEnum.published
+            content.is_active = True
+            content.min_score = 1
+            self.stats["reused"] += 1
+
+        question = await self._ensure_demo_induction_question(content)
+
+        await self._ensure_induction_attempt(
+            user=context.users[STUDENT_DEMO_EMAIL],
+            content=content,
+            question=question,
+            passed=True,
+        )
+
+    async def _ensure_demo_induction_question(
+        self,
+        content: InductionContentVersion,
+    ) -> InductionQuestion:
+        query = select(InductionQuestion).where(
+            InductionQuestion.content_version_id == content.id,
+            InductionQuestion.order == 1,
+        )
+        question = (await self.session.execute(query)).scalar_one_or_none()
+        if question is None:
+            question = InductionQuestion(
+                content_version_id=content.id,
+                question_text="Confirma que revisaste la induccion demo.",
+                options=INDUCTION_OPTIONS,
+                correct_answer=INDUCTION_CORRECT_ANSWER,
+                order=1,
+            )
+            self.session.add(question)
+            await self.session.flush()
+            self.stats["created"] += 1
+            return question
+
+        changed = False
+        if question.options != INDUCTION_OPTIONS:
+            question.options = INDUCTION_OPTIONS
+            changed = True
+        if question.correct_answer != INDUCTION_CORRECT_ANSWER:
+            question.correct_answer = INDUCTION_CORRECT_ANSWER
+            changed = True
+        if changed:
+            self.stats["updated"] += 1
         else:
             self.stats["reused"] += 1
 
-        await self._ensure_induction_attempt(
-            user=context.users["estudiante.demo@correo.cl"],
-            content=content,
-            passed=True,
-        )
+        return question
 
     async def _ensure_induction_attempt(
         self,
         *,
         user: User,
         content: InductionContentVersion,
+        question: InductionQuestion,
         passed: bool,
     ) -> None:
+        answers = {str(question.id): INDUCTION_CORRECT_ANSWER}
         query = select(InductionAttempt).where(
             InductionAttempt.user_id == user.id,
             InductionAttempt.content_version_id == content.id,
@@ -358,33 +408,38 @@ class DemoSeeder:
                 InductionAttempt(
                     user_id=user.id,
                     content_version_id=content.id,
-                    answers={"demo": "Entiendo y acepto"},
+                    answers=answers,
                     score=1 if passed else 0,
                     passed=passed,
                 )
             )
             self.stats["created"] += 1
+        elif attempt.answers != answers or attempt.passed != passed:
+            attempt.answers = answers
+            attempt.score = 1 if passed else 0
+            attempt.passed = passed
+            self.stats["updated"] += 1
         else:
             self.stats["reused"] += 1
 
     async def _ensure_registration_requirements(self, context: SeedContext) -> None:
         await self._ensure_requirement(
-            context.users["estudiante.demo@correo.cl"],
+            context.users[STUDENT_DEMO_EMAIL],
             RegistrationRequirementType.INDUCTION,
             True,
         )
         await self._ensure_requirement(
-            context.users["estudiante.demo@correo.cl"],
+            context.users[STUDENT_DEMO_EMAIL],
             RegistrationRequirementType.SCHOOL_INSURANCE,
             True,
         )
         await self._ensure_requirement(
-            context.users["estudiante.otro@correo.cl"],
+            context.users[STUDENT_OTHER_EMAIL],
             RegistrationRequirementType.INDUCTION,
             False,
         )
         await self._ensure_requirement(
-            context.users["estudiante.otro@correo.cl"],
+            context.users[STUDENT_OTHER_EMAIL],
             RegistrationRequirementType.SCHOOL_INSURANCE,
             False,
         )
@@ -422,7 +477,7 @@ class DemoSeeder:
         pending = context.states["Pendiente"]
         approved = context.states["Aprobada"]
         await self._ensure_internship(
-            owner=context.users["estudiante.demo@correo.cl"],
+            owner=context.users[STUDENT_DEMO_EMAIL],
             status=approved,
             org_name=f"{DEMO_ORG_PREFIX} exportable",
             internship_type=PracticeTypeEnum.practice_1,
@@ -431,7 +486,7 @@ class DemoSeeder:
             with_documents=True,
         )
         blocked = await self._ensure_internship(
-            owner=context.users["estudiante.otro@correo.cl"],
+            owner=context.users[STUDENT_OTHER_EMAIL],
             status=pending,
             org_name=f"{DEMO_ORG_PREFIX} induccion pendiente",
             internship_type=PracticeTypeEnum.practice_1,
@@ -591,6 +646,13 @@ class DemoSeeder:
 
     async def _get_user_by_email(self, email: str) -> User | None:
         return (await self.session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+
+    async def _get_user_by_email_or_rut(self, email: str, rut: str) -> User | None:
+        return (
+            await self.session.execute(
+                select(User).where((User.email == email) | (User.rut == rut))
+            )
+        ).scalar_one_or_none()
 
     async def _get_demo_users(self) -> list[User]:
         result = await self.session.execute(select(User).where(User.email.in_(DEMO_EMAILS)))

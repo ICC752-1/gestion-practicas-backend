@@ -384,8 +384,8 @@ INSERT INTO induction_questions (content_version_id, question_text, options, cor
 SELECT
     id,
     'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"choices": ["Entiendo y acepto", "No acepto"]}'::jsonb,
-    'Entiendo y acepto',
+    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
+    'accept',
     1
 FROM induction_content_versions
 WHERE title = 'Induccion obligatoria demo';
