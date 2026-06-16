@@ -176,6 +176,9 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository._student_requirements[(42, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
     service = InternshipService(internship_repository=repository)
 
     internship = await service.create_internship(

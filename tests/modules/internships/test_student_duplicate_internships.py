@@ -70,6 +70,8 @@ class FakeDuplicateRepository:
         return _state(title)
 
     async def get_student_requirement(self, **kwargs):
+        if kwargs.get("requirement") == "induction":
+            return SimpleNamespace(is_completed=True)
         return None
 
     async def get_blocking_internship_for_registration(self, **kwargs):
@@ -85,6 +87,9 @@ class FakeDuplicateRepository:
         return []
 
     async def get_passed_induction_attempt(self, user_id: int):
+        return None
+
+    async def get_active_induction_content(self):
         return None
 
 

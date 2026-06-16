@@ -65,6 +65,7 @@ class Config(BaseSettings):
     GOOGLE_FRONTEND_ERROR_URL: str = "http://localhost:5173/auth/callback"
     GOOGLE_STATE_EXPIRE_MINUTES: int = 10
     GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
     GOOGLE_COOKIE_SECURE: bool = False
 
     @property

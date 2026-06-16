@@ -252,6 +252,9 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
         is_completed=False,
     )
+    repository._student_requirements[(42, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
     service = InternshipService(internship_repository=repository)
 
     internship = await service.create_internship(
@@ -862,6 +865,9 @@ async def test_registration_eligibility_sequentiality_blocked() -> None:
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
     repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
     repository.internships_by_user = [
         SimpleNamespace(
@@ -885,6 +891,9 @@ async def test_registration_eligibility_has_approved_practice_1() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
         is_completed=True,
     )
     repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
@@ -961,6 +970,9 @@ async def test_create_practice_2_allowed_without_approved_practice_1() -> None:
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
 
     payload = _valid_payload()
     payload.internship_type = PracticeTypeEnum.practice_2
@@ -981,6 +993,9 @@ async def test_create_practice_2_allowed_with_active_practice_1() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
         is_completed=True,
     )
     repository.internships_by_user = [

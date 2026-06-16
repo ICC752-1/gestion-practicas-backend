@@ -163,6 +163,95 @@ institucional permanece incompleto.
 
 ---
 
+## RN-01-B: Una solicitud bloqueante por estudiante y tipo de práctica
+
+### Descripción
+
+Un estudiante no puede mantener más de una solicitud vigente para el mismo
+`internship_type`. La regla evita duplicidad funcional y protege también
+peticiones concurrentes desde dos pestañas o clientes distintos.
+
+### Definición de la regla
+
+Bloquean nuevas solicitudes del mismo tipo las prácticas con
+`blocks_new_registration = true`. En el ciclo actual esto incluye solicitudes en
+`Pendiente`, `En revisión`, `En revisión DIRAE` y `Aprobada`, salvo que el
+cierre final de la práctica sea `completion_status=finalized` y
+`final_result=failed`.
+
+El bloqueo se libera cuando la solicitud es `Rechazada` o anulada lógicamente
+con `is_cancelled = true`. También se libera cuando una práctica finaliza con
+`final_result=failed`. Una práctica aprobada o finalizada con `final_result=passed`
+mantiene el bloqueo para evitar repetir un tipo ya aprobado.
+
+### Garantía persistente
+
+La base de datos mantiene el índice único parcial
+`uq_internship_blocking_type_per_student` sobre `user_id + internship_type`
+cuando `blocks_new_registration IS TRUE` y el cierre final no corresponde a
+`finalized/failed`. La consulta previa del servicio mejora el mensaje de error,
+pero la invariancia no depende solo del frontend ni de una lectura previa.
+
+### Contrato de error
+
+`POST /internships` responde `409 Conflict` cuando ya existe una solicitud
+bloqueante:
+
+```json
+{
+  "detail": {
+    "code": "duplicate_internship_type",
+    "existing_internship_id": 15,
+    "internship_type": "Práctica de Estudio I",
+    "existing_status": "Pendiente",
+    "message": "Ya existe una solicitud vigente para este tipo de práctica. Revisa el registro existente antes de crear una nueva solicitud."
+  }
+}
+```
+
+`GET /internships/registration-eligibility` expone el diagnóstico preventivo
+con `has_blocking_internship`, `blocking_internship_id`,
+`blocking_internship_status` y `can_create_request`.
+
+---
+
+## RN-01-C: Agenda de entrevistas y presentaciones sin doble reserva
+
+### Descripción
+
+La agenda institucional usa `Presentation` como fuente única para representar
+bloques publicados, reservas de entrevista inicial y reservas de presentación
+final. No se deben mantener horarios reales solo en estado local del frontend.
+
+### Definición de la regla
+
+- Los roles `Encargado de practica` y `Director de carrera` pueden publicar
+  disponibilidad futura asociada a su propio usuario.
+- Cada bloque contiene fecha, hora inicial, hora final, duración, modalidad,
+  ubicación/enlace, zona horaria, propietario y propósito.
+- Un estudiante solo puede reservar un bloque `available` para una práctica
+  propia y no anulada.
+- Una práctica no puede tener dos citas activas para el mismo propósito.
+- Un estudiante no puede mantener citas solapadas.
+- Un administrativo no puede publicar disponibilidad que se solape con otro
+  bloque activo propio.
+- Un bloque pasado no puede reservarse ni cerrarse desde la API.
+
+### Garantía de concurrencia
+
+La reserva toma el bloque con bloqueo de fila y vuelve a validar que siga en
+estado `available` antes de asignar `user_id`, `internship_id`, `reserved_at` y
+`status=scheduled`. Además, la base de datos mantiene un índice único parcial
+por propietario, fecha, rango horario y propósito para bloques activos.
+
+### Cancelación y reprogramación
+
+El estudiante propietario puede cancelar o reprogramar su cita. Un rol
+administrativo solo puede cancelar o cerrar bloques propios; cuando cancela una
+cita ya agendada debe entregar motivo.
+
+---
+
 ## RN-02: Matriz de Transiciones de Estados y Permisología por Rol
 
 ### Descripción
@@ -197,15 +286,20 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 
 Un estudiante no puede avanzar la **Práctica de Estudio II** mediante `approve()` mientras su **Práctica de Estudio I** no se encuentre aprobada. La creación de la Práctica II (`create_internship`) no está sujeta a esta restricción.
 
-La **Práctica de Estudio I** exige inducción obligatoria aprobada antes de la
-aprobación administrativa. Esta regla es inexceptuable: no puede resolverse con
-una excepción administrativa.
+La inducción obligatoria aprobada habilita la creación de solicitudes desde el
+flujo estudiante. Además, la **Práctica de Estudio I** exige inducción aprobada
+antes de la aprobación administrativa. Esta regla es inexceptuable: no puede
+resolverse con una excepción administrativa.
 
 ### Definición de la Regla
 
-- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no a la creación inicial de la solicitud (`create_internship`).
+- `create_internship` responde `409 Conflict` con `code=induction_required` si
+  el estudiante no tiene inducción aprobada.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio I`, el sistema verifica que el estudiante tenga inducción aprobada en `student_registration_requirements` o un intento aprobado en `induction_attempts`.
 - Si no existe inducción aprobada para Práctica I, se bloquea el avance con `409 Conflict`.
+- Una inducción histórica aprobada sigue siendo válida salvo que la versión
+  activa tenga `requires_retake=true`; en ese caso debe existir un intento
+  aprobado para la versión activa.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
 - Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
 - El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.

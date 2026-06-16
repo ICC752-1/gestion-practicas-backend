@@ -31,6 +31,24 @@ class PracticeTypeEnum(str, enum.Enum):
     thesis = "Tesis"
 
 
+class CompletionStatusEnum(str, enum.Enum):
+    """Estado del ciclo final de ejecución de la práctica."""
+
+    not_started = "not_started"
+    in_progress = "in_progress"
+    pending_evaluations = "pending_evaluations"
+    pending_presentation = "pending_presentation"
+    finalized = "finalized"
+
+
+class FinalResultEnum(str, enum.Enum):
+    """Resultado final de una práctica una vez cerrada."""
+
+    pending = "pending"
+    passed = "passed"
+    failed = "failed"
+
+
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
 
@@ -69,6 +87,8 @@ class Internship(Base):
         cancellation_reason: Motivo funcional de la anulacion logica.
         blocks_new_registration: Indica si bloquea nuevas solicitudes del mismo
             tipo para el mismo estudiante.
+        completion_status: Estado del ciclo de ejecución/cierre de la práctica.
+        final_result: Resultado final del ciclo de práctica.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -170,6 +190,26 @@ class Internship(Base):
         default=True,
         nullable=False,
     )
+    completion_status: Mapped[CompletionStatusEnum] = mapped_column(
+        PGEnum(
+            CompletionStatusEnum,
+            name="enumCompletionStatus",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        default=CompletionStatusEnum.not_started,
+        nullable=False,
+    )
+    final_result: Mapped[FinalResultEnum] = mapped_column(
+        PGEnum(
+            FinalResultEnum,
+            name="enumFinalResult",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        default=FinalResultEnum.pending,
+        nullable=False,
+    )
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User", foreign_keys=[user_id])
@@ -194,5 +234,8 @@ Index(
     Internship.user_id,
     Internship.internship_type,
     unique=True,
-    postgresql_where=text("blocks_new_registration IS TRUE"),
+    postgresql_where=text(
+        "blocks_new_registration IS TRUE "
+        "AND NOT (completion_status = 'finalized' AND final_result = 'failed')"
+    ),
 )

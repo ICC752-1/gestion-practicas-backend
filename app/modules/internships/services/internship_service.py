@@ -15,6 +15,8 @@ from app.core.config import config
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -222,6 +224,19 @@ class InternshipService:
         if blocking_internship is not None:
             self._raise_duplicate_internship_type(blocking_internship)
 
+        has_induction = await self._has_passed_induction(user_id)
+        if not has_induction:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "induction_required",
+                    "message": (
+                        "Debe aprobar la inducción obligatoria antes de crear "
+                        "una solicitud de práctica."
+                    ),
+                },
+            )
+
         internship = Internship(
             **data,
             user_id=user_id,
@@ -419,6 +434,16 @@ class InternshipService:
             org_name=internship.org_name,
             city=internship.city,
             internship_type=internship.internship_type,
+            completion_status=getattr(
+                internship,
+                "completion_status",
+                CompletionStatusEnum.not_started,
+            ),
+            final_result=getattr(
+                internship,
+                "final_result",
+                FinalResultEnum.pending,
+            ),
             start_date=internship.start_date,
             end_date=internship.end_date,
             upload_date=internship.upload_date,
@@ -1554,24 +1579,30 @@ class InternshipService:
         habilitar consultas de secuencialidad sin depender del estado
         administrativo de prácticas individuales.
         """
+        internship_id = internship.id
+        user_id = internship.user_id
+        practice_type = internship.internship_type.value
+        actor_id = actor.id
+
         try:
             await self.internship_repository.upsert_academic_requirement_status(
-                user_id=internship.user_id,
-                practice_type=internship.internship_type.value,
+                user_id=user_id,
+                practice_type=practice_type,
                 new_status="Aprobada",
-                updated_by=actor.id,
+                updated_by=actor_id,
             )
             logger.info(
                 "Requisito académico sincronizado para práctica ID: %s, tipo: %s",
-                internship.id,
-                internship.internship_type.value,
+                internship_id,
+                practice_type,
             )
         except Exception:
+            await self.internship_repository.rollback()
             logger.exception(
                 "Fallo al sincronizar requisito académico para práctica ID: %s. "
                 "La práctica ya fue aprobada; la sincronización puede reintentarse "
                 "manualmente.",
-                internship.id,
+                internship_id,
             )
 
     async def _dispatch_notification(self, notification) -> None:
@@ -1664,6 +1695,7 @@ class InternshipService:
     async def _has_passed_induction(
         self,
         user_id: int | None,
+        active_content=None,
     ) -> bool:
         """Verifica si un estudiante ha aprobado la inducción obligatoria.
 
@@ -1680,6 +1712,30 @@ class InternshipService:
         if user_id is None:
             return False
 
+        if active_content is None:
+            content_getter = getattr(
+                self.internship_repository,
+                "get_active_induction_content",
+                None,
+            )
+            if content_getter is not None:
+                active_content = await content_getter()
+
+        if active_content is not None and getattr(active_content, "requires_retake", False):
+            version_getter = getattr(
+                self.internship_repository,
+                "get_passed_induction_attempt_for_version",
+                None,
+            )
+            if version_getter is None:
+                return False
+
+            passed_current_attempt = await version_getter(
+                user_id=user_id,
+                content_version_id=active_content.id,
+            )
+            return passed_current_attempt is not None
+
         req = await self.internship_repository.get_student_requirement(
             user_id=user_id,
             requirement="induction",
@@ -1687,9 +1743,15 @@ class InternshipService:
         if req is not None and req.is_completed:
             return True
 
-        passed_attempt = await self.internship_repository.get_passed_induction_attempt(
-            user_id=user_id,
+        passed_attempt_getter = getattr(
+            self.internship_repository,
+            "get_passed_induction_attempt",
+            None,
         )
+        if passed_attempt_getter is None:
+            return False
+
+        passed_attempt = await passed_attempt_getter(user_id=user_id)
         return passed_attempt is not None
 
     async def get_registration_eligibility(
@@ -1700,8 +1762,9 @@ class InternshipService:
     ) -> RegistrationEligibilityResponse:
         """Evalúa requisitos para formalizar una solicitud de práctica.
 
-        La ausencia de seguro solo bloquea periodos estivales y la inducción
-        solo bloquea la Práctica de Estudio I.
+        La ausencia de seguro solo bloquea periodos estivales. La inducción
+        aprobada habilita la creación de solicitudes; si la versión activa
+        exige repetición, debe aprobarse esa versión.
 
         Args:
             user_id: Identificador del estudiante.
@@ -1718,7 +1781,22 @@ class InternshipService:
         )
         has_insurance = insurance_req is not None and insurance_req.is_completed
 
-        has_induction = await self._has_passed_induction(user_id)
+        active_induction_content = None
+        content_getter = getattr(
+            self.internship_repository,
+            "get_active_induction_content",
+            None,
+        )
+        if content_getter is not None:
+            active_induction_content = await content_getter()
+        requires_retake = bool(
+            active_induction_content is not None
+            and getattr(active_induction_content, "requires_retake", False)
+        )
+        has_induction = await self._has_passed_induction(
+            user_id,
+            active_content=active_induction_content,
+        )
 
         internships = await self.internship_repository.list_internships_by_user(user_id)
 
@@ -1755,11 +1833,8 @@ class InternshipService:
             and internship_period.value in SEASONAL_PERIODS
             and not has_insurance
         )
-        induction_blocked = (
-            internship_type == PracticeTypeEnum.practice_1
-            and not has_induction
-        )
-        blocked = insurance_blocked or induction_blocked
+        induction_blocked = not has_induction
+        blocked = has_blocking_internship or insurance_blocked or induction_blocked
         next_step = (
             "Puede crear la solicitud y continuar con su revisión administrativa."
         )
@@ -1777,12 +1852,13 @@ class InternshipService:
         elif induction_blocked:
             next_step = (
                 "Debe completar la inducción obligatoria y aprobar el cuestionario "
-                "antes de tramitar la aprobación de la Práctica de Estudio I."
+                "antes de crear la solicitud de práctica."
             )
 
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
             has_induction=has_induction,
+            requires_retake=requires_retake,
             has_school_insurance_exception=has_school_insurance_exception,
             has_approved_practice_1=has_approved_practice_1,
             sequentiality_blocked=sequentiality_blocked,
@@ -1796,7 +1872,7 @@ class InternshipService:
             )
             if blocking_internship is not None
             else None,
-            can_create_request=not has_blocking_internship,
+            can_create_request=not has_blocking_internship and not induction_blocked,
             blocked=blocked,
             next_step=next_step,
         )
@@ -1823,3 +1899,4 @@ class InternshipService:
                     student_user_id=internship.user_id,
                 ),
             )
+            
