@@ -47,6 +47,9 @@ class FakeInternship:
         internship_id: int,
         student: FakeStudent | None,
         status: FakeStatus | None,
+        is_cancelled: bool = False,
+        cancelled_at: datetime | None = None,
+        cancellation_reason: str | None = None,
     ) -> None:
         self.id = internship_id
         self.org_name = "Acme Chile"
@@ -69,6 +72,9 @@ class FakeInternship:
         self.user_id = None if student is None else student.id
         self.student = student
         self.status = status
+        self.is_cancelled = is_cancelled
+        self.cancelled_at = cancelled_at
+        self.cancellation_reason = cancellation_reason
 
 
 class FakeRegistrationRequirement:
@@ -90,11 +96,17 @@ def _internship(
     internship_id: int = 10,
     student: FakeStudent | None = None,
     status: FakeStatus | None = None,
+    is_cancelled: bool = False,
+    cancelled_at: datetime | None = None,
+    cancellation_reason: str | None = None,
 ) -> FakeInternship:
     return FakeInternship(
         internship_id=internship_id,
         student=student,
         status=status,
+        is_cancelled=is_cancelled,
+        cancelled_at=cancelled_at,
+        cancellation_reason=cancellation_reason,
     )
 
 
@@ -258,6 +270,39 @@ async def test_get_internships_maps_related_data() -> None:
     assert internships[0].student.email == "student@example.com"
     assert internships[0].status is not None
     assert internships[0].status.title == "En revision"
+    assert internships[0].is_cancelled is False
+
+
+async def test_get_internships_marks_cancelled_practices() -> None:
+    repository = FakeAdminRepository()
+    student = FakeStudent(
+        student_id=1,
+        email="student@example.com",
+        first_name="Juan",
+        last_name="Perez",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    repository.internships = [
+        _internship(
+            student=student,
+            status=FakeStatus(
+                status_id=1,
+                title="Pendiente",
+                description="Pendiente.",
+            ),
+            is_cancelled=True,
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    internships = await service.get_internships()
+
+    assert len(internships) == 1
+    assert internships[0].status is not None
+    assert internships[0].status.title == "Pendiente"
+    assert internships[0].is_cancelled is True
 
 
 # Caso de prueba:
@@ -341,6 +386,16 @@ async def test_get_internships_filters_by_dashboard_status() -> None:
             student=student,
             status=None,
         ),
+        _internship(
+            internship_id=6,
+            student=student,
+            status=FakeStatus(
+                status_id=1,
+                title="Pendiente",
+                description="Pendiente.",
+            ),
+            is_cancelled=True,
+        ),
     ]
     service = AdminService(db=None)
     service.repository = repository
@@ -390,6 +445,9 @@ async def test_get_internship_detail_returns_detail() -> None:
     assert internship.student.first_name == "Juan"
     assert internship.status is not None
     assert internship.status.title == "Aprobada"
+    assert internship.is_cancelled is False
+    assert internship.cancelled_at is None
+    assert internship.cancellation_reason is None
 
 
 # Caso de prueba:

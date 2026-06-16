@@ -5,10 +5,11 @@ operaciones de persistencia relacionadas con la entidad `Internship` usando una
 sesion asincrona de SQLAlchemy.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from enum import Enum
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,7 +25,12 @@ from app.modules.internships.models.induction_model import (
     InductionVideo,
 )
 from app.modules.internships.models.internship_exception_model import InternshipException
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
+    Internship,
+    PracticeTypeEnum,
+)
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
@@ -50,6 +56,11 @@ class InternshipRepository:
         """
 
         self.db = db
+
+    async def rollback(self) -> None:
+        """Revierte la transaccion activa de la sesion."""
+
+        await self.db.rollback()
 
     async def create_internship(self, internship: Internship) -> Internship:
         """Persiste una practica en la base de datos.
@@ -140,6 +151,37 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return result.scalar_one_or_none()
+
+    async def get_blocking_internship_for_registration(
+        self,
+        user_id: int,
+        internship_type: PracticeTypeEnum,
+        exclude_internship_id: int | None = None,
+    ) -> Internship | None:
+        """Obtiene una solicitud que bloquea crear otra del mismo tipo."""
+
+        query = (
+            select(Internship)
+            .where(
+                Internship.user_id == user_id,
+                Internship.internship_type == internship_type,
+                Internship.blocks_new_registration.is_(True),
+                not_(
+                    and_(
+                        Internship.completion_status == CompletionStatusEnum.finalized,
+                        Internship.final_result == FinalResultEnum.failed,
+                    )
+                ),
+            )
+            .options(selectinload(Internship.status))
+            .order_by(Internship.upload_date.desc(), Internship.id.desc())
+        )
+        if exclude_internship_id is not None:
+            query = query.where(Internship.id != exclude_internship_id)
+
+        result = await self.db.execute(query)
+
+        return result.scalars().first()
 
     async def get_state_by_title(self, title: str) -> CurrentState | None:
         """Obtiene un estado de practica por su titulo exacto.
@@ -270,6 +312,7 @@ class InternshipRepository:
         """
 
         internship.status_id = new_status.id
+        internship.blocks_new_registration = new_status.title != "Rechazada"
         status_history = InternshipStatusHistory(
             internship_id=internship.id,
             previous_status_id=None if previous_status is None else previous_status.id,
@@ -288,6 +331,71 @@ class InternshipRepository:
 
         return loaded_internship
 
+    async def update_internship_completion_with_history(
+        self,
+        internship: Internship,
+        completion_status: CompletionStatusEnum,
+        final_result: FinalResultEnum,
+        actor_id: int,
+        reason: str | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Internship:
+        """Actualiza el cierre de una practica y sincroniza duplicidad.
+
+        Una practica finalizada con resultado ``failed`` libera el tipo para
+        que el estudiante pueda registrar un nuevo intento. Una finalizada con
+        ``passed`` conserva el bloqueo.
+        """
+
+        previous_values = {
+            "completion_status": self._serialize_history_value(
+                internship.completion_status,
+            ),
+            "final_result": self._serialize_history_value(internship.final_result),
+            "blocks_new_registration": internship.blocks_new_registration,
+        }
+
+        internship.completion_status = completion_status
+        internship.final_result = final_result
+        if completion_status == CompletionStatusEnum.finalized:
+            internship.blocks_new_registration = final_result != FinalResultEnum.failed
+
+        status_history = InternshipStatusHistory(
+            internship_id=internship.id,
+            previous_status_id=internship.status_id,
+            new_status_id=internship.status_id,
+            actor_id=actor_id,
+            reason=reason,
+            metadata_json={
+                "action": "completion_update",
+                "changed_fields": [
+                    "completion_status",
+                    "final_result",
+                    "blocks_new_registration",
+                ],
+                "previous_values": previous_values,
+                "new_values": {
+                    "completion_status": self._serialize_history_value(
+                        internship.completion_status,
+                    ),
+                    "final_result": self._serialize_history_value(
+                        internship.final_result,
+                    ),
+                    "blocks_new_registration": internship.blocks_new_registration,
+                },
+                **(metadata or {}),
+            },
+        )
+        self.db.add(status_history)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
+
     async def update_internship_admin_fields_with_history(
         self,
         internship: Internship,
@@ -295,8 +403,18 @@ class InternshipRepository:
         actor_id: int,
         reason: str,
         changed_fields: list[str],
+        action: str = "admin_update",
     ) -> Internship:
         """Actualiza campos administrativos y registra trazabilidad."""
+
+        previous_values = {
+            field_name: self._serialize_history_value(getattr(internship, field_name))
+            for field_name in changed_fields
+        }
+        new_values = {
+            field_name: self._serialize_history_value(updates[field_name])
+            for field_name in changed_fields
+        }
 
         for field_name, value in updates.items():
             setattr(internship, field_name, value)
@@ -308,8 +426,10 @@ class InternshipRepository:
             actor_id=actor_id,
             reason=reason,
             metadata_json={
-                "action": "admin_update",
+                "action": action,
                 "changed_fields": changed_fields,
+                "previous_values": previous_values,
+                "new_values": new_values,
             },
         )
         self.db.add(status_history)
@@ -323,13 +443,20 @@ class InternshipRepository:
         internship: Internship,
         actor_id: int,
         reason: str,
+        action: str = "cancel",
     ) -> Internship:
         """Marca una practica como anulada y registra trazabilidad."""
+
+        previous_values = {
+            "is_cancelled": internship.is_cancelled,
+            "blocks_new_registration": internship.blocks_new_registration,
+        }
 
         internship.is_cancelled = True
         internship.cancelled_at = datetime.now(UTC).replace(tzinfo=None)
         internship.cancelled_by = actor_id
         internship.cancellation_reason = reason
+        internship.blocks_new_registration = False
 
         status_history = InternshipStatusHistory(
             internship_id=internship.id,
@@ -337,13 +464,32 @@ class InternshipRepository:
             new_status_id=internship.status_id,
             actor_id=actor_id,
             reason=reason,
-            metadata_json={"action": "cancel"},
+            metadata_json={
+                "action": action,
+                "changed_fields": ["is_cancelled", "blocks_new_registration"],
+                "previous_values": previous_values,
+                "new_values": {
+                    "is_cancelled": True,
+                    "blocks_new_registration": False,
+                },
+            },
         )
         self.db.add(status_history)
         await self.db.commit()
         await self.db.refresh(internship)
 
         return internship
+
+    def _serialize_history_value(self, value: Any) -> Any:
+        """Convierte valores de dominio a tipos compatibles con JSONB."""
+
+        if isinstance(value, Enum):
+            return value.value
+
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+
+        return value
 
     async def get_exception_by_rule(
         self,
@@ -588,6 +734,25 @@ class InternshipRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_passed_induction_attempt_for_version(
+        self,
+        user_id: int,
+        content_version_id: int,
+    ) -> InductionAttempt | None:
+        """Obtiene un intento aprobado para una versión específica."""
+
+        result = await self.db.execute(
+            select(InductionAttempt)
+            .where(
+                InductionAttempt.user_id == user_id,
+                InductionAttempt.content_version_id == content_version_id,
+                InductionAttempt.passed.is_(True),
+            )
+            .order_by(InductionAttempt.attempted_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
     # ── Prerrequisitos del estudiante ──────────────────────────────────────
 
     async def get_student_requirement(
@@ -635,6 +800,7 @@ class InternshipRepository:
         new_status: str,
         updated_by: int,
     ) -> StudentInternshipRequirement:
+        now = datetime.now(UTC).replace(tzinfo=None)
         existing = await self.get_academic_requirement(user_id, practice_type)
 
         if existing is None:
@@ -642,8 +808,10 @@ class InternshipRepository:
                 user_id=user_id,
                 type=practice_type,
                 status=new_status,
-                status_updated_at=datetime.now(UTC),
+                status_updated_at=now,
                 status_updated_by=updated_by,
+                created_at=now,
+                updated_at=now,
             )
             self.db.add(req)
             await self.db.commit()
@@ -651,8 +819,9 @@ class InternshipRepository:
             return req
 
         existing.status = new_status
-        existing.status_updated_at = datetime.now(UTC)
+        existing.status_updated_at = now
         existing.status_updated_by = updated_by
+        existing.updated_at = now
         await self.db.commit()
         await self.db.refresh(existing)
         return existing

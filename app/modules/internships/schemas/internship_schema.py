@@ -11,6 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
 )
@@ -18,6 +20,7 @@ from app.modules.internships.models.internship_model import (
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
+DuplicateInternshipDetailCode = Literal["duplicate_internship_type"]
 
 
 class InternshipCreateRequest(BaseModel):
@@ -145,6 +148,8 @@ class InternshipDashboardListItem(BaseModel):
     org_name: str
     city: str
     internship_type: PracticeTypeEnum
+    completion_status: CompletionStatusEnum
+    final_result: FinalResultEnum
     start_date: date
     end_date: date
     upload_date: datetime
@@ -204,6 +209,10 @@ class InternshipResponse(BaseModel):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
+    blocks_new_registration: Indica si impide crear otra solicitud del
+            mismo tipo para el mismo estudiante.
+        completion_status: Estado del ciclo final de ejecución.
+        final_result: Resultado final de la práctica.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -240,8 +249,21 @@ class InternshipResponse(BaseModel):
     cancelled_at: datetime | None
     cancelled_by: int | None
     cancellation_reason: str | None
+    blocks_new_registration: bool
+    completion_status: CompletionStatusEnum
+    final_result: FinalResultEnum
 
     exceptions: list["InternshipExceptionResponse"] = []
+
+
+class DuplicateInternshipTypeDetail(BaseModel):
+    """Detalle estable para solicitudes duplicadas por tipo de practica."""
+
+    code: DuplicateInternshipDetailCode
+    existing_internship_id: int
+    internship_type: PracticeTypeEnum
+    existing_status: str | None
+    message: str
 
 
 class InternshipAdminUpdateRequest(BaseModel):
@@ -273,12 +295,82 @@ class InternshipAdminUpdateRequest(BaseModel):
     amount: int | None = None
 
 
+class StudentInternshipUpdateRequest(BaseModel):
+    """Payload para correccion reciente realizada por el estudiante propietario.
+
+    La correccion no acepta campos calculados o administrativos como
+    ``has_school_insurance``, ``status_id`` o ``user_id``. La ventana temporal,
+    el estado ``Pendiente`` y el ownership se validan en el servicio.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=1000)
+    org_name: str | None = Field(default=None, min_length=1, max_length=255)
+    sector: str | None = Field(default=None, min_length=1, max_length=255)
+    address: str | None = Field(default=None, min_length=1, max_length=255)
+    city: str | None = Field(default=None, min_length=1, max_length=255)
+    org_phone: str | None = Field(default=None, max_length=255)
+    web: str | None = Field(default=None, max_length=255)
+    supervisor_name: str | None = Field(default=None, min_length=1, max_length=255)
+    supervisor_profession: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_position: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_department: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_email: EmailStr | None = None
+    supervisor_phone: str | None = Field(default=None, min_length=1, max_length=255)
+    start_date: date | None = None
+    end_date: date | None = None
+    schedule: str | None = Field(default=None, min_length=1, max_length=255)
+    days: str | None = Field(default=None, min_length=1, max_length=255)
+    modality: Modality | None = None
+    internship_address: str | None = Field(default=None, min_length=1, max_length=255)
+    act_description: str | None = Field(default=None, min_length=1, max_length=255)
+    ben_description: str | None = Field(default=None, min_length=1, max_length=255)
+    amount: int | None = Field(default=None, ge=0)
+    internship_period: PracticePeriodEnum | None = None
+    internship_type: PracticeTypeEnum | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "StudentInternshipUpdateRequest":
+        """Valida rango cuando ambas fechas son parte de la correccion."""
+
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError("end_date must be greater than or equal to start_date")
+
+        return self
+
+
 class InternshipCancelRequest(BaseModel):
     """Payload para anulacion logica de una practica."""
 
     model_config = ConfigDict(extra="forbid")
 
     reason: str
+
+
+class StudentInternshipActionAvailabilityResponse(BaseModel):
+    """Disponibilidad de acciones recientes para el estudiante propietario."""
+
+    can_update: bool
+    can_cancel: bool
+    editable_until: datetime | None
+    reasons: list[str] = []
 
 
 class InternshipCancelResponse(BaseModel):
@@ -416,6 +508,7 @@ class InductionContentVersionResponse(BaseModel):
     id: int
     title: str
     description: str | None
+    requires_retake: bool = False
     min_score: int
     requires_retake: bool = False
     videos: list[InductionVideoResponse] = []
@@ -464,6 +557,8 @@ class RegistrationEligibilityResponse(BaseModel):
             el cumplimiento del seguro escolar.
         has_induction: ``True`` si el estudiante aprobó el cuestionario
             de inducción obligatoria.
+        requires_retake: ``True`` si la versión activa exige repetir la
+            inducción aunque exista un cumplimiento histórico.
         has_school_insurance_exception: ``True`` si existe una excepción
             administrativa activa para seguro escolar en alguna práctica
             vigente del estudiante.
@@ -474,17 +569,28 @@ class RegistrationEligibilityResponse(BaseModel):
         has_sequentiality_exception: ``True`` si existe una excepción
             administrativa activa de secuencialidad en alguna práctica
             del estudiante.
+        has_blocking_internship: ``True`` si ya existe una solicitud vigente
+            que bloquea crear otra del mismo tipo.
+        blocking_internship_id: Identificador de la solicitud bloqueante.
+        blocking_internship_status: Estado actual de la solicitud bloqueante.
+        can_create_request: ``False`` cuando existe duplicidad bloqueante o
+            falta una inducción obligatoria aprobada para abrir la solicitud.
         blocked: ``True`` si existe un bloqueo contextual que impide la
-            aprobación o formalización. No impide crear la solicitud pendiente.
+            creación, aprobación o formalización, según la regla afectada.
         next_step: Texto descriptivo de la siguiente acción recomendada
             para el estudiante.
     """
 
     has_school_insurance: bool
     has_induction: bool
+    requires_retake: bool = False
     has_school_insurance_exception: bool = False
     has_approved_practice_1: bool = False
     sequentiality_blocked: bool = False
     has_sequentiality_exception: bool = False
+    has_blocking_internship: bool = False
+    blocking_internship_id: int | None = None
+    blocking_internship_status: str | None = None
+    can_create_request: bool = True
     blocked: bool
     next_step: str

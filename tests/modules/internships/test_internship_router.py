@@ -68,6 +68,12 @@ def test_internships_router_is_registered() -> None:
     assert "/internships/me" in paths
     assert "/internships/{internship_id}/tracking" in paths
     assert "GET" in _methods_for_path("/internships/{internship_id}/tracking")
+    assert "/internships/{internship_id}/student-actions" in paths
+    assert "GET" in _methods_for_path("/internships/{internship_id}/student-actions")
+    assert "/internships/{internship_id}/student" in paths
+    assert "PATCH" in _methods_for_path("/internships/{internship_id}/student")
+    assert "/internships/{internship_id}/student/cancel" in paths
+    assert "POST" in _methods_for_path("/internships/{internship_id}/student/cancel")
     assert "/internships/{internship_id}" in paths
 
 

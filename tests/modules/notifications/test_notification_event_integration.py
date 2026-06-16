@@ -130,6 +130,9 @@ class FakeInternshipRepository:
     async def get_student_requirement(self, user_id: int, requirement: str):
         return SimpleNamespace(is_completed=True)
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
 

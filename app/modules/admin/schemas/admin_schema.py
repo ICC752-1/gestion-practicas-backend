@@ -115,6 +115,7 @@ class AdminInternshipListItem(BaseModel):
         user_id     : Identificador del estudiante propietario.
         student     : Informacion basica del estudiante asociado.
         status      : Estado actual de la practica, si existe.
+        is_cancelled: Indica si la practica fue anulada logicamente.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -128,6 +129,7 @@ class AdminInternshipListItem(BaseModel):
     user_id: int | None
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
+    is_cancelled: bool
 
 
 class AdminInternshipDetailResponse(BaseModel):
@@ -155,6 +157,9 @@ class AdminInternshipDetailResponse(BaseModel):
         user_id             : Identificador del estudiante propietario.
         student             : Informacion basica del estudiante asociado.
         status              : Estado actual de la practica, si existe.
+        is_cancelled        : Indica si la practica fue anulada logicamente.
+        cancelled_at        : Fecha de anulacion, si existe.
+        cancellation_reason : Motivo de anulacion, si existe.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -180,6 +185,9 @@ class AdminInternshipDetailResponse(BaseModel):
     user_id: int | None
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
+    is_cancelled: bool
+    cancelled_at: datetime | None
+    cancellation_reason: str | None
 
 
 StudentInternshipRequirementType = Literal[

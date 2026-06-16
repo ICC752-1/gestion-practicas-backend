@@ -43,6 +43,26 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
 
 
+def _refresh_cookie_max_age_seconds() -> int:
+    return config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+
+def _set_refresh_token_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        refresh_token,
+        httponly=True,
+        max_age=_refresh_cookie_max_age_seconds(),
+        path="/",
+        samesite="lax",
+        secure=config.GOOGLE_COOKIE_SECURE,
+    )
+
+
+def _delete_refresh_token_cookie(response: Response) -> None:
+    response.delete_cookie(config.REFRESH_TOKEN_COOKIE_NAME, path="/")
+
+
 def _frontend_callback_url(params: dict[str, str], success: bool) -> str:
     base_url = (
         config.GOOGLE_FRONTEND_SUCCESS_URL
@@ -115,14 +135,18 @@ async def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    payload: RefreshTokenRequest,
+    request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
+    payload: RefreshTokenRequest | None = None,
 ) -> TokenResponse:
     """Renueva tokens usando un refresh token valido.
 
     Args:
-        payload: Solicitud con refresh token emitido previamente.
+        request: Solicitud HTTP, usada para leer cookie HttpOnly OAuth.
+        response: Respuesta HTTP, usada para rotar cookie HttpOnly OAuth.
         db: Sesion asincrona de base de datos inyectada por `get_db`.
+        payload: Solicitud opcional con refresh token emitido previamente.
 
     Returns:
         `TokenResponse` con nuevos tokens de acceso y refresco.
@@ -141,8 +165,20 @@ async def refresh_token(
         token_service=TokenService(),
     )
 
+    refresh_token_value = (
+        payload.refresh_token
+        if payload is not None and payload.refresh_token
+        else request.cookies.get(config.REFRESH_TOKEN_COOKIE_NAME)
+    )
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
-        token_response = await auth_service.refresh_session(payload.refresh_token)
+        token_response = await auth_service.refresh_session(refresh_token_value)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -150,6 +186,7 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    _set_refresh_token_cookie(response, token_response.refresh_token)
     logger.info("Refresh token completed")
 
     return token_response
@@ -244,6 +281,7 @@ async def google_callback(
         status_code=status.HTTP_303_SEE_OTHER,
     )
     response.delete_cookie(config.GOOGLE_STATE_COOKIE_NAME, path="/")
+    _set_refresh_token_cookie(response, token_response.refresh_token)
 
     return response
 
@@ -279,6 +317,7 @@ async def get_me(
 async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    request: Request,
     payload: LogoutRequest | None = None,
 ) -> Response:
     """Cierra sesión (logout) para el dispositivo actual.
@@ -289,6 +328,7 @@ async def logout(
     Args:
         current_user: Usuario autenticado (access token válido).
         db: Sesión asíncrona de base de datos inyectada por `get_db`.
+        request: Solicitud HTTP, usada para leer cookie HttpOnly OAuth.
         payload: Opcional. Incluye `refresh_token` para validación.
 
     Returns:
@@ -305,9 +345,14 @@ async def logout(
     )
 
     try:
+        refresh_token_value = (
+            payload.refresh_token
+            if payload is not None and payload.refresh_token
+            else request.cookies.get(config.REFRESH_TOKEN_COOKIE_NAME)
+        )
         await auth_service.logout_session(
             current_user=current_user,
-            refresh_token=payload.refresh_token if payload else None,
+            refresh_token=refresh_token_value,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -317,4 +362,6 @@ async def logout(
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
     logger.info("Logout completed", extra={"user_id": current_user.id})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _delete_refresh_token_cookie(response)
+    return response
