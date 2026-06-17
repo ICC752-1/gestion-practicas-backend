@@ -17,6 +17,7 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
+    AvailabilityUpdateRequest,
     PresentationSlotResponse,
     SlotReserveRequest,
 )
@@ -46,6 +47,25 @@ async def create_availability(
     slots = await service.create_availability(actor=current_user, payload=payload)
 
     return [PresentationSlotResponse.model_validate(slot) for slot in slots]
+
+
+@router.put("/availability/{slot_id}", response_model=PresentationSlotResponse)
+async def update_availability(
+    slot_id: int,
+    payload: AvailabilityUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationSlotResponse:
+    """Edita un bloque futuro de disponibilidad."""
+
+    service = _build_service(db)
+    slot = await service.update_availability(
+        slot_id=slot_id,
+        actor=current_user,
+        payload=payload,
+    )
+
+    return PresentationSlotResponse.model_validate(slot)
 
 
 @router.get("/slots", response_model=list[PresentationSlotResponse])
@@ -164,3 +184,18 @@ async def close_availability(
     )
 
     return PresentationSlotResponse.model_validate(slot)
+
+
+@router.delete(
+    "/availability/{slot_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_availability(
+    slot_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    """Elimina un bloque futuro de disponibilidad."""
+
+    service = _build_service(db)
+    await service.delete_availability(slot_id=slot_id, actor=current_user)

@@ -57,6 +57,12 @@ class SchedulingRepository:
 
         return slots
 
+    async def delete_slot(self, slot: Presentation) -> None:
+        """Elimina un bloque de disponibilidad."""
+
+        await self.db.delete(slot)
+        await self.db.commit()
+
     async def get_slot_by_id(self, slot_id: int) -> Presentation | None:
         """Obtiene un bloque por identificador."""
 

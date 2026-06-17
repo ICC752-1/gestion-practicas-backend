@@ -16,6 +16,9 @@ def test_scheduling_router_is_registered() -> None:
 
     assert "/scheduling/availability" in paths
     assert "POST" in _methods_for_path("/scheduling/availability")
+    assert "/scheduling/availability/{slot_id}" in paths
+    assert "PUT" in _methods_for_path("/scheduling/availability/{slot_id}")
+    assert "DELETE" in _methods_for_path("/scheduling/availability/{slot_id}")
     assert "/scheduling/slots" in paths
     assert "GET" in _methods_for_path("/scheduling/slots")
     assert "/scheduling/appointments" in paths

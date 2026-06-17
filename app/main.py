@@ -19,6 +19,9 @@ from app.modules.documents.controllers.document_controller import (
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
+from app.modules.scheduling.controllers.scheduling_controller import (
+    router as scheduling_router,
+)
 from app.modules.supervisor_evaluations.controllers.supervisor_evaluation_controller import (
     router as supervisor_evaluations_router,
 )

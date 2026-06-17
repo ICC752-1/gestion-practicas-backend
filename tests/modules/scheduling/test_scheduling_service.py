@@ -12,6 +12,7 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
+    AvailabilityUpdateRequest,
     SlotReserveRequest,
 )
 from app.modules.scheduling.services.scheduling_service import SchedulingService
@@ -80,6 +81,7 @@ class FakeSchedulingRepository:
         self.created_slots = []
         self.saved_slot = None
         self.saved_slots = []
+        self.deleted_slot = None
 
     async def create_slots(self, slots):
         self.created_slots = slots
@@ -92,6 +94,9 @@ class FakeSchedulingRepository:
     async def save_slots(self, slots):
         self.saved_slots = slots
         return slots
+
+    async def delete_slot(self, slot):
+        self.deleted_slot = slot
 
     async def get_slot_by_id_for_update(self, slot_id: int):
         if self.slot.id == slot_id:
@@ -238,6 +243,66 @@ async def test_admin_cancel_requires_reason() -> None:
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "El motivo de cancelacion es obligatorio"
+
+
+async def test_admin_can_update_own_future_availability() -> None:
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    slot = await service.update_availability(
+        slot_id=20,
+        actor=_user(2, ["Encargado de practica"]),
+        payload=AvailabilityUpdateRequest(
+            date=date(2099, 1, 11),
+            start_time=time(14, 0),
+            end_time=time(14, 45),
+            modality="Remoto",
+            purpose=PresentationPurposeEnum.final_presentation,
+            location="https://meet.test",
+            comments="Bloque ajustado",
+        ),
+    )
+
+    assert slot.date == date(2099, 1, 11)
+    assert slot.start_time == time(14, 0)
+    assert slot.end_time == time(14, 45)
+    assert slot.duration_minutes == 45
+    assert slot.modality == "Remoto"
+    assert slot.purpose == PresentationPurposeEnum.final_presentation
+    assert repository.saved_slot is slot
+
+
+async def test_update_availability_rejects_owner_overlap() -> None:
+    repository = FakeSchedulingRepository()
+    repository.owner_overlap = True
+    service = SchedulingService(repository=repository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.update_availability(
+            slot_id=20,
+            actor=_user(2, ["Encargado de practica"]),
+            payload=AvailabilityUpdateRequest(
+                date=date(2099, 1, 10),
+                start_time=time(10, 0),
+                end_time=time(10, 30),
+                modality="Presencial",
+                purpose=PresentationPurposeEnum.initial_interview,
+            ),
+        )
+
+    assert exc_info.value.status_code == 409
+
+
+async def test_admin_can_delete_own_future_availability() -> None:
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    await service.delete_availability(
+        slot_id=20,
+        actor=_user(2, ["Encargado de practica"]),
+    )
+
+    assert repository.deleted_slot is repository.slot
 
 
 async def test_student_can_cancel_own_appointment_without_reason() -> None:

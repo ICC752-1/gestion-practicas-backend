@@ -39,6 +39,30 @@ class AvailabilityCreateRequest(BaseModel):
         return self
 
 
+class AvailabilityUpdateRequest(BaseModel):
+    """Payload para editar un bloque futuro de disponibilidad."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    start_time: time
+    end_time: time
+    modality: Modality
+    purpose: PresentationPurposeEnum
+    location: str | None = Field(default=None, max_length=500)
+    timezone: str = Field(default="America/Santiago", min_length=1, max_length=64)
+    comments: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "AvailabilityUpdateRequest":
+        """Valida que el rango horario sea consistente."""
+
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time")
+
+        return self
+
+
 class SlotReserveRequest(BaseModel):
     """Payload para reservar un bloque disponible."""
 

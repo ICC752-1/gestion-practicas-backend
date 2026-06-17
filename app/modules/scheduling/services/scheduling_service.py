@@ -17,6 +17,7 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
+    AvailabilityUpdateRequest,
     SlotReserveRequest,
 )
 
@@ -72,6 +73,21 @@ class SchedulingService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El horario debe ser futuro",
             )
+
+    def _ensure_owned_available_slot(self, slot: Presentation, actor: User) -> None:
+        if slot.owner_id != actor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puedes administrar disponibilidad de otro usuario",
+            )
+
+        if slot.status != PresentationStatusEnum.available:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se puede administrar disponibilidad activa",
+            )
+
+        self._ensure_future_slot(slot.date, slot.start_time)
 
     async def create_availability(
         self,
@@ -377,19 +393,7 @@ class SchedulingService:
                 detail="Horario no encontrado",
             )
 
-        if slot.owner_id != actor.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puedes cerrar disponibilidad de otro usuario",
-            )
-
-        if slot.status != PresentationStatusEnum.available:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Solo se puede cerrar disponibilidad activa",
-            )
-
-        self._ensure_future_slot(slot.date, slot.start_time)
+        self._ensure_owned_available_slot(slot=slot, actor=actor)
 
         timestamp = _now()
         slot.status = PresentationStatusEnum.closed
@@ -399,3 +403,73 @@ class SchedulingService:
         slot.updated_at = timestamp
 
         return await self.repository.save_slot(slot)
+
+    async def update_availability(
+        self,
+        slot_id: int,
+        actor: User,
+        payload: AvailabilityUpdateRequest,
+    ) -> Presentation:
+        """Edita un bloque futuro de disponibilidad no reservado."""
+
+        self._require_admin(actor)
+
+        slot = await self.repository.get_slot_by_id_for_update(slot_id)
+        if slot is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Horario no encontrado",
+            )
+
+        self._ensure_owned_available_slot(slot=slot, actor=actor)
+        self._ensure_future_slot(payload.date, payload.start_time)
+
+        has_overlap = await self.repository.has_owner_overlap(
+            owner_id=actor.id,
+            slot_date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            exclude_slot_id=slot.id,
+        )
+        if has_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe disponibilidad o cita en ese rango horario",
+            )
+
+        timestamp = _now()
+        slot.date = payload.date
+        slot.start_time = payload.start_time
+        slot.end_time = payload.end_time
+        slot.duration_minutes = int(
+            (_combine(payload.date, payload.end_time) - _combine(payload.date, payload.start_time)).total_seconds()
+            // 60
+        )
+        slot.modality = payload.modality
+        slot.purpose = payload.purpose
+        slot.location = payload.location
+        slot.timezone = payload.timezone
+        slot.comments = payload.comments
+        slot.updated_at = timestamp
+
+        return await self.repository.save_slot(slot)
+
+    async def delete_availability(
+        self,
+        slot_id: int,
+        actor: User,
+    ) -> None:
+        """Elimina un bloque futuro de disponibilidad no reservado."""
+
+        self._require_admin(actor)
+
+        slot = await self.repository.get_slot_by_id_for_update(slot_id)
+        if slot is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Horario no encontrado",
+            )
+
+        self._ensure_owned_available_slot(slot=slot, actor=actor)
+
+        await self.repository.delete_slot(slot)
