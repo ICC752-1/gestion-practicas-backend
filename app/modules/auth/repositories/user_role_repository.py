@@ -59,9 +59,13 @@ class UserRoleRepository:
             La entidad `UserRole` si existe; `None` si no se encuentra.
         """
 
-        query = select(UserRole).where(
-            UserRole.user_id == user_id,
-            UserRole.role_id == role_id,
+        query = (
+            select(UserRole)
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.role_id == role_id,
+            )
+            .options(selectinload(UserRole.role))
         )
         result = await self.db.execute(query)
 

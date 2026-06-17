@@ -163,6 +163,55 @@ institucional permanece incompleto.
 
 ---
 
+## RN-01-B: Una solicitud bloqueante por estudiante y tipo de práctica
+
+### Descripción
+
+Un estudiante no puede mantener más de una solicitud vigente para el mismo
+`internship_type`. La regla evita duplicidad funcional y protege también
+peticiones concurrentes desde dos pestañas o clientes distintos.
+
+### Definición de la regla
+
+Bloquean nuevas solicitudes del mismo tipo las prácticas con
+`blocks_new_registration = true`. En el ciclo actual esto incluye solicitudes en
+`Pendiente`, `En revisión`, `En revisión DIRAE` y `Aprobada`.
+
+El bloqueo se libera cuando la solicitud es `Rechazada` o anulada lógicamente
+con `is_cancelled = true`. Una práctica aprobada mantiene el bloqueo para
+evitar repetir un tipo ya aprobado.
+
+### Garantía persistente
+
+La base de datos mantiene el índice único parcial
+`uq_internship_blocking_type_per_student` sobre `user_id + internship_type`
+cuando `blocks_new_registration IS TRUE`. La consulta previa del servicio mejora
+el mensaje de error, pero la invariancia no depende solo del frontend ni de una
+lectura previa.
+
+### Contrato de error
+
+`POST /internships` responde `409 Conflict` cuando ya existe una solicitud
+bloqueante:
+
+```json
+{
+  "detail": {
+    "code": "duplicate_internship_type",
+    "existing_internship_id": 15,
+    "internship_type": "Práctica de Estudio I",
+    "existing_status": "Pendiente",
+    "message": "Ya existe una solicitud vigente para este tipo de práctica. Revisa el registro existente antes de crear una nueva solicitud."
+  }
+}
+```
+
+`GET /internships/registration-eligibility` expone el diagnóstico preventivo
+con `has_blocking_internship`, `blocking_internship_id`,
+`blocking_internship_status` y `can_create_request`.
+
+---
+
 ## RN-02: Matriz de Transiciones de Estados y Permisología por Rol
 
 ### Descripción
@@ -197,19 +246,40 @@ El flujo de evaluación de una solicitud de práctica está diseñado bajo un mo
 
 Un estudiante no puede avanzar la **Práctica de Estudio II** mediante `approve()` mientras su **Práctica de Estudio I** no se encuentre aprobada. La creación de la Práctica II (`create_internship`) no está sujeta a esta restricción.
 
-La **Práctica de Estudio I** exige inducción obligatoria aprobada antes de la
-aprobación administrativa. Esta regla es inexceptuable: no puede resolverse con
-una excepción administrativa.
+La inducción obligatoria habilita la creación de la solicitud desde el flujo
+estudiante y además la **Práctica de Estudio I** exige inducción aprobada antes
+de la aprobación administrativa. Esta regla es inexceptuable: no puede
+resolverse con una excepción administrativa.
 
 ### Definición de la Regla
 
-- La validación se aplica **exclusivamente al momento de aprobación** (`approve`), no a la creación inicial de la solicitud (`create_internship`).
+- `create_internship` responde `409 Conflict` con `code=induction_required` si
+  el estudiante no tiene inducción aprobada.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio I`, el sistema verifica que el estudiante tenga inducción aprobada en `student_registration_requirements` o un intento aprobado en `induction_attempts`.
 - Si no existe inducción aprobada para Práctica I, se bloquea el avance con `409 Conflict`.
+- Una inducción histórica aprobada sigue siendo válida para satisfacer esta
+  regla.
 - Si la práctica en aprobación es de tipo `Práctica de Estudio II`, el sistema verifica que el estudiante tenga al menos una `Práctica de Estudio I` con estado `Aprobada`.
 - Si no existe dicha práctica I aprobada, se bloquea el avance con `409 Conflict`.
 - El bloqueo puede omitirse mediante una excepción administrativa de tipo `"sequentiality"`.
 - La creación de una solicitud de Práctica II se permite sin restricciones de secuencialidad, pero no podrá formalizarse hasta cumplir la regla u obtener una excepción.
+
+### Migración de `blocks_new_registration` en BD existente
+
+Para bases ya creadas no basta con agregar la columna con `DEFAULT TRUE`, porque
+eso marcaría solicitudes históricas como bloqueantes sin revisar su estado.
+El plan seguro es:
+
+1. agregar `blocks_new_registration` inicialmente nullable;
+2. poblar `FALSE` en anuladas y rechazadas;
+3. para cada `user_id + internship_type`, conservar como bloqueante solo la
+   solicitud vigente más reciente;
+4. revisar duplicados históricos antes de crear el índice único parcial;
+5. recién al final fijar `DEFAULT TRUE`, `NOT NULL` y crear
+   `uq_internship_blocking_type_per_student`.
+
+El script manual propuesto quedó en
+`docs/migration-11.3-blocks-new-registration.sql`.
 
 > **Nota técnica:** La regla actual considera el estado `Aprobada` como criterio oficial para satisfacer la secuencialidad. Si negocio define otro hito académico en el futuro (ej. "Evaluación aprobada" como hito intermedio), la regla deberá ajustarse.
 

@@ -25,7 +25,7 @@ class RefreshTokenRequest(BaseModel):
         refresh_token: Token de refresco emitido previamente.
     """
 
-    refresh_token: str
+    refresh_token: str | None = None
 
 class ChangePasswordRequest(BaseModel):
     """Payload de solicitud para cambiar la contraseña del usuario.
@@ -68,4 +68,4 @@ class LogoutRequest(BaseModel):
         refresh_token: Token de refresco que se desea invalidar.
     """
 
-    refresh_token: str
+    refresh_token: str | None = None
