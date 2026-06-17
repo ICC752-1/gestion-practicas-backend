@@ -22,11 +22,10 @@ class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
 
     Attributes:
-        refresh_token: Token de refresco emitido previamente. En sesiones
-            OAuth puede omitirse si viene en cookie HttpOnly.
+        refresh_token: Token de refresco emitido previamente.
     """
 
-    refresh_token: str | None = None
+    refresh_token: str
 
 class ChangePasswordRequest(BaseModel):
     """Payload de solicitud para cambiar la contraseña del usuario.
@@ -66,8 +65,7 @@ class LogoutRequest(BaseModel):
     """Payload de solicitud para cerrar sesión.
 
     Attributes:
-        refresh_token: Token de refresco que se desea invalidar. En sesiones
-            OAuth puede omitirse si viene en cookie HttpOnly.
+        refresh_token: Token de refresco que se desea invalidar.
     """
 
-    refresh_token: str | None = None
+    refresh_token: str

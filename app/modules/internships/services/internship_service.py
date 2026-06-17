@@ -4,6 +4,7 @@ Este modulo define `InternshipService`, encargado de coordinar los casos de uso
 del modulo `internships` y delegar operaciones de persistencia al repositorio.
 """
 import logging
+from types import SimpleNamespace
 
 from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
@@ -15,8 +16,6 @@ from app.core.config import config
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
-    CompletionStatusEnum,
-    FinalResultEnum,
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -434,16 +433,6 @@ class InternshipService:
             org_name=internship.org_name,
             city=internship.city,
             internship_type=internship.internship_type,
-            completion_status=getattr(
-                internship,
-                "completion_status",
-                CompletionStatusEnum.not_started,
-            ),
-            final_result=getattr(
-                internship,
-                "final_result",
-                FinalResultEnum.pending,
-            ),
             start_date=internship.start_date,
             end_date=internship.end_date,
             upload_date=internship.upload_date,
@@ -1033,6 +1022,11 @@ class InternshipService:
                 user_id=actor.id,
                 internship_type=updates["internship_type"],
                 exclude_internship_id=internship.id,
+            )
+            await self._validate_updated_internship_type_rules(
+                internship=internship,
+                actor_id=actor.id,
+                new_internship_type=updates["internship_type"],
             )
 
         start_date = updates.get("start_date", internship.start_date)
@@ -1713,28 +1707,7 @@ class InternshipService:
             return False
 
         if active_content is None:
-            content_getter = getattr(
-                self.internship_repository,
-                "get_active_induction_content",
-                None,
-            )
-            if content_getter is not None:
-                active_content = await content_getter()
-
-        if active_content is not None and getattr(active_content, "requires_retake", False):
-            version_getter = getattr(
-                self.internship_repository,
-                "get_passed_induction_attempt_for_version",
-                None,
-            )
-            if version_getter is None:
-                return False
-
-            passed_current_attempt = await version_getter(
-                user_id=user_id,
-                content_version_id=active_content.id,
-            )
-            return passed_current_attempt is not None
+            active_content = await self.internship_repository.get_active_induction_content()
 
         req = await self.internship_repository.get_student_requirement(
             user_id=user_id,
@@ -1743,15 +1716,7 @@ class InternshipService:
         if req is not None and req.is_completed:
             return True
 
-        passed_attempt_getter = getattr(
-            self.internship_repository,
-            "get_passed_induction_attempt",
-            None,
-        )
-        if passed_attempt_getter is None:
-            return False
-
-        passed_attempt = await passed_attempt_getter(user_id=user_id)
+        passed_attempt = await self.internship_repository.get_passed_induction_attempt(user_id=user_id)
         return passed_attempt is not None
 
     async def get_registration_eligibility(
@@ -1763,8 +1728,8 @@ class InternshipService:
         """Evalúa requisitos para formalizar una solicitud de práctica.
 
         La ausencia de seguro solo bloquea periodos estivales. La inducción
-        aprobada habilita la creación de solicitudes; si la versión activa
-        exige repetición, debe aprobarse esa versión.
+        aprobada habilita la creación de solicitudes y además condiciona la
+        aprobación administrativa cuando corresponde.
 
         Args:
             user_id: Identificador del estudiante.
@@ -1781,18 +1746,7 @@ class InternshipService:
         )
         has_insurance = insurance_req is not None and insurance_req.is_completed
 
-        active_induction_content = None
-        content_getter = getattr(
-            self.internship_repository,
-            "get_active_induction_content",
-            None,
-        )
-        if content_getter is not None:
-            active_induction_content = await content_getter()
-        requires_retake = bool(
-            active_induction_content is not None
-            and getattr(active_induction_content, "requires_retake", False)
-        )
+        active_induction_content = await self.internship_repository.get_active_induction_content()
         has_induction = await self._has_passed_induction(
             user_id,
             active_content=active_induction_content,
@@ -1858,7 +1812,6 @@ class InternshipService:
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
             has_induction=has_induction,
-            requires_retake=requires_retake,
             has_school_insurance_exception=has_school_insurance_exception,
             has_approved_practice_1=has_approved_practice_1,
             sequentiality_blocked=sequentiality_blocked,
@@ -1876,6 +1829,55 @@ class InternshipService:
             blocked=blocked,
             next_step=next_step,
         )
+
+    async def _validate_updated_internship_type_rules(
+        self,
+        internship: Internship,
+        actor_id: int,
+        new_internship_type: PracticeTypeEnum,
+    ) -> None:
+        """Revalida reglas académicas al corregir el tipo de práctica."""
+
+        candidate = SimpleNamespace(
+            id=internship.id,
+            org_name=internship.org_name,
+            sector=internship.sector,
+            address=internship.address,
+            city=internship.city,
+            org_phone=internship.org_phone,
+            web=internship.web,
+            supervisor_name=internship.supervisor_name,
+            supervisor_profession=internship.supervisor_profession,
+            supervisor_position=internship.supervisor_position,
+            supervisor_department=internship.supervisor_department,
+            supervisor_email=internship.supervisor_email,
+            supervisor_phone=internship.supervisor_phone,
+            start_date=internship.start_date,
+            end_date=internship.end_date,
+            schedule=internship.schedule,
+            days=internship.days,
+            modality=internship.modality,
+            internship_address=internship.internship_address,
+            act_description=internship.act_description,
+            ben_description=internship.ben_description,
+            amount=internship.amount,
+            upload_date=internship.upload_date,
+            status_id=internship.status_id,
+            user_id=actor_id,
+            internship_period=internship.internship_period,
+            internship_type=new_internship_type,
+            has_school_insurance=getattr(internship, "has_school_insurance", False),
+            is_cancelled=internship.is_cancelled,
+            cancelled_at=getattr(internship, "cancelled_at", None),
+            cancelled_by=getattr(internship, "cancelled_by", None),
+            cancellation_reason=getattr(internship, "cancellation_reason", None),
+            blocks_new_registration=internship.blocks_new_registration,
+            exceptions=getattr(internship, "exceptions", []),
+        )
+
+        await self._check_sequentiality_or_exception(candidate)
+        await self._check_thesis_sequentiality(candidate)
+        await self._check_parallel_course_or_exception(candidate)
 
     async def _dispatch_internship_created_notifications(
         self,
