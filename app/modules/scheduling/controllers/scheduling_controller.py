@@ -15,6 +15,7 @@ from app.modules.scheduling.repositories.scheduling_repository import (
 )
 from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
+    AppointmentOutcomeRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
     AvailabilityUpdateRequest,
@@ -156,6 +157,28 @@ async def reschedule_appointment(
 
     service = _build_service(db)
     slot = await service.reschedule_appointment(
+        appointment_id=appointment_id,
+        actor=current_user,
+        payload=payload,
+    )
+
+    return PresentationSlotResponse.model_validate(slot)
+
+
+@router.patch(
+    "/appointments/{appointment_id}/outcome",
+    response_model=PresentationSlotResponse,
+)
+async def register_appointment_outcome(
+    appointment_id: int,
+    payload: AppointmentOutcomeRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationSlotResponse:
+    """Registra asistencia, resultado y observaciones de una cita."""
+
+    service = _build_service(db)
+    slot = await service.register_appointment_outcome(
         appointment_id=appointment_id,
         actor=current_user,
         payload=payload,

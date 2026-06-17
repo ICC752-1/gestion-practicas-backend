@@ -5,9 +5,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from fastapi import HTTPException, status
 
 from app.modules.auth.models.user_model import User
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
+)
 from app.modules.scheduling.models.presentation_model import (
     Presentation,
     PresentationPurposeEnum,
+    PresentationResultEnum,
     PresentationStatusEnum,
 )
 from app.modules.scheduling.repositories.scheduling_repository import (
@@ -15,6 +20,7 @@ from app.modules.scheduling.repositories.scheduling_repository import (
 )
 from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
+    AppointmentOutcomeRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
     AvailabilityUpdateRequest,
@@ -39,6 +45,10 @@ def _role_names(user: User) -> set[str]:
 
 def _combine(slot_date: date, slot_time: time) -> datetime:
     return datetime.combine(slot_date, slot_time)
+
+
+def _today() -> date:
+    return _now().date()
 
 
 class SchedulingService:
@@ -88,6 +98,69 @@ class SchedulingService:
             )
 
         self._ensure_future_slot(slot.date, slot.start_time)
+
+    def _require_owner_admin_for_appointment(
+        self,
+        slot: Presentation,
+        actor: User,
+    ) -> None:
+        if not self._is_admin(actor) or slot.owner_id != actor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puedes registrar resultados de una cita ajena",
+            )
+
+    async def _sync_final_presentation_pending_state(
+        self,
+        internship,
+    ) -> None:
+        if internship is None or internship.is_cancelled:
+            return
+
+        if internship.completion_status == CompletionStatusEnum.finalized:
+            return
+
+        if internship.end_date > _today():
+            return
+
+        has_supervisor_evaluation = await self.repository.has_supervisor_evaluation(
+            internship.id
+        )
+        internship.completion_status = (
+            CompletionStatusEnum.pending_presentation
+            if has_supervisor_evaluation
+            else CompletionStatusEnum.pending_evaluations
+        )
+
+    async def _validate_final_presentation_requirements(
+        self,
+        internship,
+    ) -> None:
+        pending_requirements: list[str] = []
+
+        if internship.end_date > _today():
+            pending_requirements.append("La práctica aún no alcanza su fecha de término")
+
+        has_supervisor_evaluation = await self.repository.has_supervisor_evaluation(
+            internship.id
+        )
+        if not has_supervisor_evaluation:
+            pending_requirements.append(
+                "Falta la evaluación del supervisor para cerrar la práctica"
+            )
+
+        if pending_requirements:
+            await self._sync_final_presentation_pending_state(internship)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "La presentación final no puede cerrarse porque aún hay "
+                        "requisitos pendientes."
+                    ),
+                    "pending_requirements": pending_requirements,
+                },
+            )
 
     async def create_availability(
         self,
@@ -250,6 +323,12 @@ class SchedulingService:
         slot.reserved_at = timestamp
         slot.updated_at = timestamp
 
+        if (
+            slot.purpose == PresentationPurposeEnum.initial_interview
+            and internship.completion_status == CompletionStatusEnum.not_started
+        ):
+            internship.completion_status = CompletionStatusEnum.in_progress
+
         return await self.repository.save_slot(slot)
 
     async def cancel_appointment(
@@ -401,6 +480,79 @@ class SchedulingService:
             None if payload.reason is None else payload.reason.strip() or None
         )
         slot.updated_at = timestamp
+
+        return await self.repository.save_slot(slot)
+
+    async def register_appointment_outcome(
+        self,
+        appointment_id: int,
+        actor: User,
+        payload: AppointmentOutcomeRequest,
+    ) -> Presentation:
+        """Registra asistencia, resultado y observaciones de una cita."""
+
+        slot = await self.repository.get_slot_by_id_for_update(appointment_id)
+        if slot is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cita no encontrada",
+            )
+
+        if slot.status != PresentationStatusEnum.scheduled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden registrar resultados sobre citas agendadas",
+            )
+
+        self._require_owner_admin_for_appointment(slot=slot, actor=actor)
+
+        if (
+            payload.attendance_status == PresentationStatusEnum.completed.value
+            and payload.result is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debes indicar un resultado cuando la cita fue realizada",
+            )
+
+        internship = None
+        if slot.internship_id is not None:
+            internship = await self.repository.get_internship_by_id(slot.internship_id)
+
+        if (
+            slot.purpose == PresentationPurposeEnum.final_presentation
+            and payload.attendance_status == PresentationStatusEnum.completed.value
+        ):
+            if internship is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La presentación final debe estar asociada a una práctica",
+                )
+            await self._validate_final_presentation_requirements(internship)
+
+        timestamp = _now()
+        slot.status = PresentationStatusEnum(payload.attendance_status)
+        slot.result = payload.result if slot.status == PresentationStatusEnum.completed else None
+        slot.comments = None if payload.comments is None else payload.comments.strip() or None
+        slot.updated_at = timestamp
+
+        if internship is not None:
+            if slot.purpose == PresentationPurposeEnum.initial_interview:
+                if slot.status == PresentationStatusEnum.completed:
+                    internship.completion_status = CompletionStatusEnum.in_progress
+            elif slot.purpose == PresentationPurposeEnum.final_presentation:
+                if slot.status == PresentationStatusEnum.no_show:
+                    await self._sync_final_presentation_pending_state(internship)
+                else:
+                    internship.completion_status = CompletionStatusEnum.finalized
+                    internship.final_result = (
+                        FinalResultEnum.passed
+                        if payload.result == PresentationResultEnum.approved
+                        else FinalResultEnum.failed
+                    )
+                    internship.blocks_new_registration = (
+                        internship.final_result != FinalResultEnum.failed
+                    )
 
         return await self.repository.save_slot(slot)
 

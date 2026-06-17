@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from app.core.config import config
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models import Internship
+from app.modules.internships.models.internship_model import CompletionStatusEnum
 from app.modules.notifications.models.notification_model import (
     Notification,
     NotificationEventTypeEnum,
@@ -171,6 +172,16 @@ class SupervisorEvaluationService:
             recommendation=payload.recommendation,
             status="submitted",
         )
+        internship = invitation.internship
+        if (
+            internship is not None
+            and internship.status is not None
+            and internship.status.title == "Aprobada"
+            and internship.completion_status != CompletionStatusEnum.finalized
+            and internship.end_date <= _utc_now().date()
+        ):
+            internship.completion_status = CompletionStatusEnum.pending_presentation
+
         evaluation = await self.repository.create_evaluation_and_mark_invitation_used(
             evaluation=evaluation,
             invitation=invitation,

@@ -66,6 +66,8 @@ class Config(BaseSettings):
     GOOGLE_STATE_EXPIRE_MINUTES: int = 10
     GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
     GOOGLE_COOKIE_SECURE: bool = False
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    REFRESH_TOKEN_COOKIE_SECURE: bool = False
 
     @property
     def DATABASE_URL(self) -> str:
