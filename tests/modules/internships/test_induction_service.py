@@ -95,11 +95,17 @@ def _fake_question(q_id: int, correct: str, order: int = 0) -> SimpleNamespace:
     )
 
 
-def _fake_content(questions: list | None = None, min_score: int = 5) -> SimpleNamespace:
+def _fake_content(
+    questions: list | None = None,
+    min_score: int = 5,
+    requires_retake: bool = False,
+    content_id: int = 1,
+) -> SimpleNamespace:
     return SimpleNamespace(
-        id=1,
+        id=content_id,
         title="Inducción 2026",
         description="Contenido de prueba",
+        requires_retake=requires_retake,
         min_score=min_score,
         videos=[],
         questions=questions or [],
@@ -137,6 +143,7 @@ class FakeInductionRepository:
 
         self._student_requirements = {}
         self._passed_induction_for_user = {}
+        self._passed_induction_for_version = {}
         self._active_induction_content = None
         self._created_attempts = []
 
@@ -176,6 +183,9 @@ class FakeInductionRepository:
         self.requested_user_id = user_id
         return self.internships_by_user
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
 
@@ -205,6 +215,13 @@ class FakeInductionRepository:
 
     async def get_passed_induction_attempt(self, user_id: int):
         return self._passed_induction_for_user.get(user_id)
+
+    async def get_passed_induction_attempt_for_version(
+        self,
+        user_id: int,
+        content_version_id: int,
+    ):
+        return self._passed_induction_for_version.get((user_id, content_version_id))
 
     # ── Requisito Académico (Tarea 10.20) ────────────────────────────────
 
@@ -257,6 +274,29 @@ class TestInductionContent:
         assert len(result.questions) == 2
         assert result.questions[0].id == 1
         assert result.questions[0].question_text == "Pregunta 1"
+
+    @pytest.mark.asyncio
+    async def test_get_active_induction_content_preserves_keyed_options(self):
+        """1.c. Las alternativas se exponen como {clave: texto}."""
+        repo = FakeInductionRepository()
+        questions = [
+            SimpleNamespace(
+                id=1,
+                question_text="Confirmación",
+                options={"accept": "Entiendo y acepto", "reject": "No acepto"},
+                correct_answer="accept",
+                order=1,
+            ),
+        ]
+        repo._active_induction_content = _fake_content(questions=questions)
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_active_induction_content()
+
+        assert result.questions[0].options == {
+            "accept": "Entiendo y acepto",
+            "reject": "No acepto",
+        }
 
     @pytest.mark.asyncio
     async def test_get_active_induction_content_returns_none_when_no_content(self):
@@ -820,6 +860,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=True,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -833,6 +876,9 @@ class TestSchoolInsuranceComputation:
     async def test_create_sets_insurance_false_when_student_lacks_requirement(self):
         """5.b. has_school_insurance=False si no hay requisito registrado."""
         repo = FakeInductionRepository()
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -849,6 +895,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=False,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -857,6 +906,21 @@ class TestSchoolInsuranceComputation:
         )
 
         assert internship.has_school_insurance is False
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_when_induction_is_missing(self):
+        """5.d. No se crea solicitud si la inducción obligatoria está pendiente."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.create_internship(
+                internship_data=_valid_payload(),
+                user_id=42,
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "induction_required"
 
 
 # ── Tests: Elegibilidad ──────────────────────────────────────────────────────
@@ -885,6 +949,7 @@ class TestRegistrationEligibility:
         assert result.blocked is True
         assert result.has_school_insurance is False
         assert result.has_induction is False
+        assert result.can_create_request is False
 
     @pytest.mark.asyncio
     async def test_eligibility_returns_not_blocked_when_all_met(self):
@@ -926,6 +991,53 @@ class TestRegistrationEligibility:
 
         assert result.blocked is False
         assert result.has_induction is True
+
+    @pytest.mark.asyncio
+    async def test_eligibility_requires_current_version_when_retake_is_required(self):
+        """Una versión activa con requires_retake exige intento aprobado de esa versión."""
+        repo = FakeInductionRepository()
+        repo._active_induction_content = _fake_content(
+            requires_retake=True,
+            content_id=7,
+            min_score=1,
+        )
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._passed_induction_for_user[10] = SimpleNamespace(passed=True)
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
+
+        assert result.requires_retake is True
+        assert result.has_induction is False
+        assert result.can_create_request is False
+
+    @pytest.mark.asyncio
+    async def test_eligibility_accepts_current_version_when_retake_is_required(self):
+        """La repetición obligatoria se cumple con un intento aprobado vigente."""
+        repo = FakeInductionRepository()
+        repo._active_induction_content = _fake_content(
+            requires_retake=True,
+            content_id=7,
+            min_score=1,
+        )
+        repo._passed_induction_for_version[(10, 7)] = SimpleNamespace(passed=True)
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_registration_eligibility(
+            user_id=10,
+            internship_period=PracticePeriodEnum.semester,
+            internship_type=PracticeTypeEnum.practice_1,
+        )
+
+        assert result.requires_retake is True
+        assert result.has_induction is True
+        assert result.can_create_request is True
 
     @pytest.mark.asyncio
     async def test_semester_does_not_block_when_school_insurance_is_missing(self):

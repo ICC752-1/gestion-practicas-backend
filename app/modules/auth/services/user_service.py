@@ -84,6 +84,10 @@ class UserService:
         self,
         is_active: bool | None = None,
         email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -98,6 +102,26 @@ class UserService:
         return await self.user_repository.list_users(
             is_active=is_active,
             email=email,
+            search=search,
+            role_name=role_name,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def count_users(
+        self,
+        is_active: bool | None = None,
+        email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+    ) -> int:
+        """Cuenta usuarios con filtros administrativos."""
+
+        return await self.user_repository.count_users(
+            is_active=is_active,
+            email=email,
+            search=search,
+            role_name=role_name,
         )
 
     async def update_user(self, user: User, payload: UserUpdateRequest) -> User:

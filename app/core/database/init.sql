@@ -1,5 +1,5 @@
 -- 1. Creación de Enumeraciones (Enums)
-CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera');
+CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera', 'FICA', 'Superadmin');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
@@ -22,6 +22,8 @@ CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'f
 
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
 CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
+CREATE TYPE "enumCompletionStatus" AS ENUM ('not_started', 'in_progress', 'pending_evaluations', 'pending_presentation', 'finalized');
+CREATE TYPE "enumFinalResult" AS ENUM ('pending', 'passed', 'failed');
 
 -- 2. Creación de Tablas
 
@@ -129,11 +131,19 @@ CREATE TABLE Internship (
     cancelled_at TIMESTAMP,
     cancelled_by INTEGER REFERENCES Users(id),
     cancellation_reason TEXT,
+    blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
+    completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
+    final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
 );
+
+CREATE UNIQUE INDEX uq_internship_blocking_type_per_student
+ON Internship(user_id, internship_type)
+WHERE blocks_new_registration IS TRUE
+  AND NOT (completion_status = 'finalized' AND final_result = 'failed');
 
 CREATE TABLE internship_status_history (
     id SERIAL PRIMARY KEY,
@@ -239,8 +249,45 @@ content TEXT NOT NULL,
 status "enumNotificationStatus" NOT NULL,
 payload JSONB,
 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-sent_at TIMESTAMP
+sent_at TIMESTAMP,
+read_at TIMESTAMP
 );
+
+CREATE INDEX ix_notification_recipient_user_id ON notification(recipient_user_id);
+CREATE INDEX ix_notification_read_at ON notification(read_at);
+
+CREATE TABLE supervisor_evaluation_invitations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    sent_at TIMESTAMP,
+    used_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX ix_supervisor_evaluation_invitations_internship_id ON supervisor_evaluation_invitations(internship_id);
+CREATE INDEX ix_supervisor_evaluation_invitations_token_hash ON supervisor_evaluation_invitations(token_hash);
+
+CREATE TABLE supervisor_evaluations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER UNIQUE NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    invitation_id INTEGER UNIQUE REFERENCES supervisor_evaluation_invitations(id) ON DELETE SET NULL,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    criteria_scores JSONB NOT NULL,
+    observations TEXT,
+    recommendation VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'submitted',
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_supervisor_evaluations_internship_id ON supervisor_evaluations(internship_id);
 
 CREATE TABLE internship_exceptions (
     id SERIAL PRIMARY KEY,
@@ -268,7 +315,9 @@ CREATE TABLE induction_content_versions (
     description TEXT,
     status "content_status_enum" NOT NULL DEFAULT 'draft',
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     min_score INTEGER NOT NULL DEFAULT 5,
+    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     published_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -335,6 +384,8 @@ INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol corres
 INSERT INTO Roles (name, description) VALUES ('Supervisor de practica', 'Rol correspondiente al supervisor externo de practicas');
 INSERT INTO Roles (name, description) VALUES ('Encargado de practica', 'Rol correspondiente al encargado de practicas');
 INSERT INTO Roles (name, description) VALUES ('Secretaria de Carrera', 'Rol correspondiente a secretaria de carrera');
+INSERT INTO Roles (name, description) VALUES ('FICA', 'Rol institucional de consulta agregada transversal');
+INSERT INTO Roles (name, description) VALUES ('Superadmin', 'Rol tecnico para administracion de usuarios y roles');
 
 INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone)
 VALUES ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432');
@@ -349,12 +400,13 @@ INSERT INTO user_roles(user_id, role_id) VALUES (2, 2);
 -- Contenido minimo de induccion para flujos demo/Insomnia.
 -- Permite que el estudiante complete el prerrequisito inexceptuable antes
 -- de aprobar una Practica de Estudio I.
-INSERT INTO induction_content_versions (title, description, status, is_active, min_score, published_at)
+INSERT INTO induction_content_versions (title, description, status, is_active, requires_retake, min_score, published_at)
 VALUES (
     'Induccion obligatoria demo',
     'Contenido minimo para validar el flujo de induccion en ambiente local.',
     'published',
     TRUE,
+    FALSE,
     1,
     CURRENT_TIMESTAMP
 );
@@ -368,8 +420,8 @@ INSERT INTO induction_questions (content_version_id, question_text, options, cor
 SELECT
     id,
     'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"choices": ["Entiendo y acepto", "No acepto"]}'::jsonb,
-    'Entiendo y acepto',
+    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
+    'accept',
     1
 FROM induction_content_versions
 WHERE title = 'Induccion obligatoria demo';

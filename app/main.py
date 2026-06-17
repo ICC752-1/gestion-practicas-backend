@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import config
 from app.core.logging.logging import setup_logging
 from app.modules.admin.controllers.admin_controller import router as admin_router
+from app.modules.admin.controllers.admin_report_controller import (
+    router as admin_report_router,
+)
 from app.modules.auth.controllers.auth_controller import router as auth_router
 from app.modules.auth.controllers.role_controller import router as roles_router
 from app.modules.auth.controllers.user_controller import router as users_router
@@ -16,8 +19,11 @@ from app.modules.documents.controllers.document_controller import (
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
-from app.modules.scheduling.controllers.scheduling_controller import (
-    router as scheduling_router,
+from app.modules.supervisor_evaluations.controllers.supervisor_evaluation_controller import (
+    router as supervisor_evaluations_router,
+)
+from app.modules.internships.controllers.induction_admin_controller import (
+    router as induction_admin_router,
 )
 from app.modules.internships.controllers.internship_controller import (
     router as internships_router,
@@ -51,7 +57,10 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(roles_router)
 app.include_router(admin_router)
+app.include_router(admin_report_router)
 app.include_router(notifications_router)
 app.include_router(internships_router)
+app.include_router(induction_admin_router)
+app.include_router(supervisor_evaluations_router)
 app.include_router(documents_router)
 app.include_router(scheduling_router)

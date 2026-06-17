@@ -6,7 +6,7 @@ lectura administrativas sobre estudiantes y practicas.
 
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,6 +24,7 @@ from app.modules.internships.models.student_internship_requirement_model import 
 logger = logging.getLogger(__name__)
 
 STUDENT_ROLE = "Estudiante"
+CANCELLED_STATUS_TITLE = "Anulada"
 
 
 class AdminRepository:
@@ -86,12 +87,17 @@ class AdminRepository:
 
         logger.debug("Counting internships grouped by status")
 
+        status_title = case(
+            (Internship.is_cancelled.is_(True), CANCELLED_STATUS_TITLE),
+            else_=CurrentState.title,
+        )
+
         query = (
-            select(CurrentState.title, func.count(Internship.id))
+            select(status_title, func.count(Internship.id))
             .select_from(Internship)
             .outerjoin(CurrentState, CurrentState.id == Internship.status_id)
-            .group_by(CurrentState.title)
-            .order_by(CurrentState.title.asc())
+            .group_by(status_title)
+            .order_by(status_title.asc())
         )
         result = await self.db.execute(query)
         rows = result.all()

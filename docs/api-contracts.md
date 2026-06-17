@@ -16,8 +16,9 @@ y referencia las fuentes de verdad existentes.
 | Metodo | Ruta | Acceso | Request | Response |
 | --- | --- | --- | --- | --- |
 | POST | `/auth/login` | Publico | `OAuth2PasswordRequestForm` | `TokenResponse` |
+| POST | `/auth/refresh` | Publico | `RefreshTokenRequest` o cookie HttpOnly | `TokenResponse` |
 | GET | `/auth/me` | Bearer token | Header `Authorization` | `CurrentUserResponse` |
-| POST | `/auth/logout` | Bearer token | `LogoutRequest` opcional | `204 No Content` |
+| POST | `/auth/logout` | Bearer token | `LogoutRequest` opcional o cookie HttpOnly | `204 No Content` |
 | GET | `/auth/google/login` | Publico | - | `307 Redirect` a Google |
 | GET | `/auth/google/callback` | Publico, callback Google | Query `code`, `state` | `303 Redirect` al frontend |
 
@@ -46,6 +47,7 @@ GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 GOOGLE_ALLOWED_DOMAINS=ufromail.cl,ufrontera.cl
 GOOGLE_FRONTEND_SUCCESS_URL=http://localhost:5173/auth/callback
 GOOGLE_FRONTEND_ERROR_URL=http://localhost:5173/auth/callback
+REFRESH_TOKEN_COOKIE_NAME=refresh_token
 GOOGLE_COOKIE_SECURE=False
 ```
 
@@ -70,8 +72,14 @@ Regla de usuario:
 
 Resultado hacia frontend:
 
-- Exito: redireccion a `GOOGLE_FRONTEND_SUCCESS_URL?token=<access_token>`.
+- Exito: redireccion a `GOOGLE_FRONTEND_SUCCESS_URL?token=<access_token>` y
+  cookie `refresh_token` `HttpOnly` para renovacion de sesion.
 - Error: redireccion a `GOOGLE_FRONTEND_ERROR_URL?error=<codigo>`.
+
+`POST /auth/refresh` acepta el `refresh_token` en body para login tradicional
+o desde la cookie `HttpOnly` usada por OAuth. Al renovar, rota el refresh token
+y actualiza la cookie. `POST /auth/logout` revoca el refresh token enviado o el
+presente en la cookie, y elimina la cookie del navegador.
 
 Codigos de error usados por el frontend:
 
@@ -139,9 +147,63 @@ modifican el estado de la entidad `Internship`.
 | POST | `/internships/{internship_id}/exceptions` | Rol `Encargado de practica` o `Director de carrera` | `InternshipExceptionRequest` | `InternshipExceptionResponse` |
 | GET | `/internships/{internship_id}/exceptions` | Propietario o rol privilegiado | Path `internship_id` | `list[InternshipExceptionResponse]` |
 
+### Creación y duplicidad por tipo
+
+`POST /internships` crea una solicitud en estado `Pendiente` y activa
+`blocks_new_registration=true`. Antes de persistir, y también mediante un índice
+único parcial en base de datos, se impide crear otra solicitud vigente para el
+mismo `user_id + internship_type`.
+
+Bloquean nuevas solicitudes las prácticas con `blocks_new_registration=true`.
+El bloqueo se libera al rechazar o anular la solicitud.
+
+**Error de duplicidad (`409 Conflict`):**
+
+```json
+{
+  "detail": {
+    "code": "duplicate_internship_type",
+    "existing_internship_id": 15,
+    "internship_type": "Práctica de Estudio I",
+    "existing_status": "Pendiente",
+    "message": "Ya existe una solicitud vigente para este tipo de práctica. Revisa el registro existente antes de crear una nueva solicitud."
+  }
+}
+```
+
 ### Acciones Administrativas (Flujo de Estados)
 
 Para conocer la matriz de transiciones detallada y las reglas de negocio que evitan el flujo secuencial obligatorio, revisar **`docs/business_rules.md` (RN-02)**.
+
+## Agenda de entrevistas y presentaciones
+
+La primera parte de la agenda se expone bajo `/scheduling`. Reutiliza la tabla
+`Presentation` como fuente de verdad para evitar duplicar citas en estructuras
+paralelas.
+
+| Metodo | Ruta | Acceso | Request | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/scheduling/availability` | `Encargado de practica` o `Director de carrera` | `AvailabilityCreateRequest` | `list[PresentationSlotResponse]` |
+| GET | `/scheduling/slots` | Bearer token | Query opcional `date_from`, `date_to`, `purpose` | `list[PresentationSlotResponse]` |
+| GET | `/scheduling/appointments` | Bearer token | - | `list[PresentationSlotResponse]` |
+| POST | `/scheduling/slots/{slot_id}/reserve` | `Estudiante` | `SlotReserveRequest` | `PresentationSlotResponse` |
+| POST | `/scheduling/appointments/{appointment_id}/reschedule` | `Estudiante` propietario | `AppointmentRescheduleRequest` | `PresentationSlotResponse` |
+| POST | `/scheduling/appointments/{appointment_id}/cancel` | Estudiante propietario o administrativo dueño del bloque | `AppointmentCancelRequest` | `PresentationSlotResponse` |
+| POST | `/scheduling/availability/{slot_id}/close` | Administrativo dueño del bloque | `AppointmentCancelRequest` | `PresentationSlotResponse` |
+
+`POST /scheduling/availability` recibe una fecha, rango horario y duración en
+minutos; el backend genera bloques consecutivos futuros y rechaza solapamientos
+del administrativo. Los propósitos iniciales son `initial_interview` y
+`final_presentation`.
+
+`POST /scheduling/slots/{slot_id}/reserve` solo permite reservar para una
+práctica propia, no anulada y sin cita activa duplicada para el mismo propósito.
+La reserva se resuelve con bloqueo de fila y responde `409 Conflict` si el slot
+ya no está disponible, si existe solapamiento del estudiante o si la práctica ya
+tiene una cita vigente de ese propósito.
+
+La cancelación administrativa exige motivo. La cancelación del estudiante no lo
+exige en esta primera parte.
 
 #### Aprobación (`POST /internships/{internship_id}/approve`)
 
@@ -231,9 +293,10 @@ prerrequisitos del estudiante autenticado. Acepta los queries opcionales:
 - `internship_type`: tipo de práctica.
 
 La ausencia de seguro solo activa `blocked` cuando el periodo consultado es
-`Verano` o `Invierno`. La inducción solo activa `blocked` al consultar
-`Práctica de Estudio I`. Si se omiten los queries, la respuesta mantiene los
-datos informativos, pero no supone un bloqueo contextual.
+`Verano` o `Invierno`. La inducción aprobada habilita la creación de la
+solicitud; si `has_induction=false`, `can_create_request=false`. Si la versión
+activa de inducción tiene `requires_retake=true`, solo un intento aprobado de
+esa versión satisface el requisito.
 
 **Respuesta (`RegistrationEligibilityResponse`):**
 
@@ -241,10 +304,15 @@ datos informativos, pero no supone un bloqueo contextual.
 {
   "has_school_insurance": true,
   "has_induction": true,
+  "requires_retake": false,
   "has_school_insurance_exception": false,
   "has_approved_practice_1": false,
   "sequentiality_blocked": true,
   "has_sequentiality_exception": false,
+  "has_blocking_internship": false,
+  "blocking_internship_id": null,
+  "blocking_internship_status": null,
+  "can_create_request": true,
   "blocked": false,
   "next_step": "Puede crear la solicitud y continuar con su revisión administrativa."
 }
@@ -252,8 +320,47 @@ datos informativos, pero no supone un bloqueo contextual.
 
 Los campos `has_approved_practice_1`, `sequentiality_blocked` y
 `has_sequentiality_exception` son informativos. `blocked` describe impedimentos
-para la aprobación o formalización; no impide crear la solicitud en estado
-`Pendiente`.
+para creación, aprobación o formalización según la regla consultada.
+
+Cuando se consulta con `internship_type`, el backend informa si ya existe una
+solicitud bloqueante del mismo tipo. En ese caso `can_create_request=false` y el
+frontend debe impedir el envío, ofreciendo navegación al detalle existente.
+
+### Inducción obligatoria
+
+`GET /internships/induction` retorna la versión activa publicada. Las preguntas
+exponen alternativas como objeto estable `{clave: texto}` y el frontend debe
+enviar la clave seleccionada:
+
+```json
+{
+  "id": 1,
+  "title": "Induccion obligatoria demo",
+  "requires_retake": false,
+  "min_score": 1,
+  "questions": [
+    {
+      "id": 1,
+      "question_text": "Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.",
+      "options": {
+        "accept": "Entiendo y acepto",
+        "reject": "No acepto"
+      },
+      "order": 1
+    }
+  ]
+}
+```
+
+`POST /internships/induction/attempts`:
+
+```json
+{
+  "answers": {
+    "1": "accept"
+  }
+}
+```
 
 ---
 
@@ -266,8 +373,10 @@ para la aprobación o formalización; no impide crear la solicitud en estado
 | `403` | Rol sin permisos | `"Insufficient permissions"` |
 | `404` | Práctica no existe | `"Práctica no encontrada (Internship not found)"` |
 | `409` | Estado terminal | `"No se puede operar sobre una práctica en estado terminal: Aprobada."` |
+| `409` | Creación sin inducción aprobada | `{"code": "induction_required", "message": "Debe aprobar la inducción obligatoria antes de crear una solicitud de práctica."}` |
 | `409` | Práctica I sin inducción aprobada | `"La inducción es un requisito absoluto e inexceptuable para la Práctica de Estudio I. ..."` |
 | `409` | Estival sin seguro ni excepción | `{"rule": "school_insurance", "message": "..."}` |
+| `409` | Solicitud duplicada por tipo de práctica | `{"code": "duplicate_internship_type", "existing_internship_id": 15, "internship_type": "Práctica de Estudio I", "existing_status": "Pendiente", "message": "..."}` |
 | `409` | Secuencialidad: Práctica II sin Práctica I aprobada ni excepción | `{"rule": "sequentiality", "message": "La Práctica de Estudio II requiere que la Práctica de Estudio I se encuentre aprobada. ..."}` |
 | `409` | Secuencialidad: Tesis sin Práctica II aprobada ni excepción | `{"rule": "sequentiality_thesis", "message": "La Tesis requiere que la Práctica de Estudio II se encuentre aprobada. ..."}` |
 | `409` | Paralelo: Práctica Controlada sin excepción de ramo en paralelo | `{"rule": "parallel_course", "message": "La Práctica Controlada requiere que los co-requisitos estén resueltos. ..."}` |
@@ -477,8 +586,9 @@ Brechas frontend pendientes para FE1/8.6: capturar o derivar `city`,
 `internship_period` e `internship_type`. Para mostrar advertencias contextuales
 de seguro e inducción, consultar
 `GET /internships/registration-eligibility?internship_period=...&internship_type=...`.
-La respuesta no debe usarse para impedir la creación de la solicitud; el
-bloqueo se aplica al intentar formalizarla.
+La respuesta debe usarse para impedir el acceso al formulario cuando
+`has_induction=false` o `can_create_request=false`. El backend mantiene la
+validación autoritativa en `POST /internships`.
 
 ## Documentos
 
