@@ -98,14 +98,12 @@ def _fake_question(q_id: int, correct: str, order: int = 0) -> SimpleNamespace:
 def _fake_content(
     questions: list | None = None,
     min_score: int = 5,
-    requires_retake: bool = False,
     content_id: int = 1,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=content_id,
         title="Inducción 2026",
         description="Contenido de prueba",
-        requires_retake=requires_retake,
         min_score=min_score,
         videos=[],
         questions=questions or [],
@@ -143,7 +141,6 @@ class FakeInductionRepository:
 
         self._student_requirements = {}
         self._passed_induction_for_user = {}
-        self._passed_induction_for_version = {}
         self._active_induction_content = None
         self._created_attempts = []
 
@@ -215,13 +212,6 @@ class FakeInductionRepository:
 
     async def get_passed_induction_attempt(self, user_id: int):
         return self._passed_induction_for_user.get(user_id)
-
-    async def get_passed_induction_attempt_for_version(
-        self,
-        user_id: int,
-        content_version_id: int,
-    ):
-        return self._passed_induction_for_version.get((user_id, content_version_id))
 
     # ── Requisito Académico (Tarea 10.20) ────────────────────────────────
 
@@ -991,53 +981,6 @@ class TestRegistrationEligibility:
 
         assert result.blocked is False
         assert result.has_induction is True
-
-    @pytest.mark.asyncio
-    async def test_eligibility_requires_current_version_when_retake_is_required(self):
-        """Una versión activa con requires_retake exige intento aprobado de esa versión."""
-        repo = FakeInductionRepository()
-        repo._active_induction_content = _fake_content(
-            requires_retake=True,
-            content_id=7,
-            min_score=1,
-        )
-        repo._student_requirements[(10, "induction")] = SimpleNamespace(
-            is_completed=True,
-        )
-        repo._passed_induction_for_user[10] = SimpleNamespace(passed=True)
-        service = InternshipService(internship_repository=repo)
-
-        result = await service.get_registration_eligibility(
-            user_id=10,
-            internship_period=PracticePeriodEnum.semester,
-            internship_type=PracticeTypeEnum.practice_1,
-        )
-
-        assert result.requires_retake is True
-        assert result.has_induction is False
-        assert result.can_create_request is False
-
-    @pytest.mark.asyncio
-    async def test_eligibility_accepts_current_version_when_retake_is_required(self):
-        """La repetición obligatoria se cumple con un intento aprobado vigente."""
-        repo = FakeInductionRepository()
-        repo._active_induction_content = _fake_content(
-            requires_retake=True,
-            content_id=7,
-            min_score=1,
-        )
-        repo._passed_induction_for_version[(10, 7)] = SimpleNamespace(passed=True)
-        service = InternshipService(internship_repository=repo)
-
-        result = await service.get_registration_eligibility(
-            user_id=10,
-            internship_period=PracticePeriodEnum.semester,
-            internship_type=PracticeTypeEnum.practice_1,
-        )
-
-        assert result.requires_retake is True
-        assert result.has_induction is True
-        assert result.can_create_request is True
 
     @pytest.mark.asyncio
     async def test_semester_does_not_block_when_school_insurance_is_missing(self):

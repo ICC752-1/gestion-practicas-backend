@@ -20,8 +20,6 @@ CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'f
 
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
 CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
-CREATE TYPE "enumCompletionStatus" AS ENUM ('not_started', 'in_progress', 'pending_evaluations', 'pending_presentation', 'finalized');
-CREATE TYPE "enumFinalResult" AS ENUM ('pending', 'passed', 'failed');
 
 -- 2. Creación de Tablas
 
@@ -130,8 +128,6 @@ CREATE TABLE Internship (
     cancelled_by INTEGER REFERENCES Users(id),
     cancellation_reason TEXT,
     blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
-    completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
-    final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
@@ -140,8 +136,7 @@ CREATE TABLE Internship (
 
 CREATE UNIQUE INDEX uq_internship_blocking_type_per_student
 ON Internship(user_id, internship_type)
-WHERE blocks_new_registration IS TRUE
-  AND NOT (completion_status = 'finalized' AND final_result = 'failed');
+WHERE blocks_new_registration IS TRUE;
 
 CREATE TABLE internship_status_history (
     id SERIAL PRIMARY KEY,
@@ -254,7 +249,6 @@ CREATE TABLE induction_content_versions (
     description TEXT,
     status "content_status_enum" NOT NULL DEFAULT 'draft',
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
-    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     min_score INTEGER NOT NULL DEFAULT 5,
     published_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -336,13 +330,12 @@ INSERT INTO user_roles(user_id, role_id) VALUES (2, 2);
 -- Contenido minimo de induccion para flujos demo/Insomnia.
 -- Permite que el estudiante complete el prerrequisito inexceptuable antes
 -- de aprobar una Practica de Estudio I.
-INSERT INTO induction_content_versions (title, description, status, is_active, requires_retake, min_score, published_at)
+INSERT INTO induction_content_versions (title, description, status, is_active, min_score, published_at)
 VALUES (
     'Induccion obligatoria demo',
     'Contenido minimo para validar el flujo de induccion en ambiente local.',
     'published',
     TRUE,
-    FALSE,
     1,
     CURRENT_TIMESTAMP
 );

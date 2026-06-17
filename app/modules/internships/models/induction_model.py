@@ -31,8 +31,6 @@ class InductionContentVersion(Base):
         description: Descripción del contenido.
         status: Estado del contenido (draft/published).
         is_active: Indica si es la versión activa actual.
-        requires_retake: Indica si esta versión activa invalida cumplimientos
-            anteriores y exige un nuevo intento aprobado.
         min_score: Puntaje mínimo requerido para aprobar el cuestionario.
         published_at: Fecha de publicación, si fue publicado.
         created_at: Fecha de creación.
@@ -54,11 +52,6 @@ class InductionContentVersion(Base):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-    )
-    requires_retake: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
         nullable=False,

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.modules.internships.models.internship_model import PracticeTypeEnum
 from app.modules.internships.schemas.internship_schema import (
     StudentInternshipUpdateRequest,
 )
@@ -57,6 +58,7 @@ class FakeStudentEditRepository:
         self.history = history or [_history()]
         self.updated_kwargs = None
         self.cancelled_kwargs = None
+        self._academic_requirements = {}
 
     async def get_internship_by_id(self, internship_id: int):
         return self.internship
@@ -78,6 +80,15 @@ class FakeStudentEditRepository:
         internship.cancellation_reason = kwargs["reason"]
         internship.blocks_new_registration = False
         return internship
+
+    async def get_academic_requirement(self, user_id: int, practice_type: str):
+        return self._academic_requirements.get((user_id, practice_type))
+
+    async def get_exception_by_rule(self, internship_id: int, rule: str):
+        return None
+
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
 
 
 def _service(
@@ -222,4 +233,45 @@ async def test_student_update_rejects_blank_reason() -> None:
         )
 
     assert exc_info.value.status_code == 400
+    assert repository.updated_kwargs is None
+
+
+async def test_student_update_revalidates_sequentiality_when_type_changes() -> None:
+    internship = _internship()
+    internship.internship_type = PracticeTypeEnum.practice_1
+    internship.sector = "Tecnologia"
+    internship.address = "Direccion"
+    internship.org_phone = "+56911111111"
+    internship.web = "https://empresa.example"
+    internship.supervisor_name = "Ana Perez"
+    internship.supervisor_profession = "Ingeniera"
+    internship.supervisor_position = "Jefa"
+    internship.supervisor_department = "TI"
+    internship.supervisor_email = "ana@empresa.example"
+    internship.supervisor_phone = "+56922222222"
+    internship.schedule = "09:00 - 18:00"
+    internship.days = "Lunes a viernes"
+    internship.modality = "Presencial"
+    internship.internship_address = "Direccion practica"
+    internship.act_description = "Descripcion"
+    internship.ben_description = "Beneficio"
+    internship.amount = 0
+    internship.internship_period = "Semestre"
+    internship.exceptions = []
+
+    service, repository = _service(internship)
+    payload = StudentInternshipUpdateRequest(
+        reason="Cambiar tipo",
+        internship_type=PracticeTypeEnum.practice_2,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.update_student_fields(
+            internship_id=7,
+            actor=_user(),
+            payload=payload,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["rule"] == "sequentiality"
     assert repository.updated_kwargs is None
