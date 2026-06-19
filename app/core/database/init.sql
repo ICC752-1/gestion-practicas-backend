@@ -14,6 +14,8 @@ CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
 CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
 CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
+CREATE TYPE "enumCompletionStatus" AS ENUM ('not_started', 'in_progress', 'pending_evaluations', 'pending_presentation', 'finalized');
+CREATE TYPE "enumFinalResult" AS ENUM ('pending', 'passed', 'failed');
 CREATE TYPE "enumPresentationPurpose" AS ENUM ('initial_interview', 'final_presentation');
 CREATE TYPE "enumPresentationStatus" AS ENUM ('available', 'scheduled', 'completed', 'cancelled', 'no_show', 'closed');
 
@@ -130,6 +132,8 @@ CREATE TABLE Internship (
     cancelled_by INTEGER REFERENCES Users(id),
     cancellation_reason TEXT,
     blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
+    completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
+    final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),

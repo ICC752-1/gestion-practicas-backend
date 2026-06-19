@@ -16,6 +16,8 @@ from app.core.config import config
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -241,6 +243,8 @@ class InternshipService:
             user_id=user_id,
             status_id=initial_status.id,
             blocks_new_registration=True,
+            completion_status=CompletionStatusEnum.not_started,
+            final_result=FinalResultEnum.pending,
         )
 
         try:
@@ -438,6 +442,8 @@ class InternshipService:
             upload_date=internship.upload_date,
             status=normalized_status,
             status_label=status_label,
+            completion_status=internship.completion_status,
+            final_result=internship.final_result,
             student=student,
         )
 

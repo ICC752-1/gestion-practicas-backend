@@ -33,5 +33,9 @@ def test_scheduling_router_is_registered() -> None:
     assert "POST" in _methods_for_path(
         "/scheduling/appointments/{appointment_id}/reschedule"
     )
+    assert "/scheduling/appointments/{appointment_id}/outcome" in paths
+    assert "PATCH" in _methods_for_path(
+        "/scheduling/appointments/{appointment_id}/outcome"
+    )
     assert "/scheduling/availability/{slot_id}/close" in paths
     assert "POST" in _methods_for_path("/scheduling/availability/{slot_id}/close")

@@ -31,6 +31,24 @@ class PracticeTypeEnum(str, enum.Enum):
     thesis = "Tesis"
 
 
+class CompletionStatusEnum(str, enum.Enum):
+    """Estados del ciclo de ejecucion/cierre de la practica."""
+
+    not_started = "not_started"
+    in_progress = "in_progress"
+    pending_evaluations = "pending_evaluations"
+    pending_presentation = "pending_presentation"
+    finalized = "finalized"
+
+
+class FinalResultEnum(str, enum.Enum):
+    """Resultado final consolidado de la practica."""
+
+    pending = "pending"
+    passed = "passed"
+    failed = "failed"
+
+
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
 
@@ -69,6 +87,9 @@ class Internship(Base):
         cancellation_reason: Motivo funcional de la anulacion logica.
         blocks_new_registration: Indica si bloquea nuevas solicitudes del mismo
             tipo para el mismo estudiante.
+        completion_status: Estado del ciclo de ejecucion/cierre posterior a la
+            aprobacion administrativa.
+        final_result: Resultado final consolidado de la practica.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -168,6 +189,26 @@ class Internship(Base):
     blocks_new_registration: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
+        nullable=False,
+    )
+    completion_status: Mapped[CompletionStatusEnum] = mapped_column(
+        PGEnum(
+            CompletionStatusEnum,
+            name="enumCompletionStatus",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=CompletionStatusEnum.not_started,
+        nullable=False,
+    )
+    final_result: Mapped[FinalResultEnum] = mapped_column(
+        PGEnum(
+            FinalResultEnum,
+            name="enumFinalResult",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=FinalResultEnum.pending,
         nullable=False,
     )
 

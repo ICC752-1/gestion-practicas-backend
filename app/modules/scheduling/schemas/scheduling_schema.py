@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.scheduling.models.presentation_model import (
     PresentationPurposeEnum,
+    PresentationResultEnum,
     PresentationStatusEnum,
 )
 
@@ -85,6 +86,16 @@ class AppointmentRescheduleRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     new_slot_id: int = Field(gt=0)
+
+
+class AppointmentOutcomeRequest(BaseModel):
+    """Payload para registrar asistencia, resultado y observaciones."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    attendance_status: Literal["completed", "no_show"]
+    result: PresentationResultEnum | None = None
+    comments: str | None = Field(default=None, max_length=1000)
 
 
 class PresentationSlotResponse(BaseModel):

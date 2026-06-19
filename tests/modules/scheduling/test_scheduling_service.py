@@ -6,10 +6,12 @@ from fastapi import HTTPException
 
 from app.modules.scheduling.models.presentation_model import (
     PresentationPurposeEnum,
+    PresentationResultEnum,
     PresentationStatusEnum,
 )
 from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
+    AppointmentOutcomeRequest,
     AppointmentRescheduleRequest,
     AvailabilityCreateRequest,
     AvailabilityUpdateRequest,
@@ -64,6 +66,10 @@ def _internship(
         id=internship_id,
         user_id=user_id,
         is_cancelled=is_cancelled,
+        end_date=date(2099, 1, 10),
+        completion_status="not_started",
+        final_result="pending",
+        blocks_new_registration=True,
     )
 
 
@@ -82,6 +88,7 @@ class FakeSchedulingRepository:
         self.saved_slot = None
         self.saved_slots = []
         self.deleted_slot = None
+        self.has_supervisor_evaluation_result = False
 
     async def create_slots(self, slots):
         self.created_slots = slots
@@ -136,6 +143,9 @@ class FakeSchedulingRepository:
         purpose: PresentationPurposeEnum,
     ) -> bool:
         return self.duplicate_appointment
+
+    async def has_supervisor_evaluation(self, internship_id: int) -> bool:
+        return self.has_supervisor_evaluation_result
 
 
 def _availability_payload() -> AvailabilityCreateRequest:
@@ -357,3 +367,74 @@ async def test_reschedule_rejects_slot_with_different_purpose() -> None:
         )
 
     assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == (
+        "El nuevo horario no corresponde al mismo tipo de cita"
+    )
+
+
+async def test_register_initial_interview_outcome_marks_in_progress() -> None:
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.internship_id = 7
+    service = SchedulingService(repository=repository)
+
+    slot = await service.register_appointment_outcome(
+        appointment_id=20,
+        actor=_user(2, ["Encargado de practica"]),
+        payload=AppointmentOutcomeRequest(
+            attendance_status="completed",
+            result=PresentationResultEnum.approved,
+            comments="Entrevista realizada",
+        ),
+    )
+
+    assert slot.status == PresentationStatusEnum.completed
+    assert slot.result == PresentationResultEnum.approved
+    assert repository.internship.completion_status == "in_progress"
+
+
+async def test_register_final_presentation_outcome_requires_prerequisites() -> None:
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.purpose = PresentationPurposeEnum.final_presentation
+    repository.slot.internship_id = 7
+    repository.internship.end_date = date(2099, 1, 11)
+    service = SchedulingService(repository=repository)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.register_appointment_outcome(
+            appointment_id=20,
+            actor=_user(2, ["Encargado de practica"]),
+            payload=AppointmentOutcomeRequest(
+                attendance_status="completed",
+                result=PresentationResultEnum.approved,
+            ),
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "pending_requirements" in exc_info.value.detail
+
+
+async def test_register_final_presentation_outcome_finalizes_failed_internship() -> None:
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.purpose = PresentationPurposeEnum.final_presentation
+    repository.slot.internship_id = 7
+    repository.internship.end_date = date(2026, 1, 9)
+    repository.has_supervisor_evaluation_result = True
+    service = SchedulingService(repository=repository)
+
+    slot = await service.register_appointment_outcome(
+        appointment_id=20,
+        actor=_user(2, ["Encargado de practica"]),
+        payload=AppointmentOutcomeRequest(
+            attendance_status="completed",
+            result=PresentationResultEnum.failed,
+            comments="Debe repetir la práctica",
+        ),
+    )
+
+    assert slot.status == PresentationStatusEnum.completed
+    assert repository.internship.completion_status == "finalized"
+    assert repository.internship.final_result == "failed"
+    assert repository.internship.blocks_new_registration is False
