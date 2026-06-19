@@ -63,6 +63,7 @@ from app.modules.internships.models.internship_status_history_model import (
 )
 from app.modules.internships.models.student_internship_requirement_model import (
     RegistrationRequirementType,
+    StudentInternshipRequirement,
     StudentRegistrationRequirement,
 )
 from app.modules.notifications.models.notification_model import (
@@ -78,6 +79,27 @@ LEGACY_DEMO_EMAILS = ("estudiante.demo@correo.cl", "estudiante.otro@correo.cl")
 INDUCTION_OPTIONS = {"accept": "Entiendo y acepto", "reject": "No acepto"}
 INDUCTION_CORRECT_ANSWER = "accept"
 DEMO_INDUCTION_TITLE = "Induccion demo QA publicada"
+DEMO_ACADEMIC_REQUIREMENTS = {
+    STUDENT_DEMO_EMAIL: {
+        PracticeTypeEnum.practice_1.value: "Aprobada",
+        PracticeTypeEnum.practice_2.value: "Habilitada",
+        PracticeTypeEnum.thesis.value: "Pendiente",
+        PracticeTypeEnum.controlled_practice.value: "Pendiente",
+    },
+    STUDENT_OTHER_EMAIL: {
+        PracticeTypeEnum.practice_1.value: "Pendiente",
+        PracticeTypeEnum.practice_2.value: "Pendiente",
+        PracticeTypeEnum.thesis.value: "Pendiente",
+        PracticeTypeEnum.controlled_practice.value: "Pendiente",
+    },
+}
+UNSUPPORTED_DEMO_SCENARIOS = (
+    "agenda de entrevistas",
+    "invitaciones de supervisor",
+    "autoevaluacion",
+    "carta emitida",
+    "dirae_status separado",
+)
 
 DEMO_USERS = [
     {
@@ -173,6 +195,7 @@ class DemoSeeder:
         )
         await self._ensure_induction(context)
         await self._ensure_registration_requirements(context)
+        await self._ensure_academic_requirements(context)
         await self._ensure_internships(context)
         await self._ensure_notifications(context)
         await self.session.commit()
@@ -210,6 +233,11 @@ class DemoSeeder:
             await self.session.execute(
                 delete(StudentRegistrationRequirement).where(
                     StudentRegistrationRequirement.user_id.in_(user_ids)
+                )
+            )
+            await self.session.execute(
+                delete(StudentInternshipRequirement).where(
+                    StudentInternshipRequirement.user_id.in_(user_ids)
                 )
             )
             await self.session.execute(delete(UserRole).where(UserRole.user_id.in_(user_ids)))
@@ -489,6 +517,45 @@ class DemoSeeder:
         else:
             self.stats["reused"] += 1
 
+    async def _ensure_academic_requirements(self, context: SeedContext) -> None:
+        for email, requirements in DEMO_ACADEMIC_REQUIREMENTS.items():
+            user = context.users[email]
+            for practice_type, status in requirements.items():
+                await self._ensure_academic_requirement(user, practice_type, status)
+
+    async def _ensure_academic_requirement(
+        self,
+        user: User,
+        practice_type: str,
+        status: str,
+    ) -> None:
+        query = select(StudentInternshipRequirement).where(
+            StudentInternshipRequirement.user_id == user.id,
+            StudentInternshipRequirement.type == practice_type,
+        )
+        item = (await self.session.execute(query)).scalar_one_or_none()
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        if item is None:
+            self.session.add(
+                StudentInternshipRequirement(
+                    user_id=user.id,
+                    type=practice_type,
+                    status=status,
+                    status_updated_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            self.stats["created"] += 1
+        elif item.status != status:
+            item.status = status
+            item.status_updated_at = now
+            item.updated_at = now
+            self.stats["updated"] += 1
+        else:
+            self.stats["reused"] += 1
+
     async def _ensure_internships(self, context: SeedContext) -> None:
         pending = context.states["Pendiente"]
         approved = context.states["Aprobada"]
@@ -515,14 +582,7 @@ class DemoSeeder:
             actor=context.users["encargado.practicas@ufrontera.cl"],
         )
 
-        unsupported = [
-            "agenda de entrevistas",
-            "invitaciones de supervisor",
-            "autoevaluacion",
-            "carta emitida",
-            "dirae_status separado",
-        ]
-        self.stats["skipped"] += len(unsupported)
+        self.stats["skipped"] += len(UNSUPPORTED_DEMO_SCENARIOS)
 
     async def _ensure_internship(
         self,

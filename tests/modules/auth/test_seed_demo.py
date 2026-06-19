@@ -1,10 +1,14 @@
 import pytest
 
 from scripts.seed_demo import (
+    DEMO_ACADEMIC_REQUIREMENTS,
     DEMO_USERS,
     DEMO_INDUCTION_TITLE,
     INDUCTION_CORRECT_ANSWER,
     INDUCTION_OPTIONS,
+    STUDENT_DEMO_EMAIL,
+    STUDENT_OTHER_EMAIL,
+    UNSUPPORTED_DEMO_SCENARIOS,
     _ensure_not_production,
     _get_demo_password,
 )
@@ -60,3 +64,23 @@ def test_seed_demo_induction_uses_stable_answer_keys() -> None:
 
 def test_seed_demo_uses_single_named_active_induction() -> None:
     assert DEMO_INDUCTION_TITLE == "Induccion demo QA publicada"
+
+
+def test_seed_demo_sets_coherent_academic_requirements() -> None:
+    assert DEMO_ACADEMIC_REQUIREMENTS[STUDENT_DEMO_EMAIL] == {
+        "Práctica de Estudio I": "Aprobada",
+        "Práctica de Estudio II": "Habilitada",
+        "Tesis": "Pendiente",
+        "Práctica Controlada": "Pendiente",
+    }
+    assert DEMO_ACADEMIC_REQUIREMENTS[STUDENT_OTHER_EMAIL] == {
+        "Práctica de Estudio I": "Pendiente",
+        "Práctica de Estudio II": "Pendiente",
+        "Tesis": "Pendiente",
+        "Práctica Controlada": "Pendiente",
+    }
+
+
+def test_seed_demo_declares_uncovered_scenarios() -> None:
+    assert "agenda de entrevistas" in UNSUPPORTED_DEMO_SCENARIOS
+    assert "dirae_status separado" in UNSUPPORTED_DEMO_SCENARIOS
