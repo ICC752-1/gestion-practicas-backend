@@ -1,7 +1,7 @@
 -- 1. Creación de Enumeraciones (Enums)
 CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera', 'FICA', 'Superadmin');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
+CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración', 'Autoevaluación', 'Portabilidad');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
 CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
@@ -18,6 +18,8 @@ CREATE TYPE "enumCompletionStatus" AS ENUM ('not_started', 'in_progress', 'pendi
 CREATE TYPE "enumFinalResult" AS ENUM ('pending', 'passed', 'failed');
 CREATE TYPE "enumPresentationPurpose" AS ENUM ('initial_interview', 'final_presentation');
 CREATE TYPE "enumPresentationStatus" AS ENUM ('available', 'scheduled', 'completed', 'cancelled', 'no_show', 'closed');
+CREATE TYPE "enumSelfEvaluationStatus" AS ENUM ('draft', 'submitted', 'reopened');
+CREATE TYPE "enumDataPortabilityStatus" AS ENUM ('processing', 'completed', 'failed');
 
 CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
@@ -288,6 +290,41 @@ CREATE TABLE supervisor_evaluations (
 
 CREATE INDEX ix_supervisor_evaluations_internship_id ON supervisor_evaluations(internship_id);
 
+CREATE TABLE self_evaluations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    student_id INTEGER NOT NULL REFERENCES Users(id) ON DELETE CASCADE,
+    form_version VARCHAR(50) NOT NULL,
+    criteria_snapshot JSONB NOT NULL,
+    responses JSONB NOT NULL DEFAULT '{}'::jsonb,
+    observations TEXT,
+    status "enumSelfEvaluationStatus" NOT NULL DEFAULT 'draft',
+    submitted_at TIMESTAMP,
+    reopened_at TIMESTAMP,
+    reopened_by INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+    reopen_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_self_evaluation_internship_student UNIQUE (internship_id, student_id)
+);
+
+CREATE INDEX ix_self_evaluations_internship_id ON self_evaluations(internship_id);
+CREATE INDEX ix_self_evaluations_student_id ON self_evaluations(student_id);
+
+CREATE TABLE data_portability_requests (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id) ON DELETE CASCADE,
+    export_format VARCHAR(20) NOT NULL,
+    include_documents BOOLEAN NOT NULL DEFAULT TRUE,
+    status "enumDataPortabilityStatus" NOT NULL DEFAULT 'processing',
+    result_metadata JSONB,
+    error_message TEXT,
+    requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+CREATE INDEX ix_data_portability_requests_user_id ON data_portability_requests(user_id);
+
 CREATE TABLE internship_exceptions (
     id SERIAL PRIMARY KEY,
     internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
@@ -436,6 +473,8 @@ BEGIN
         WHEN 'internship_exceptions' THEN 'Práctica':: "enumEntity"
         WHEN 'document' THEN 'Documento'::"enumEntity"
         WHEN 'presentation' THEN 'Presentación'::"enumEntity"
+        WHEN 'self_evaluations' THEN 'Autoevaluación'::"enumEntity"
+        WHEN 'data_portability_requests' THEN 'Portabilidad'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
         WHEN 'currentstate' THEN 'Estado'::"enumEntity"
         ELSE NULL
@@ -476,3 +515,5 @@ CREATE TRIGGER tr_audit_internship AFTER INSERT OR UPDATE OR DELETE ON Internshi
 CREATE TRIGGER tr_audit_document AFTER INSERT OR UPDATE OR DELETE ON Document FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Presentation FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_self_evaluations AFTER INSERT OR UPDATE OR DELETE ON self_evaluations FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_data_portability_requests AFTER INSERT OR UPDATE OR DELETE ON data_portability_requests FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();

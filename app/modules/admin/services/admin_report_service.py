@@ -70,6 +70,11 @@ class AdminReportService:
         supervisor_submitted, supervisor_pending = (
             await self.repository.supervisor_evaluation_counts(scoped_filters)
         )
+        self_submitted, self_pending = await self._self_evaluation_counts(
+            scoped_filters,
+            total_internships,
+        )
+        finalized = await self._finalized_internship_count(scoped_filters)
         summer_without_insurance = await self.repository.summer_without_school_insurance(
             scoped_filters,
         )
@@ -140,14 +145,15 @@ class AdminReportService:
                 ),
                 AdminReportRate(
                     name="Tasa de finalización",
-                    numerator=None,
-                    denominator=None,
-                    percentage=None,
+                    numerator=finalized,
+                    denominator=total_internships,
+                    percentage=round((finalized / total_internships) * 100, 2)
+                    if total_internships
+                    else 0.0,
                     definition=(
-                        "No calculada: el modelo actual no posee final_result o "
-                        "estado de cierre académico independiente."
+                        "Prácticas con completion_status=finalized / prácticas filtradas."
                     ),
-                    data_available=False,
+                    data_available=True,
                 ),
             ],
             time_metrics=[
@@ -188,11 +194,11 @@ class AdminReportService:
             evaluations=AdminReportEvaluations(
                 supervisor_submitted=supervisor_submitted,
                 supervisor_pending=supervisor_pending,
-                self_evaluation_pending=None,
-                data_available=False,
+                self_evaluation_pending=self_pending,
+                data_available=True,
                 notes=(
-                    "Evaluación de supervisor usa datos reales. Autoevaluación no "
-                    "tiene modelo backend activo en este corte."
+                    "Evaluación de supervisor y autoevaluación usan datos reales. "
+                    f"Autoevaluaciones enviadas: {self_submitted}."
                 ),
             ),
             compliance=AdminReportCompliance(
@@ -223,6 +229,20 @@ class AdminReportService:
             filename=f"admin_reports_{timestamp}.csv",
             content=content,
         )
+
+    async def _self_evaluation_counts(
+        self,
+        filters: AdminReportFilters,
+        total_internships: int,
+    ) -> tuple[int, int]:
+        if not hasattr(self.repository, "self_evaluation_counts"):
+            return 0, total_internships
+        return await self.repository.self_evaluation_counts(filters)
+
+    async def _finalized_internship_count(self, filters: AdminReportFilters) -> int:
+        if not hasattr(self.repository, "finalized_internship_count"):
+            return 0
+        return await self.repository.finalized_internship_count(filters)
 
     def _apply_scope(
         self,
