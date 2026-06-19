@@ -228,6 +228,111 @@ CREATE UNIQUE INDEX uq_presentation_owner_block
 ON Presentation(owner_id, date, start_time, end_time, purpose)
 WHERE status IN ('available', 'scheduled', 'completed', 'no_show');
 
+CREATE TABLE presentation_letter_template (
+    id SERIAL PRIMARY KEY,
+    practice_type VARCHAR(100) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    subtitle VARCHAR(255) NOT NULL,
+    base_intro TEXT NOT NULL,
+    student_presentation_template TEXT NOT NULL,
+    practice_description TEXT NOT NULL,
+    minimum_hours INTEGER NOT NULL DEFAULT 168,
+    learning_outcomes JSONB NOT NULL,
+    insurance_clause TEXT NOT NULL,
+    closing_text TEXT NOT NULL,
+    signature_name VARCHAR(255) NOT NULL,
+    signature_role VARCHAR(255) NOT NULL,
+    signature_institution VARCHAR(255) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by INTEGER REFERENCES Users(id),
+    updated_by INTEGER REFERENCES Users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX uq_presentation_letter_template_active_type
+ON presentation_letter_template(practice_type)
+WHERE is_active IS TRUE;
+
+CREATE INDEX ix_presentation_letter_template_type
+ON presentation_letter_template(practice_type);
+
+CREATE TABLE presentation_letter (
+    id SERIAL PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES Users(id),
+    practice_type VARCHAR(100) NOT NULL,
+    template_id INTEGER NOT NULL REFERENCES presentation_letter_template(id),
+    generated_file_name VARCHAR(255) NOT NULL,
+    generated_file_path VARCHAR(255) NOT NULL,
+    recipient_email VARCHAR(255) NOT NULL,
+    sent_at TIMESTAMP,
+    downloaded_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_presentation_letter_student ON presentation_letter(student_id);
+CREATE INDEX ix_presentation_letter_practice_type ON presentation_letter(practice_type);
+CREATE INDEX ix_presentation_letter_template ON presentation_letter(template_id);
+
+INSERT INTO presentation_letter_template (
+    practice_type,
+    title,
+    subtitle,
+    base_intro,
+    student_presentation_template,
+    practice_description,
+    minimum_hours,
+    learning_outcomes,
+    insurance_clause,
+    closing_text,
+    signature_name,
+    signature_role,
+    signature_institution
+) VALUES
+(
+    'Práctica de Estudio I',
+    'Carta de Presentación',
+    'Estudiante en Práctica de Estudios I',
+    'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
+    'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios I en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
+    'La Práctica de Estudios I permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    168,
+    '[
+        "Desarrollar la capacidad de interacción con las personas que hacen vida en la organización con la finalidad de comunicarse efectivamente y lograr un desempeño laboral acorde a lo esperado.",
+        "Reconocer las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
+        "Reconocer las diferentes etapas de los procesos, así como sus implicancias técnicas, económicas, de gestión e impacto social, medioambiental y cultural que le permiten alinearse al quehacer de la organización desde su especialidad.",
+        "Mantener una conducta responsable en prevención de riesgos y cuidado del medio ambiente en el ámbito de su desempeño práctico en modalidad presencial o virtual.",
+        "Realizar actividades donde demuestra su formación académica básica y una conducta éticamente adecuada durante su permanencia en la organización."
+    ]'::jsonb,
+    'Por último, le informamos que durante el periodo de práctica el/la estudiante se encuentra protegido/a ante eventuales accidentes con el seguro escolar, el cual se encuentra al alero del artículo 3° de la Ley 16.744, según DS N°313 Ministerio del Trabajo y Previsión Social.',
+    'Agradeciendo de antemano su atención y colaboración, quedamos atentos a sus comentarios.',
+    'Claudio Andrés Navarro Cruces',
+    'Director de carrera',
+    'Universidad de La Frontera'
+),
+(
+    'Práctica de Estudio II',
+    'Carta de Presentación',
+    'Estudiante en Práctica de Estudios II',
+    'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
+    'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios II en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
+    'La Práctica de Estudios II permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    168,
+    '[
+        "Utilizar un lenguaje técnico y apropiado que le permita comunicarse efectivamente con las personas que hacen vida en la organización con la finalidad de asumir el rol asignado para contribuir con el desempeño del equipo de trabajo.",
+        "Comprender las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
+        "Aplicar los conocimientos de la especialidad para identificar problemas específicos de la organización y proponer soluciones a los mismos, considerando aspectos económicos, técnicos, de gestión y su impacto social, medioambiental y cultural.",
+        "Mantener una conducta responsable en prevención de riesgos y cuidado del entorno en el ámbito de su desempeño práctico en modalidad presencial o virtual, considerando los aspectos normativos y reglamentarios que regulan la materia.",
+        "Realizar actividades donde demuestra su formación profesional y una conducta éticamente adecuada durante su permanencia en la organización."
+    ]'::jsonb,
+    'Por último, le informamos que durante el periodo de práctica el/la estudiante se encuentra protegido/a ante eventuales accidentes con el seguro escolar, el cual se encuentra al alero del artículo 3° de la Ley 16.744, según DS N°313 Ministerio del Trabajo y Previsión Social.',
+    'Agradeciendo de antemano su atención y colaboración, quedamos atentos a sus comentarios.',
+    'Claudio Andrés Navarro Cruces',
+    'Director de carrera',
+    'Universidad de La Frontera'
+);
+
 CREATE TABLE LogAction (
 id SERIAL PRIMARY KEY,
 action "enumAction" NOT NULL,

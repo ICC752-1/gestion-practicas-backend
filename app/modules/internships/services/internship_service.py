@@ -442,8 +442,16 @@ class InternshipService:
             upload_date=internship.upload_date,
             status=normalized_status,
             status_label=status_label,
-            completion_status=internship.completion_status,
-            final_result=internship.final_result,
+            completion_status=getattr(
+                internship,
+                "completion_status",
+                CompletionStatusEnum.not_started,
+            ),
+            final_result=getattr(
+                internship,
+                "final_result",
+                FinalResultEnum.pending,
+            ),
             student=student,
         )
 
@@ -1712,7 +1720,10 @@ class InternshipService:
         if user_id is None:
             return False
 
-        if active_content is None:
+        if active_content is None and hasattr(
+            self.internship_repository,
+            "get_active_induction_content",
+        ):
             active_content = await self.internship_repository.get_active_induction_content()
 
         req = await self.internship_repository.get_student_requirement(

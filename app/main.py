@@ -22,6 +22,9 @@ from app.modules.data_portability.controllers.data_portability_controller import
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
+from app.modules.presentation_letters.controllers.presentation_letter_controller import (
+    router as presentation_letters_router,
+)
 from app.modules.scheduling.controllers.scheduling_controller import (
     router as scheduling_router,
 )
@@ -75,3 +78,4 @@ app.include_router(self_evaluations_router)
 app.include_router(documents_router)
 app.include_router(scheduling_router)
 app.include_router(data_portability_router)
+app.include_router(presentation_letters_router)
