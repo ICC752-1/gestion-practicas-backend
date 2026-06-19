@@ -41,6 +41,8 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipResponse,
     InternshipTrackingResponse,
     RegistrationEligibilityResponse,
+    StudentInternshipActionAvailabilityResponse,
+    StudentInternshipUpdateRequest,
 )
 from app.modules.internships.services.internship_service import InternshipService
 
@@ -71,10 +73,12 @@ PRIVILEGED_READ_ROLES = {
     "Secretaria de Carrera",
 }
 
-ACTION_ROLES = [
-    "Encargado de practica", 
-    "Director de carrera", 
-    "Secretaria de Carrera"]
+RESOLUTION_ACTION_ROLES = [
+    "Encargado de practica",
+    "Director de carrera",
+]
+
+DIRAE_ACTION_ROLES = ["Secretaria de Carrera"]
 
 EXCEPTION_ROLES = [
     "Encargado de practica", 
@@ -441,6 +445,91 @@ async def get_internship_tracking(
     ]
 
 
+@router.get(
+    "/{internship_id}/student-actions",
+    response_model=StudentInternshipActionAvailabilityResponse,
+)
+async def get_student_actions(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> StudentInternshipActionAvailabilityResponse:
+    """Obtiene acciones recientes disponibles para el estudiante propietario.
+
+    Args:
+        internship_id: Identificador de la practica.
+        db: Sesion asincrona de base de datos.
+        current_user: Estudiante autenticado.
+
+    Returns:
+        Disponibilidad de correccion y anulacion de la solicitud.
+    """
+
+    service = _build_service(db)
+    return await service.get_student_action_availability(
+        internship_id=internship_id,
+        actor=current_user,
+    )
+
+
+@router.patch(
+    "/{internship_id}/student",
+    response_model=InternshipResponse,
+)
+async def update_student_internship_fields(
+    internship_id: int,
+    payload: StudentInternshipUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InternshipResponse:
+    """Permite al propietario corregir una solicitud reciente y pendiente."""
+
+    logger.info(
+        "HTTP PATCH /internships/%s/student - Corrección solicitada por "
+        "estudiante ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.update_student_fields(
+        internship_id=internship_id,
+        actor=current_user,
+        payload=payload,
+    )
+
+    return InternshipResponse.model_validate(internship)
+
+
+@router.post(
+    "/{internship_id}/student/cancel",
+    response_model=InternshipCancelResponse,
+)
+async def cancel_student_internship(
+    internship_id: int,
+    payload: InternshipCancelRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InternshipCancelResponse:
+    """Permite al propietario anular una solicitud reciente y pendiente."""
+
+    logger.info(
+        "HTTP POST /internships/%s/student/cancel - Anulación solicitada por "
+        "estudiante ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.cancel_by_student(
+        internship_id=internship_id,
+        actor=current_user,
+        reason=payload.reason,
+    )
+
+    return InternshipCancelResponse.model_validate(internship)
+
+
 @router.patch(
     "/{internship_id}/admin",
     response_model=InternshipResponse,
@@ -539,7 +628,7 @@ async def approve_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
 ) -> InternshipActionResponse:
     """Aprueba una practica sin imponer orden secuencial entre roles.
 
@@ -585,7 +674,7 @@ async def reject_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
 ) -> InternshipActionResponse:
     """Rechaza una practica que no se encuentra en estado terminal.
  
@@ -630,7 +719,7 @@ async def derive_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
 ) -> InternshipActionResponse:
     """Deriva una practica a revision por DIRAE.
  

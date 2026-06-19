@@ -33,6 +33,11 @@ class Config(BaseSettings):
     DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
     DOCUMENT_RETENTION_DAYS: int = 0
 
+    # Practicas
+    STUDENT_CORRECTION_WINDOW_HOURS: int = 24
+    # Alias legado para entornos locales creados antes del contrato Sprint 11.3.
+    STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS: int | None = None
+
     # notificaciones
     NOTIFICATION_MODE: str = "simulated"
 
@@ -84,6 +89,14 @@ class Config(BaseSettings):
             for extension in self.DOCUMENT_ALLOWED_EXTENSIONS.split(",")
             if extension.strip()
         }
+
+    @property
+    def STUDENT_EFFECTIVE_CORRECTION_WINDOW_HOURS(self) -> int:
+        return (
+            self.STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS
+            if self.STUDENT_INTERNSHIP_EDIT_WINDOW_HOURS is not None
+            else self.STUDENT_CORRECTION_WINDOW_HOURS
+        )
 
     @property
     def GOOGLE_ALLOWED_DOMAIN_LIST(self) -> list[str]:

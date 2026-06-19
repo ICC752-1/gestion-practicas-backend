@@ -25,6 +25,10 @@ from app.modules.admin.schemas.admin_schema import (
 from app.modules.admin.services.admin_service import AdminService
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
+from app.modules.auth.utils.roles import (
+    CAREER_DIRECTOR_ROLE,
+    PRACTICE_MANAGER_ROLE,
+)
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
@@ -36,10 +40,13 @@ from app.modules.notifications.services.notification_service import (
 router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = logging.getLogger(__name__)
 
-PRACTICE_MANAGER_ROLE = "Encargado de practica"
+ADMIN_READ_ROLES = [
+    PRACTICE_MANAGER_ROLE,
+    CAREER_DIRECTOR_ROLE,
+]
 SCHOOL_INSURANCE_ADMIN_ROLES = [
     PRACTICE_MANAGER_ROLE,
-    "Director de carrera",
+    CAREER_DIRECTOR_ROLE,
 ]
 
 
@@ -64,7 +71,7 @@ def _build_service(db: AsyncSession) -> AdminService:
 @router.get("/summary", response_model=AdminSummaryResponse)
 async def get_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminSummaryResponse:
     """Obtiene el resumen administrativo visible para el encargado.
 
@@ -86,7 +93,7 @@ async def get_summary(
 @router.get("/students", response_model=list[AdminStudentListItem])
 async def get_students(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> list[AdminStudentListItem]:
     """Obtiene el listado administrativo de estudiantes.
 
@@ -108,7 +115,7 @@ async def get_students(
 @router.get("/internships", response_model=list[AdminInternshipListItem])
 async def get_internships(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
     status_filter: Annotated[
         AdminInternshipStatusFilter | None,
         Query(alias="status"),
@@ -141,7 +148,7 @@ async def get_internships(
 async def get_internship_detail(
     internship_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminInternshipDetailResponse:
     """Obtiene el detalle administrativo de una practica.
 
@@ -181,7 +188,7 @@ async def get_internship_detail(
 async def get_student_internship_requirements(
     student_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> list[AdminStudentInternshipRequirementItem]:
     """Obtiene requisitos de práctica asociados a un estudiante."""
 
@@ -204,7 +211,7 @@ async def update_student_internship_requirement_status(
     requirement_id: int,
     payload: AdminUpdateStudentInternshipRequirementStatusRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminStudentInternshipRequirementItem:
     """Actualiza el estado de un requisito de práctica."""
 

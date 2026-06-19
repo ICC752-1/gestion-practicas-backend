@@ -46,6 +46,25 @@ class RefreshTokenRepository:
 
         return refresh_token
 
+    async def revoke_active_tokens_for_user(self, user_id: int) -> int:
+        """Revoca todos los refresh tokens activos de un usuario."""
+
+        now = _utc_now()
+        query = select(RefreshToken).where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > now,
+        )
+        result = await self.db.execute(query)
+        refresh_tokens = list(result.scalars().all())
+
+        for refresh_token in refresh_tokens:
+            refresh_token.revoked_at = now
+
+        await self.db.commit()
+
+        return len(refresh_tokens)
+
     def is_refresh_token_valid(self, refresh_token: RefreshToken) -> bool:
         """Indica si un refresh token persistido sigue usable."""
 

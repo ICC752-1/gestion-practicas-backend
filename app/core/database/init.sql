@@ -1,5 +1,5 @@
 -- 1. Creación de Enumeraciones (Enums)
-CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera');
+CREATE TYPE "enumRole" AS ENUM ('Estudiante', 'Supervisor de practica', 'Encargado de practica', 'Director de carrera', 'Secretaria de Carrera', 'FICA', 'Superadmin');
 CREATE TYPE "enumAction" AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 CREATE TYPE "enumEntity" AS ENUM ('Usuario', 'Práctica', 'Documento', 'Presentación', 'Estado', 'Rol', 'Configuración');
 CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido');
@@ -14,6 +14,8 @@ CREATE TYPE "enumCategory" AS ENUM ('Académico', 'Administrativo');
 CREATE TYPE "enumStudentInternshipType" AS ENUM ('Práctica de Estudio I', 'Práctica de Estudio II', 'Tesis', 'Práctica Controlada');
 CREATE TYPE "enumStudentInternshipStatus" AS ENUM ('Pendiente', 'Habilitada', 'En revisión', 'Aprobada', 'Rechazada');
 CREATE TYPE "enumInternshipPeriod" AS ENUM ('Semestre', 'Verano', 'Invierno');
+CREATE TYPE "enumPresentationPurpose" AS ENUM ('initial_interview', 'final_presentation');
+CREATE TYPE "enumPresentationStatus" AS ENUM ('available', 'scheduled', 'completed', 'cancelled', 'no_show', 'closed');
 
 CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
@@ -127,11 +129,16 @@ CREATE TABLE Internship (
     cancelled_at TIMESTAMP,
     cancelled_by INTEGER REFERENCES Users(id),
     cancellation_reason TEXT,
+    blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
 );
+
+CREATE UNIQUE INDEX uq_internship_blocking_type_per_student
+ON Internship(user_id, internship_type)
+WHERE blocks_new_registration IS TRUE;
 
 CREATE TABLE internship_status_history (
     id SERIAL PRIMARY KEY,
@@ -185,13 +192,35 @@ INSERT INTO DocumentType (name, description, is_required, category) VALUES
 CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,
     date DATE NOT NULL,
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    duration_minutes INTEGER NOT NULL DEFAULT 30,
     modality "enumModality" NOT NULL,
-    status "enumStatus" NOT NULL,
+    purpose "enumPresentationPurpose" NOT NULL DEFAULT 'initial_interview',
+    status "enumPresentationStatus" NOT NULL DEFAULT 'available',
     result "enumResult",
+    location TEXT,
+    timezone VARCHAR(64) NOT NULL DEFAULT 'America/Santiago',
     comments TEXT,
+    cancel_reason TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reserved_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
     internship_id INTEGER REFERENCES Internship(id),
-    user_id INTEGER REFERENCES Users(id)
+    user_id INTEGER REFERENCES Users(id),
+    owner_id INTEGER NOT NULL REFERENCES Users(id),
+    CONSTRAINT ck_presentation_time_range CHECK (end_time > start_time),
+    CONSTRAINT ck_presentation_duration_positive CHECK (duration_minutes > 0)
 );
+
+CREATE INDEX ix_presentation_date ON Presentation(date);
+CREATE INDEX ix_presentation_owner_date ON Presentation(owner_id, date);
+CREATE INDEX ix_presentation_user_date ON Presentation(user_id, date);
+CREATE INDEX ix_presentation_status ON Presentation(status);
+CREATE UNIQUE INDEX uq_presentation_owner_block
+ON Presentation(owner_id, date, start_time, end_time, purpose)
+WHERE status IN ('available', 'scheduled', 'completed', 'no_show');
 
 CREATE TABLE LogAction (
 id SERIAL PRIMARY KEY,
@@ -215,8 +244,45 @@ content TEXT NOT NULL,
 status "enumNotificationStatus" NOT NULL,
 payload JSONB,
 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-sent_at TIMESTAMP
+sent_at TIMESTAMP,
+read_at TIMESTAMP
 );
+
+CREATE INDEX ix_notification_recipient_user_id ON notification(recipient_user_id);
+CREATE INDEX ix_notification_read_at ON notification(read_at);
+
+CREATE TABLE supervisor_evaluation_invitations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    sent_at TIMESTAMP,
+    used_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES Users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX ix_supervisor_evaluation_invitations_internship_id ON supervisor_evaluation_invitations(internship_id);
+CREATE INDEX ix_supervisor_evaluation_invitations_token_hash ON supervisor_evaluation_invitations(token_hash);
+
+CREATE TABLE supervisor_evaluations (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER UNIQUE NOT NULL REFERENCES Internship(id) ON DELETE CASCADE,
+    invitation_id INTEGER UNIQUE REFERENCES supervisor_evaluation_invitations(id) ON DELETE SET NULL,
+    supervisor_name_snapshot VARCHAR(255) NOT NULL,
+    supervisor_email_snapshot VARCHAR(255) NOT NULL,
+    criteria_scores JSONB NOT NULL,
+    observations TEXT,
+    recommendation VARCHAR(100) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'submitted',
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_supervisor_evaluations_internship_id ON supervisor_evaluations(internship_id);
 
 CREATE TABLE internship_exceptions (
     id SERIAL PRIMARY KEY,
@@ -245,6 +311,7 @@ CREATE TABLE induction_content_versions (
     status "content_status_enum" NOT NULL DEFAULT 'draft',
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
     min_score INTEGER NOT NULL DEFAULT 5,
+    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     published_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -311,6 +378,8 @@ INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol corres
 INSERT INTO Roles (name, description) VALUES ('Supervisor de practica', 'Rol correspondiente al supervisor externo de practicas');
 INSERT INTO Roles (name, description) VALUES ('Encargado de practica', 'Rol correspondiente al encargado de practicas');
 INSERT INTO Roles (name, description) VALUES ('Secretaria de Carrera', 'Rol correspondiente a secretaria de carrera');
+INSERT INTO Roles (name, description) VALUES ('FICA', 'Rol institucional de consulta agregada transversal');
+INSERT INTO Roles (name, description) VALUES ('Superadmin', 'Rol tecnico para administracion de usuarios y roles');
 
 INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone)
 VALUES ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432');
@@ -344,8 +413,8 @@ INSERT INTO induction_questions (content_version_id, question_text, options, cor
 SELECT
     id,
     'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"choices": ["Entiendo y acepto", "No acepto"]}'::jsonb,
-    'Entiendo y acepto',
+    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
+    'accept',
     1
 FROM induction_content_versions
 WHERE title = 'Induccion obligatoria demo';

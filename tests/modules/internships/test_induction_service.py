@@ -95,9 +95,13 @@ def _fake_question(q_id: int, correct: str, order: int = 0) -> SimpleNamespace:
     )
 
 
-def _fake_content(questions: list | None = None, min_score: int = 5) -> SimpleNamespace:
+def _fake_content(
+    questions: list | None = None,
+    min_score: int = 5,
+    content_id: int = 1,
+) -> SimpleNamespace:
     return SimpleNamespace(
-        id=1,
+        id=content_id,
         title="Inducción 2026",
         description="Contenido de prueba",
         min_score=min_score,
@@ -175,6 +179,9 @@ class FakeInductionRepository:
     async def list_internships_by_user(self, user_id: int):
         self.requested_user_id = user_id
         return self.internships_by_user
+
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
 
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
@@ -257,6 +264,29 @@ class TestInductionContent:
         assert len(result.questions) == 2
         assert result.questions[0].id == 1
         assert result.questions[0].question_text == "Pregunta 1"
+
+    @pytest.mark.asyncio
+    async def test_get_active_induction_content_preserves_keyed_options(self):
+        """1.c. Las alternativas se exponen como {clave: texto}."""
+        repo = FakeInductionRepository()
+        questions = [
+            SimpleNamespace(
+                id=1,
+                question_text="Confirmación",
+                options={"accept": "Entiendo y acepto", "reject": "No acepto"},
+                correct_answer="accept",
+                order=1,
+            ),
+        ]
+        repo._active_induction_content = _fake_content(questions=questions)
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_active_induction_content()
+
+        assert result.questions[0].options == {
+            "accept": "Entiendo y acepto",
+            "reject": "No acepto",
+        }
 
     @pytest.mark.asyncio
     async def test_get_active_induction_content_returns_none_when_no_content(self):
@@ -820,6 +850,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=True,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -833,6 +866,9 @@ class TestSchoolInsuranceComputation:
     async def test_create_sets_insurance_false_when_student_lacks_requirement(self):
         """5.b. has_school_insurance=False si no hay requisito registrado."""
         repo = FakeInductionRepository()
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -849,6 +885,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=False,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -857,6 +896,21 @@ class TestSchoolInsuranceComputation:
         )
 
         assert internship.has_school_insurance is False
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_when_induction_is_missing(self):
+        """5.d. No se crea solicitud si la inducción obligatoria está pendiente."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.create_internship(
+                internship_data=_valid_payload(),
+                user_id=42,
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "induction_required"
 
 
 # ── Tests: Elegibilidad ──────────────────────────────────────────────────────
@@ -885,6 +939,7 @@ class TestRegistrationEligibility:
         assert result.blocked is True
         assert result.has_school_insurance is False
         assert result.has_induction is False
+        assert result.can_create_request is False
 
     @pytest.mark.asyncio
     async def test_eligibility_returns_not_blocked_when_all_met(self):

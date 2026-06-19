@@ -244,7 +244,6 @@ async def google_callback(
         status_code=status.HTTP_303_SEE_OTHER,
     )
     response.delete_cookie(config.GOOGLE_STATE_COOKIE_NAME, path="/")
-
     return response
 
 
