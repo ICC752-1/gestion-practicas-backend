@@ -510,7 +510,6 @@ class InductionContentVersionResponse(BaseModel):
     description: str | None
     requires_retake: bool = False
     min_score: int
-    requires_retake: bool = False
     videos: list[InductionVideoResponse] = []
     questions: list[InductionQuestionResponse] = []
 
