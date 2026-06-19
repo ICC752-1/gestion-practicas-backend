@@ -145,7 +145,9 @@ class InternshipRepository:
             .options(
                 selectinload(Internship.status),
                 selectinload(Internship.student),
-                selectinload(Internship.exceptions),
+                selectinload(Internship.exceptions).selectinload(
+                    InternshipException.actor
+                ),
             )
         )
         result = await self.db.execute(query)
@@ -210,7 +212,9 @@ class InternshipRepository:
             .where(Internship.user_id == user_id)
             .options(
                 selectinload(Internship.status),
-                selectinload(Internship.exceptions),
+                selectinload(Internship.exceptions).selectinload(
+                    InternshipException.actor
+                ),
             )
             .order_by(Internship.upload_date.desc())
         )
