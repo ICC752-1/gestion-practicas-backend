@@ -38,6 +38,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
+    InternshipDiraeStatusHistoryResponse,
     InternshipResponse,
     InternshipTrackingResponse,
     RegistrationEligibilityResponse,
@@ -446,6 +447,35 @@ async def get_internship_tracking(
 
 
 @router.get(
+    "/{internship_id}/dirae-tracking",
+    response_model=list[InternshipDiraeStatusHistoryResponse],
+)
+async def get_internship_dirae_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipDiraeStatusHistoryResponse]:
+    """Obtiene el historial local del expediente DIRAE."""
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return await service.list_internship_dirae_tracking(internship_id)
+
+
+@router.get(
     "/{internship_id}/student-actions",
     response_model=StudentInternshipActionAvailabilityResponse,
 )
@@ -721,11 +751,10 @@ async def derive_internship(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
 ) -> InternshipActionResponse:
-    """Deriva una practica a revision por DIRAE.
+    """Inicia la revision local del expediente DIRAE.
  
-    Solo `Secretaria de Carrera` puede ejecutar esta accion. La practica no
-    debe encontrarse en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
-    El comentario es obligatorio.
+    Solo `Secretaria de Carrera` puede ejecutar esta accion. La solicitud debe
+    estar aprobada y la practica finalizada. El comentario es obligatorio.
  
     Args:
         internship_id: Identificador de la practica a derivar.
@@ -734,13 +763,13 @@ async def derive_internship(
         current_user: Usuario autenticado con rol autorizado por `require_roles`.
  
     Returns:
-        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+        `InternshipActionResponse` con `dirae_status` y el comentario.
  
     Raises:
         HTTPException 400: Si no se proporciona comentario.
         HTTPException 403: Si el actor no tiene permiso `derive`.
         HTTPException 404: Si la practica no existe.
-        HTTPException 409: Si la practica ya esta en estado terminal.
+        HTTPException 409: Si no cumple las reglas para revision DIRAE.
     """
     logger.info("HTTP POST /internships/%s/derive - Petición de derivación a DIRAE recibida del actor ID: %s", 
                 internship_id, current_user.id)
@@ -753,6 +782,7 @@ async def derive_internship(
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
+        dirae_status=internship.dirae_status,
         comment=payload.comment,
     )
 

@@ -10,6 +10,7 @@ from app.modules.documents.models.document_model import (
     DocumentExtensionEnum,
     DocumentStatusEnum,
 )
+from app.modules.internships.models.internship_model import DiraeStatusEnum
 
 
 class DocumentTypeResponse(BaseModel):
@@ -118,6 +119,7 @@ class DocumentPackageResponse(BaseModel):
 
     internship_id: int
     status: str | None
+    dirae_status: DiraeStatusEnum
     exportable: bool
     reasons: list[
         Literal["internship_not_approved", "missing_required_documents"]

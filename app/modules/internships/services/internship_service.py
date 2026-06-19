@@ -16,6 +16,7 @@ from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
+    DiraeStatusEnum,
     FinalResultEnum,
     Internship,
     PracticePeriodEnum,
@@ -37,6 +38,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
+    InternshipDiraeStatusHistoryResponse,
     RegistrationEligibilityResponse,
     DuplicateInternshipTypeDetail,
     StudentInternshipActionAvailabilityResponse,
@@ -51,7 +53,6 @@ from app.modules.notifications.services.notification_service import (
 from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_approved_notification,
     build_internship_created_notification,
-    build_internship_derived_notification,
     build_internship_rejected_notification,
 )
 
@@ -131,6 +132,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 
 EXCEPTABLE_RULES = {"school_insurance", "sequentiality", "sequentiality_thesis", "parallel_course"}
 APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
+DIRAE_REVIEW_START_STATUS = DiraeStatusEnum.in_review
 
 INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
     "Encargado de practica",
@@ -443,6 +445,11 @@ class InternshipService:
                 internship,
                 "final_result",
                 FinalResultEnum.pending,
+            ),
+            dirae_status=getattr(
+                internship,
+                "dirae_status",
+                DiraeStatusEnum.not_started,
             ),
             start_date=internship.start_date,
             end_date=internship.end_date,
@@ -796,10 +803,10 @@ class InternshipService:
         actor: User,
         comment: str | None,
     ) -> Internship:
-        """Deriva la practica hacia revision por DIRAE.
+        """Inicia la revision local del expediente DIRAE.
 
-        Requiere permiso ``derive`` y comentario obligatorio. No permite
-        derivar practicas en estados terminales.
+        Requiere permiso ``derive`` y comentario obligatorio. No modifica el
+        estado administrativo de la solicitud; solo cambia ``dirae_status``.
 
         Args:
             internship_id: Identificador unico de la practica.
@@ -807,47 +814,108 @@ class InternshipService:
             comment: Comentario obligatorio para la derivacion.
 
         Returns:
-            La entidad ``Internship`` actualizada al estado ``En revisión DIRAE``.
+            La entidad ``Internship`` con ``dirae_status`` actualizado.
 
         Raises:
             HTTPException 400: Si no se proporciona comentario.
             HTTPException 403: Si el actor no tiene permiso ``derive``.
             HTTPException 404: Si la practica no existe.
-            HTTPException 409: Si la practica esta en estado terminal.
+            HTTPException 409: Si la solicitud no esta aprobada, la practica no
+                esta finalizada o el expediente ya esta en revision.
         """
         logger.info("Procesando derivación a DIRAE para práctica ID: %s por actor ID: %s", internship_id, actor.id)
         self._require_action(actor, "derive")
         self._require_comment(comment, "derive")
-        internship = await self._get_or_404(internship_id)
-        current_title = self._status_title_or_default(internship.status)
-
-        if current_title in TERMINAL_STATES:
-            logger.warning("Intento de derivar práctica ID: %s fallido. Ya está en estado terminal: %s", internship_id, current_title)
-            raise HTTPException(
-                status_code=409,
-                detail=f"No se puede derivar una práctica en estado terminal: {current_title}.",
-            )
-
-        result = await self._do_transition(
-            internship=internship,
-            new_status_title=IN_REVIEW_DIRAE_STATUS_TITLE,
-            actor_id=actor.id,
+        return await self.update_dirae_status(
+            internship_id=internship_id,
+            actor=actor,
+            new_status=DIRAE_REVIEW_START_STATUS,
             reason=comment,
-            metadata={"action": "derive"},
         )
 
-        logger.info("Práctica ID: %s derivada correctamente a DIRAE. Despachando notificación...", result.id)
-        await self._dispatch_notification(
-            build_internship_derived_notification(
-                recipient_user_id=result.user_id,
-                recipient_email=result.student.email if result.student else None,
-                internship_id=result.id,
-                org_name=result.org_name,
-                reason=comment,
-            ),
+    async def update_dirae_status(
+        self,
+        internship_id: int,
+        actor: User,
+        new_status: DiraeStatusEnum,
+        reason: str | None,
+    ) -> Internship:
+        """Actualiza el estado local del expediente DIRAE con trazabilidad."""
+
+        self._require_action(actor, "derive")
+        self._require_comment(reason, "derive")
+        internship = await self._get_or_404(internship_id)
+        self._validate_dirae_status_transition(internship, new_status)
+
+        result = await self.internship_repository.update_internship_dirae_status_with_history(
+            internship=internship,
+            new_status=new_status,
+            actor_id=actor.id,
+            reason=reason,
+        )
+
+        logger.info(
+            "Expediente DIRAE de práctica ID: %s actualizado a %s por actor ID: %s",
+            result.id,
+            new_status.value,
+            actor.id,
         )
 
         return result
+
+    def _validate_dirae_status_transition(
+        self,
+        internship: Internship,
+        new_status: DiraeStatusEnum,
+    ) -> None:
+        current_status = getattr(
+            internship,
+            "dirae_status",
+            DiraeStatusEnum.not_started,
+        )
+
+        if current_status == new_status:
+            raise HTTPException(
+                status_code=409,
+                detail=f"DIRAE status is already {new_status.value}.",
+            )
+
+        if new_status == DiraeStatusEnum.in_review:
+            self._require_dirae_review_start_conditions(internship)
+            return
+
+        raise HTTPException(
+            status_code=409,
+            detail=f"Invalid DIRAE status transition to {new_status.value}.",
+        )
+
+    def _require_dirae_review_start_conditions(self, internship: Internship) -> None:
+        current_title = self._status_title_or_default(internship.status)
+        if current_title != APPROVED_STATUS_TITLE:
+            raise HTTPException(
+                status_code=409,
+                detail="DIRAE review requires an approved internship request.",
+            )
+
+        if internship.completion_status != CompletionStatusEnum.finalized:
+            raise HTTPException(
+                status_code=409,
+                detail="DIRAE review requires a finalized internship.",
+            )
+
+    async def list_internship_dirae_tracking(
+        self,
+        internship_id: int,
+    ) -> list[InternshipDiraeStatusHistoryResponse]:
+        """Lista el historial local del expediente DIRAE."""
+
+        history = await self.internship_repository.list_internship_dirae_status_history(
+            internship_id,
+        )
+        return [
+            InternshipDiraeStatusHistoryResponse.model_validate(entry)
+            for entry in history
+        ]
 
     async def update_admin_fields(
         self,

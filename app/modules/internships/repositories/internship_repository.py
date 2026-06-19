@@ -25,8 +25,12 @@ from app.modules.internships.models.induction_model import (
     InductionVideo,
 )
 from app.modules.internships.models.internship_exception_model import InternshipException
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
+)
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
+    DiraeStatusEnum,
     FinalResultEnum,
     Internship,
     PracticeTypeEnum,
@@ -287,6 +291,54 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def list_internship_dirae_status_history(
+        self,
+        internship_id: int,
+    ) -> list[InternshipDiraeStatusHistory]:
+        """Lista el historial local del expediente DIRAE."""
+
+        query = (
+            select(InternshipDiraeStatusHistory)
+            .where(InternshipDiraeStatusHistory.internship_id == internship_id)
+            .options(selectinload(InternshipDiraeStatusHistory.actor))
+            .order_by(
+                InternshipDiraeStatusHistory.changed_at.asc(),
+                InternshipDiraeStatusHistory.id.asc(),
+            )
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def update_internship_dirae_status_with_history(
+        self,
+        internship: Internship,
+        new_status: DiraeStatusEnum,
+        actor_id: int,
+        reason: str | None,
+    ) -> Internship:
+        """Actualiza el estado DIRAE sin modificar el estado administrativo."""
+
+        previous_status = internship.dirae_status
+        internship.dirae_status = new_status
+        self.db.add(
+            InternshipDiraeStatusHistory(
+                internship_id=internship.id,
+                previous_status=previous_status,
+                new_status=new_status,
+                actor_id=actor_id,
+                reason=reason,
+            )
+        )
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
 
     async def update_internship_status_with_history(
         self,

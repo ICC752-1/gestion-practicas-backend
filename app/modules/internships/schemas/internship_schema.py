@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
+    DiraeStatusEnum,
     FinalResultEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -128,6 +129,20 @@ class InternshipTrackingResponse(BaseModel):
     )
 
 
+class InternshipDiraeStatusHistoryResponse(BaseModel):
+    """Entrada del historial local del expediente documental DIRAE."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    internship_id: int
+    previous_status: DiraeStatusEnum | None
+    new_status: DiraeStatusEnum
+    actor: InternshipTrackingActorResponse | None
+    reason: str | None
+    changed_at: datetime
+
+
 class InternshipDashboardStudentResponse(BaseModel):
     """Informacion basica del estudiante para el dashboard coordinador."""
 
@@ -150,6 +165,7 @@ class InternshipDashboardListItem(BaseModel):
     internship_type: PracticeTypeEnum
     completion_status: CompletionStatusEnum
     final_result: FinalResultEnum
+    dirae_status: DiraeStatusEnum
     start_date: date
     end_date: date
     upload_date: datetime
@@ -213,6 +229,7 @@ class InternshipResponse(BaseModel):
             mismo tipo para el mismo estudiante.
         completion_status: Estado del ciclo final de ejecución.
         final_result: Resultado final de la práctica.
+        dirae_status: Estado local del expediente documental DIRAE.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -252,6 +269,7 @@ class InternshipResponse(BaseModel):
     blocks_new_registration: bool
     completion_status: CompletionStatusEnum
     final_result: FinalResultEnum
+    dirae_status: DiraeStatusEnum
 
     exceptions: list["InternshipExceptionResponse"] = []
 
@@ -400,6 +418,7 @@ class InternshipActionResponse(BaseModel):
 
     id: int
     status_id: int | None
+    dirae_status: DiraeStatusEnum | None = None
     comment: str | None
 
 class InternshipExceptionRequest(BaseModel):

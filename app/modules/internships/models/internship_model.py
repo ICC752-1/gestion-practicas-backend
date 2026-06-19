@@ -49,6 +49,16 @@ class FinalResultEnum(str, enum.Enum):
     failed = "failed"
 
 
+class DiraeStatusEnum(str, enum.Enum):
+    """Estado local del expediente documental DIRAE."""
+
+    not_started = "not_started"
+    in_review = "in_review"
+    observed = "observed"
+    ready = "ready"
+    exported = "exported"
+
+
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
 
@@ -89,6 +99,7 @@ class Internship(Base):
             tipo para el mismo estudiante.
         completion_status: Estado del ciclo de ejecución/cierre de la práctica.
         final_result: Resultado final del ciclo de práctica.
+        dirae_status: Estado local del expediente documental DIRAE.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -210,6 +221,16 @@ class Internship(Base):
         default=FinalResultEnum.pending,
         nullable=False,
     )
+    dirae_status: Mapped[DiraeStatusEnum] = mapped_column(
+        PGEnum(
+            DiraeStatusEnum,
+            name="enumDiraeStatus",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        default=DiraeStatusEnum.not_started,
+        nullable=False,
+    )
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User", foreign_keys=[user_id])
@@ -218,6 +239,12 @@ class Internship(Base):
         "InternshipStatusHistory",
         back_populates="internship",
         cascade="all, delete-orphan",
+    )
+    dirae_status_history = relationship(
+        "InternshipDiraeStatusHistory",
+        back_populates="internship",
+        cascade="all, delete-orphan",
+        order_by="InternshipDiraeStatusHistory.changed_at",
     )
 
     exceptions = relationship(

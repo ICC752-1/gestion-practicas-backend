@@ -20,7 +20,7 @@ from app.modules.documents.models.document_model import (
 from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import DiraeStatusEnum, Internship
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -116,6 +116,7 @@ class DocumentPackage:
 
     internship_id: int
     status: str | None
+    dirae_status: DiraeStatusEnum
     exportable: bool
     reasons: list[str]
     student: DocumentPackageStudent
@@ -536,6 +537,11 @@ class DocumentService:
         return DocumentPackage(
             internship_id=internship.id,
             status=self._get_internship_status_title(internship),
+            dirae_status=getattr(
+                internship,
+                "dirae_status",
+                DiraeStatusEnum.not_started,
+            ),
             exportable=len(reasons) == 0,
             reasons=reasons,
             student=self._build_student_summary(internship),

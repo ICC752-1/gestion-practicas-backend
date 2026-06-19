@@ -22,6 +22,7 @@ CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induct
 CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
 CREATE TYPE "enumCompletionStatus" AS ENUM ('not_started', 'in_progress', 'pending_evaluations', 'pending_presentation', 'finalized');
 CREATE TYPE "enumFinalResult" AS ENUM ('pending', 'passed', 'failed');
+CREATE TYPE "enumDiraeStatus" AS ENUM ('not_started', 'in_review', 'observed', 'ready', 'exported');
 
 -- 2. Creación de Tablas
 
@@ -133,6 +134,7 @@ CREATE TABLE Internship (
     blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
     completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
     final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
+    dirae_status "enumDiraeStatus" NOT NULL DEFAULT 'not_started',
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
@@ -153,6 +155,16 @@ CREATE TABLE internship_status_history (
     reason TEXT,
     changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     metadata JSONB
+);
+
+CREATE TABLE internship_dirae_status_history (
+    id SERIAL PRIMARY KEY,
+    internship_id INTEGER NOT NULL REFERENCES Internship(id),
+    previous_status "enumDiraeStatus",
+    new_status "enumDiraeStatus" NOT NULL,
+    actor_id INTEGER REFERENCES Users(id),
+    reason TEXT,
+    changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE DocumentType (

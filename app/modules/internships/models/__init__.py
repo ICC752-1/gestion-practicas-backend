@@ -8,6 +8,9 @@ from app.modules.internships.models.induction_model import (
     InductionVideo,
 )
 from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
+)
 from app.modules.internships.models.internship_exception_model import InternshipException
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -24,6 +27,7 @@ __all__ = [
     "InductionQuestion",
     "InductionVideo",
     "Internship",
+    "InternshipDiraeStatusHistory",
     "InternshipException",
     "InternshipStatusHistory",
     "StudentInternshipRequirement",

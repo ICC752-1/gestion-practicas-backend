@@ -161,6 +161,7 @@ class FakeDocumentService:
         return SimpleNamespace(
             internship_id=internship_id,
             status="Aprobada",
+            dirae_status="not_started",
             exportable=True,
             reasons=[],
             student=SimpleNamespace(
