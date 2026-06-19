@@ -2,6 +2,7 @@ import pytest
 
 from scripts.seed_demo import (
     DEMO_USERS,
+    DEMO_INDUCTION_TITLE,
     INDUCTION_CORRECT_ANSWER,
     INDUCTION_OPTIONS,
     _ensure_not_production,
@@ -55,3 +56,7 @@ def test_seed_demo_induction_uses_stable_answer_keys() -> None:
         "reject": "No acepto",
     }
     assert INDUCTION_CORRECT_ANSWER == "accept"
+
+
+def test_seed_demo_uses_single_named_active_induction() -> None:
+    assert DEMO_INDUCTION_TITLE == "Induccion demo QA publicada"

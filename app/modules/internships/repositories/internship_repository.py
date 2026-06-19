@@ -588,6 +588,11 @@ class InternshipRepository:
                 selectinload(InductionContentVersion.videos),
                 selectinload(InductionContentVersion.questions),
             )
+            .order_by(
+                InductionContentVersion.published_at.desc().nullslast(),
+                InductionContentVersion.id.desc(),
+            )
+            .limit(1)
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()

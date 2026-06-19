@@ -77,6 +77,7 @@ STUDENT_OTHER_EMAIL = "estudiante.otro@ufromail.cl"
 LEGACY_DEMO_EMAILS = ("estudiante.demo@correo.cl", "estudiante.otro@correo.cl")
 INDUCTION_OPTIONS = {"accept": "Entiendo y acepto", "reject": "No acepto"}
 INDUCTION_CORRECT_ANSWER = "accept"
+DEMO_INDUCTION_TITLE = "Induccion demo QA publicada"
 
 DEMO_USERS = [
     {
@@ -305,13 +306,14 @@ class DemoSeeder:
         return {state.title: state for state in result.scalars().all()}
 
     async def _ensure_induction(self, context: SeedContext) -> None:
+        await self._deactivate_other_active_inductions()
         query = select(InductionContentVersion).where(
-            InductionContentVersion.title == "Induccion demo QA publicada"
+            InductionContentVersion.title == DEMO_INDUCTION_TITLE
         )
         content = (await self.session.execute(query)).scalar_one_or_none()
         if content is None:
             content = InductionContentVersion(
-                title="Induccion demo QA publicada",
+                title=DEMO_INDUCTION_TITLE,
                 description="Version publicada para escenarios demo de QA.",
                 status=ContentStatusEnum.published,
                 is_active=True,
@@ -352,6 +354,20 @@ class DemoSeeder:
             question=question,
             passed=True,
         )
+
+    async def _deactivate_other_active_inductions(self) -> None:
+        result = await self.session.execute(
+            select(InductionContentVersion).where(
+                InductionContentVersion.is_active.is_(True),
+                InductionContentVersion.title != DEMO_INDUCTION_TITLE,
+            )
+        )
+        versions = list(result.scalars().all())
+        for version in versions:
+            version.is_active = False
+
+        if versions:
+            self.stats["updated"] += len(versions)
 
     async def _ensure_demo_induction_question(
         self,
