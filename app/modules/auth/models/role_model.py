@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 from app.core.database.database import Base
+from app.modules.auth.utils.roles import SYSTEM_ROLE_NAMES
 
 
 class Role(Base):
@@ -32,11 +33,7 @@ class Role(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
         PGEnum(
-            "Estudiante",
-            "Supervisor de practica",
-            "Encargado de practica",
-            "Director de carrera",
-            "Secretaria de Carrera",
+            *SYSTEM_ROLE_NAMES,
             name="enumRole",
             create_type=False,
         ),

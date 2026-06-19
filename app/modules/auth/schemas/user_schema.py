@@ -66,6 +66,7 @@ class UserCreateRequest(BaseModel):
     position: str | None = Field(default=None, max_length=100)
     departament: str | None = Field(default=None, max_length=100)
     sup_phone: str | None = Field(default=None, max_length=100)
+    role_ids: list[int] = Field(default_factory=list)
 
     @field_validator("rut")
     @classmethod
@@ -184,6 +185,21 @@ class UserResponse(BaseModel):
     is_active: bool
     is_verified: bool
     created_at: datetime
+
+
+class UserAdminResponse(UserResponse):
+    """Respuesta administrativa con roles actuales del usuario."""
+
+    roles: list[str]
+
+
+class UserListResponse(BaseModel):
+    """Respuesta paginada para el panel de Superadmin."""
+
+    items: list[UserAdminResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class CurrentUserResponse(BaseModel):

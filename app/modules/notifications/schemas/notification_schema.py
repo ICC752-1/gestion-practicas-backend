@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from typing import List
 
 from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
@@ -24,7 +23,7 @@ class EmailNotificationRequest(BaseModel):
     con el flujo original de envio directo.
     """
 
-    to_emails: List[EmailStr] = Field(..., description="Lista de destinatarios")
+    to_emails: list[EmailStr] = Field(..., description="Lista de destinatarios")
     subject: str = Field(..., min_length=3, max_length=255)
     body: str = Field(..., min_length=1)
 
@@ -67,6 +66,18 @@ class NotificationListItemResponse(BaseModel):
     status: NotificationStatusEnum
     created_at: datetime
     sent_at: datetime | None = None
+    read_at: datetime | None = None
+    is_read: bool
+
+
+class NotificationListResponse(BaseModel):
+    """Respuesta paginada para notificaciones del usuario autenticado."""
+
+    items: list[NotificationListItemResponse]
+    total: int
+    unread_count: int
+    limit: int
+    offset: int
 
 
 class NotificationDetailResponse(BaseModel):
@@ -100,6 +111,21 @@ class NotificationDetailResponse(BaseModel):
     )
     created_at: datetime
     sent_at: datetime | None = None
+    read_at: datetime | None = None
+    is_read: bool
+
+
+class MarkNotificationsReadRequest(BaseModel):
+    """Payload para marcar varias notificaciones propias como leidas."""
+
+    notification_ids: list[int] = Field(default_factory=list)
+
+
+class MarkNotificationsReadResponse(BaseModel):
+    """Respuesta de operaciones idempotentes de lectura."""
+
+    updated_count: int
+    unread_count: int
 
 
 class NotificationRetryResponse(BaseModel):

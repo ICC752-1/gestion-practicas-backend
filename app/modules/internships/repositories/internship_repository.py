@@ -18,8 +18,11 @@ from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import (
+    ContentStatusEnum,
     InductionAttempt,
     InductionContentVersion,
+    InductionQuestion,
+    InductionVideo,
 )
 from app.modules.internships.models.internship_exception_model import InternshipException
 from app.modules.internships.models.internship_model import (
@@ -534,11 +537,91 @@ class InternshipRepository:
             select(InductionContentVersion)
             .where(InductionContentVersion.id == version_id)
             .options(
+                selectinload(InductionContentVersion.videos),
                 selectinload(InductionContentVersion.questions),
             )
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
+
+    async def list_induction_content_versions(self) -> list[InductionContentVersion]:
+        """Lista versiones de induccion para administracion."""
+
+        result = await self.db.execute(
+            select(InductionContentVersion)
+            .order_by(
+                InductionContentVersion.created_at.desc(),
+                InductionContentVersion.id.desc(),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def create_induction_content_version(
+        self,
+        version: InductionContentVersion,
+    ) -> InductionContentVersion:
+        """Crea un borrador de contenido de induccion."""
+
+        self.db.add(version)
+        await self.db.commit()
+        await self.db.refresh(version)
+        loaded = await self.get_induction_content_version_by_id(version.id)
+        return loaded or version
+
+    async def update_induction_content_version(
+        self,
+        version: InductionContentVersion,
+    ) -> InductionContentVersion:
+        """Actualiza un borrador de induccion y sus elementos hijos."""
+
+        await self.db.commit()
+        await self.db.refresh(version)
+        loaded = await self.get_induction_content_version_by_id(version.id)
+        return loaded or version
+
+    async def delete_induction_content_version(
+        self,
+        version: InductionContentVersion,
+    ) -> None:
+        """Elimina un borrador de induccion."""
+
+        await self.db.delete(version)
+        await self.db.commit()
+
+    async def publish_induction_content_version(
+        self,
+        version: InductionContentVersion,
+    ) -> InductionContentVersion:
+        """Publica una version y desactiva las demas para nuevos intentos."""
+
+        active_versions = await self.db.execute(
+            select(InductionContentVersion).where(
+                InductionContentVersion.is_active.is_(True)
+            )
+        )
+        for active_version in active_versions.scalars().all():
+            active_version.is_active = False
+
+        version.status = ContentStatusEnum.published
+        version.is_active = True
+        version.published_at = datetime.now(UTC).replace(tzinfo=None)
+        await self.db.commit()
+        await self.db.refresh(version)
+        loaded = await self.get_induction_content_version_by_id(version.id)
+        return loaded or version
+
+    def build_induction_children(
+        self,
+        *,
+        videos: list[dict],
+        questions: list[dict],
+    ) -> tuple[list[InductionVideo], list[InductionQuestion]]:
+        """Construye entidades hijas de induccion a partir de payloads validados."""
+
+        return (
+            [InductionVideo(**video) for video in videos],
+            [InductionQuestion(**question) for question in questions],
+        )
 
     async def create_induction_attempt(
         self,

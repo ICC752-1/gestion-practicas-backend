@@ -5,13 +5,20 @@ operaciones de persistencia relacionadas con la entidad `Notification` usando un
 sesion asincrona de SQLAlchemy.
 """
 
-from sqlalchemy import select
+from datetime import UTC, datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.notifications.models.notification_model import (
     Notification,
+    NotificationEventTypeEnum,
     NotificationStatusEnum,
 )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class NotificationRepository:
@@ -71,6 +78,10 @@ class NotificationRepository:
         user_id: int,
         limit: int = 50,
         offset: int = 0,
+        is_read: bool | None = None,
+        event_type: NotificationEventTypeEnum | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
     ) -> list[Notification]:
         """Lista notificaciones asociadas a un usuario destinatario.
 
@@ -83,16 +94,110 @@ class NotificationRepository:
             Lista de entidades `Notification` asociadas al usuario.
         """
 
-        query = (
-            select(Notification)
-            .where(Notification.recipient_user_id == user_id)
-            .order_by(Notification.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+        query = select(Notification).where(Notification.recipient_user_id == user_id)
+        query = self._apply_user_filters(
+            query=query,
+            is_read=is_read,
+            event_type=event_type,
+            created_from=created_from,
+            created_to=created_to,
         )
+        query = query.order_by(Notification.created_at.desc()).limit(limit).offset(offset)
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def count_by_recipient(
+        self,
+        user_id: int,
+        is_read: bool | None = None,
+        event_type: NotificationEventTypeEnum | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> int:
+        """Cuenta notificaciones del usuario autenticado con filtros opcionales."""
+
+        query = select(func.count(Notification.id)).where(
+            Notification.recipient_user_id == user_id
+        )
+        query = self._apply_user_filters(
+            query=query,
+            is_read=is_read,
+            event_type=event_type,
+            created_from=created_from,
+            created_to=created_to,
+        )
+        result = await self.db.execute(query)
+
+        return int(result.scalar_one())
+
+    async def count_unread_by_recipient(self, user_id: int) -> int:
+        """Cuenta notificaciones no leidas del usuario autenticado."""
+
+        query = select(func.count(Notification.id)).where(
+            Notification.recipient_user_id == user_id,
+            Notification.read_at.is_(None),
+        )
+        result = await self.db.execute(query)
+
+        return int(result.scalar_one())
+
+    async def mark_as_read_for_recipient(
+        self,
+        *,
+        user_id: int,
+        notification_ids: list[int] | None = None,
+    ) -> int:
+        """Marca notificaciones propias como leidas de forma idempotente."""
+
+        query = select(Notification).where(
+            Notification.recipient_user_id == user_id,
+            Notification.read_at.is_(None),
+        )
+
+        if notification_ids is not None:
+            if not notification_ids:
+                return 0
+            query = query.where(Notification.id.in_(notification_ids))
+
+        result = await self.db.execute(query)
+        notifications = list(result.scalars().all())
+
+        if not notifications:
+            return 0
+
+        now = _utc_now()
+        for notification in notifications:
+            notification.read_at = now
+
+        await self.db.commit()
+
+        return len(notifications)
+
+    @staticmethod
+    def _apply_user_filters(
+        *,
+        query,
+        is_read: bool | None,
+        event_type: NotificationEventTypeEnum | None,
+        created_from: datetime | None,
+        created_to: datetime | None,
+    ):
+        if is_read is True:
+            query = query.where(Notification.read_at.is_not(None))
+        elif is_read is False:
+            query = query.where(Notification.read_at.is_(None))
+
+        if event_type is not None:
+            query = query.where(Notification.event_type == event_type)
+
+        if created_from is not None:
+            query = query.where(Notification.created_at >= created_from)
+
+        if created_to is not None:
+            query = query.where(Notification.created_at <= created_to)
+
+        return query
 
     async def get_by_status(
         self,
