@@ -29,6 +29,12 @@ class Config(BaseSettings):
 
     # Documentos
     DOCUMENT_STORAGE_DIR: str = "storage/documents"
+    PRESENTATION_LETTER_STORAGE_DIR: str = "storage/presentation_letters"
+    PRESENTATION_LETTER_DOCX_TEMPLATE_PATH: str = (
+        "app/core/assets/presentation_letter_template.docx"
+    )
+    LIBREOFFICE_BINARY: str = "libreoffice"
+    LIBREOFFICE_TIMEOUT_SECONDS: int = 60
     DOCUMENT_MAX_BYTES: int = 10485760
     DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
     DOCUMENT_RETENTION_DAYS: int = 0
