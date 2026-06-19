@@ -344,21 +344,27 @@ async def test_upload_document_reads_file_and_returns_metadata(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_update_document_status_rejects_student_role() -> None:
+@pytest.mark.parametrize("role", ["Estudiante", "FICA"])
+async def test_update_document_status_rejects_non_document_admin_roles(
+    role: str,
+) -> None:
     role_checker = require_roles(DOCUMENT_ADMIN_ROLES)
 
     with pytest.raises(HTTPException) as exc:
-        await role_checker(_user(10, ["Estudiante"]))
+        await role_checker(_user(10, [role]))
 
     assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_document_packages_rejects_student_role() -> None:
+@pytest.mark.parametrize("role", ["Estudiante", "FICA"])
+async def test_export_dirae_document_packages_rejects_non_document_admin_roles(
+    role: str,
+) -> None:
     role_checker = require_roles(DOCUMENT_ADMIN_ROLES)
 
     with pytest.raises(HTTPException) as exc:
-        await role_checker(_user(10, ["Estudiante"]))
+        await role_checker(_user(10, [role]))
 
     assert exc.value.status_code == 403
 

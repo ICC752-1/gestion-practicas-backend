@@ -377,6 +377,19 @@ async def test_list_documents_rejects_cross_access(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_list_documents_rejects_fica_role(tmp_path):
+    service = _service(tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.list_internship_documents(
+            internship_id=7,
+            actor=_user(99, "FICA"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_download_allows_owner_and_rejects_cross_access(tmp_path):
     repository = FakeDocumentRepository()
     document = _document(user_id=10)
@@ -396,6 +409,24 @@ async def test_download_allows_owner_and_rejects_cross_access(tmp_path):
         await service.prepare_download(
             document_id=document.id,
             actor=_user(99, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_download_rejects_fica_role(tmp_path):
+    repository = FakeDocumentRepository()
+    document = _document(user_id=10)
+    (tmp_path / document.file_path).parent.mkdir(parents=True)
+    (tmp_path / document.file_path).write_bytes(b"data")
+    repository.documents_by_id[document.id] = document
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.prepare_download(
+            document_id=document.id,
+            actor=_user(99, "FICA"),
         )
 
     assert exc.value.status_code == 403
@@ -795,6 +826,20 @@ async def test_package_access_rejects_cross_student(tmp_path):
         await service.get_document_package(
             internship_id=7,
             actor=_user(99, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_package_access_rejects_fica_role(tmp_path):
+    repository = _package_repository()
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.get_document_package(
+            internship_id=7,
+            actor=_user(99, "FICA"),
         )
 
     assert exc.value.status_code == 403

@@ -5,7 +5,7 @@ administrativas y la gestion de requisitos del estudiante.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,6 +50,12 @@ IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
 APPROVED_STATUS_TITLE = "Aprobada"
 REJECTED_STATUS_TITLE = "Rechazada"
 LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+
+
+def _utc_now_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 STATUS_LABEL_TO_ADMIN_FILTER: dict[str, AdminInternshipStatusFilter] = {
     PENDING_STATUS_TITLE: "submitted",
     IN_REVIEW_STATUS_TITLE: "in_review",
@@ -279,7 +285,7 @@ class AdminService:
 
         previous_status = requirement.status
         requirement.status = payload.status
-        requirement.status_updated_at = datetime.now(timezone.utc)
+        requirement.status_updated_at = _utc_now_naive()
         requirement.status_updated_by = updated_by_user_id
 
         updated_requirement = (
@@ -354,7 +360,7 @@ class AdminService:
 
         requirement.is_completed = payload.is_completed
         requirement.completed_at = (
-            datetime.now(timezone.utc) if payload.is_completed else None
+            _utc_now_naive() if payload.is_completed else None
         )
         requirement.updated_by = updated_by_user_id
 

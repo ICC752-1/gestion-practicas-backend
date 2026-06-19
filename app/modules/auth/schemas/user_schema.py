@@ -164,6 +164,7 @@ class UserResponse(BaseModel):
         sup_phone: Telefono del supervisor.
         is_active: Indica si la cuenta está activa.
         is_verified: Indica si la cuenta ha sido verificada.
+        must_change_password: Indica si debe reemplazar la credencial temporal.
         created_at: Marca temporal de creación del usuario.
     """
 
@@ -184,6 +185,7 @@ class UserResponse(BaseModel):
     sup_phone: str | None
     is_active: bool
     is_verified: bool
+    must_change_password: bool = False
     created_at: datetime
 
 

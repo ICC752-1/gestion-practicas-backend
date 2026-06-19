@@ -53,6 +53,8 @@ async def test_create_user_normalizes_rut_and_phones() -> None:
     assert user.phone == "+56912345678"
     assert user.sup_phone == "+56987654321"
     assert user.password_hash == "hashed-my-secret-password"
+    assert user.must_change_password is True
+    assert user.is_verified is False
 
 
 async def test_update_user_normalizes_fields() -> None:

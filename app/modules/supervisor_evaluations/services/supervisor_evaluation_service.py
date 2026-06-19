@@ -34,6 +34,7 @@ from app.modules.supervisor_evaluations.schemas.supervisor_evaluation_schema imp
 INVITATION_TTL_DAYS = 14
 ADMIN_ROLES = {"Encargado de practica", "Director de carrera"}
 SUPERVISOR_ROLE = "Supervisor de practica"
+APPROVED_INTERNSHIP_STATUS = "Aprobada"
 
 
 class SupervisorEvaluationError(Exception):
@@ -63,6 +64,10 @@ def _student_name(internship: Internship) -> str:
     return f"{internship.student.first_name} {internship.student.last_name}".strip()
 
 
+def _is_approved_internship(internship: Internship) -> bool:
+    return internship.status is not None and internship.status.title == APPROVED_INTERNSHIP_STATUS
+
+
 class SupervisorEvaluationService:
     """Orquesta invitaciones, consulta publica y envio de evaluaciones."""
 
@@ -89,6 +94,8 @@ class SupervisorEvaluationService:
             raise SupervisorEvaluationError(404, "Internship not found")
         if internship.is_cancelled:
             raise SupervisorEvaluationError(409, "Internship is cancelled")
+        if not _is_approved_internship(internship):
+            raise SupervisorEvaluationError(409, "Internship is not approved")
 
         existing_evaluation = await self.repository.get_evaluation_by_internship(
             internship_id
@@ -247,6 +254,8 @@ class SupervisorEvaluationService:
             raise SupervisorEvaluationError(410, "Supervisor invitation expired")
         if invitation.internship is None or invitation.internship.is_cancelled:
             raise SupervisorEvaluationError(409, "Internship is not available")
+        if not _is_approved_internship(invitation.internship):
+            raise SupervisorEvaluationError(409, "Internship is not approved")
 
         return invitation
 

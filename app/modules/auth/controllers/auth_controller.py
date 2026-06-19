@@ -22,6 +22,7 @@ from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
+    CompleteTemporaryPasswordRequest,
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
@@ -31,7 +32,10 @@ from app.modules.auth.schemas.user_schema import CurrentUserResponse
 
 from app.modules.auth.models.user_model import User
 
-from app.modules.auth.services.auth_service import AuthService
+from app.modules.auth.services.auth_service import (
+    AuthService,
+    TemporaryPasswordChangeRequiredError,
+)
 from app.modules.auth.services.google_oauth_service import (
     GoogleOAuthError,
     GoogleOAuthService,
@@ -125,12 +129,48 @@ async def login(
             password=credentials.password,
         )
 
+    except TemporaryPasswordChangeRequiredError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="TEMPORARY_PASSWORD_CHANGE_REQUIRED",
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.post("/complete-temporary-password", status_code=status.HTTP_204_NO_CONTENT)
+async def complete_temporary_password(
+    payload: CompleteTemporaryPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Reemplaza una credencial temporal de un solo uso por contraseña definitiva."""
+
+    user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        await auth_service.complete_temporary_password_change(
+            email=payload.email,
+            temporary_password=payload.temporary_password,
+            new_password=payload.new_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/refresh", response_model=TokenResponse)

@@ -136,6 +136,19 @@ async def test_generate_invitation_returns_demo_link_in_simulated_mode() -> None
     assert repository.invitation.token_hash != response.demo_token
 
 
+async def test_generate_invitation_requires_approved_internship() -> None:
+    repository = FakeRepository()
+    repository.internship = _internship(status=SimpleNamespace(title="Pendiente"))
+    service = _service(repository=repository)
+
+    with pytest.raises(SupervisorEvaluationError) as exc_info:
+        await service.generate_invitation(internship_id=10, actor=_user())
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Internship is not approved"
+    assert repository.invitation is None
+
+
 async def test_public_form_exposes_minimum_information_for_valid_token() -> None:
     repository = FakeRepository()
     service = _service(repository=repository)
@@ -147,6 +160,19 @@ async def test_public_form_exposes_minimum_information_for_valid_token() -> None
     assert response.student_name == "Ana Perez"
     assert response.supervisor_name == "Roberto Saez"
     assert len(response.criteria) == len(CRITERIA_KEYS)
+
+
+async def test_public_form_rejects_invitation_when_internship_stops_being_approved() -> None:
+    repository = FakeRepository()
+    service = _service(repository=repository)
+    invitation = await service.generate_invitation(internship_id=10, actor=_user())
+    repository.internship.status = SimpleNamespace(title="Rechazada")
+
+    with pytest.raises(SupervisorEvaluationError) as exc_info:
+        await service.get_public_evaluation_form(invitation.demo_token)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Internship is not approved"
 
 
 async def test_expired_invitation_is_rejected() -> None:
@@ -183,7 +209,8 @@ async def test_submit_evaluation_marks_token_used_and_prevents_reuse() -> None:
     assert exc_info.value.status_code == 409
 
 
-async def test_secretary_cannot_read_supervisor_evaluation() -> None:
+@pytest.mark.parametrize("role", ["Secretaria de Carrera", "FICA"])
+async def test_non_admin_role_cannot_read_supervisor_evaluation(role: str) -> None:
     repository = FakeRepository()
     repository.evaluation = SimpleNamespace(id=1, internship_id=10)
     service = _service(repository=repository)
@@ -191,7 +218,7 @@ async def test_secretary_cannot_read_supervisor_evaluation() -> None:
     with pytest.raises(SupervisorEvaluationError) as exc_info:
         await service.get_evaluation_for_user(
             internship_id=10,
-            actor=_user(roles=["Secretaria de Carrera"]),
+            actor=_user(roles=[role]),
         )
 
     assert exc_info.value.status_code == 403

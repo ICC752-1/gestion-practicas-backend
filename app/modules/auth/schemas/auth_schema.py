@@ -18,6 +18,14 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
+
+class CompleteTemporaryPasswordRequest(BaseModel):
+    """Payload para reemplazar una credencial temporal de un solo uso."""
+
+    email: EmailStr
+    temporary_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
 class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
 

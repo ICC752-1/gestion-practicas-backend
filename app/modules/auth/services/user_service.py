@@ -70,6 +70,7 @@ class UserService:
             sup_phone=normalize_phone(payload.sup_phone) if payload.sup_phone else None,
             is_active=True,
             is_verified=False,
+            must_change_password=True,
         )
         user = await self.user_repository.create_user(user)
 

@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.modules.auth.schemas.token_schema import TokenResponse
-from app.modules.auth.services.auth_service import AuthService
+from app.modules.auth.services.auth_service import (
+    AuthService,
+    TemporaryPasswordChangeRequiredError,
+)
 
 
 class FakeUserRepository:
@@ -11,6 +14,7 @@ class FakeUserRepository:
         self.user = user
         self.requested_email = None
         self.requested_user_id = None
+        self.updated_user = None
 
     async def get_user_by_email(self, email: str):
         self.requested_email = email
@@ -19,6 +23,10 @@ class FakeUserRepository:
     async def get_user_by_id(self, user_id: int):
         self.requested_user_id = user_id
         return self.user
+
+    async def update_user(self, user):
+        self.updated_user = user
+        return user
 
 
 class FakePasswordService:
@@ -29,6 +37,9 @@ class FakePasswordService:
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         self.calls.append((plain_password, hashed_password))
         return self.is_valid
+
+    def hash_password(self, password: str) -> str:
+        return f"hashed-{password}"
 
 
 class FakeTokenService:
@@ -98,11 +109,13 @@ class FakeRefreshTokenRepository:
         return getattr(refresh_token, "is_valid", True)
 
 
-def _user(is_active: bool = True):
+def _user(is_active: bool = True, must_change_password: bool = False):
     return SimpleNamespace(
         id=1,
         email="user@example.com",
         is_active=is_active,
+        must_change_password=must_change_password,
+        is_verified=not must_change_password,
         password_hash="hashed",
         roles=[SimpleNamespace(role=SimpleNamespace(name="Estudiante"))],
     )
@@ -199,6 +212,43 @@ async def test_login_returns_tokens_for_valid_credentials() -> None:
     assert persisted_refresh_token.token_hash == "hashed-refresh-token"
     assert persisted_refresh_token.token_hash != response.refresh_token
     assert persisted_refresh_token.expires_at is not None
+
+
+async def test_login_requires_temporary_password_change_before_session() -> None:
+    user = _user(must_change_password=True)
+    service, _, _, _, refresh_token_repository = _service(user=user)
+
+    with pytest.raises(TemporaryPasswordChangeRequiredError):
+        await service.login("user@example.com", "temporary-secret")
+
+    assert refresh_token_repository.created_refresh_token is None
+
+
+async def test_complete_temporary_password_replaces_hash_and_clears_flag() -> None:
+    user = _user(must_change_password=True)
+    service, repository, _, _, _ = _service(user=user)
+
+    await service.complete_temporary_password_change(
+        email="user@example.com",
+        temporary_password="temporary-secret",
+        new_password="new-secure-password",
+    )
+
+    assert repository.updated_user is user
+    assert user.password_hash == "hashed-new-secure-password"
+    assert user.must_change_password is False
+    assert user.is_verified is True
+
+
+async def test_complete_temporary_password_rejects_accounts_without_pending_change() -> None:
+    service, _, _, _, _ = _service(user=_user())
+
+    with pytest.raises(ValueError, match="Temporary password change is not required"):
+        await service.complete_temporary_password_change(
+            email="user@example.com",
+            temporary_password="current-password",
+            new_password="new-secure-password",
+        )
 
 
 async def test_create_session_for_user_returns_tokens_and_persists_refresh_token() -> None:

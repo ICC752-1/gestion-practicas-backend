@@ -21,6 +21,10 @@ from app.modules.auth.services.token_service import TokenService
 logger = logging.getLogger(__name__)
 
 
+class TemporaryPasswordChangeRequiredError(Exception):
+    """Indica que la credencial temporal debe reemplazarse antes de emitir sesión."""
+
+
 class AuthService:
     """Orquesta el flujo de autenticación y emisión de tokens.
 
@@ -229,6 +233,32 @@ class AuthService:
         if not user:
             raise ValueError("Invalid credentials")
 
+        if user.must_change_password:
+            raise TemporaryPasswordChangeRequiredError
+
         logger.info("User authenticated successfully")
 
         return await self.create_session_for_user(user)
+
+    async def complete_temporary_password_change(
+        self,
+        *,
+        email: str,
+        temporary_password: str,
+        new_password: str,
+    ) -> None:
+        """Reemplaza una credencial temporal valida por una contraseña definitiva."""
+
+        user = await self.authenticate_user(email, temporary_password)
+
+        if not user:
+            raise ValueError("Invalid credentials")
+        if not user.must_change_password:
+            raise ValueError("Temporary password change is not required")
+
+        user.password_hash = self.password_service.hash_password(new_password)
+        user.must_change_password = False
+        user.is_verified = True
+        await self.user_repository.update_user(user)
+
+        logger.info("Temporary password changed", extra={"user_id": user.id})

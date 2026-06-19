@@ -38,6 +38,7 @@ class FakeUserRepository:
         "Secretaria de Carrera",
         "Supervisor de practica",
         "Estudiante",
+        "FICA",
     ],
 )
 async def test_user_admin_policy_rejects_non_superadmin_roles(role: str) -> None:
