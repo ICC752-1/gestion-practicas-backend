@@ -14,6 +14,10 @@ from app.modules.documents.models.document_model import (
     DocumentStatusEnum,
 )
 from app.modules.documents.services.document_service import DocumentService
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    DiraeStatusEnum,
+)
 
 
 class FakeDocumentRepository:
@@ -30,6 +34,9 @@ class FakeDocumentRepository:
         self.created_document = None
         self.updated_document = None
         self.deleted_document = None
+        self.exported_internships = []
+        self.export_actor_id = None
+        self.export_reason = None
 
     async def list_active_document_types(self):
         return list(self.document_types.values())
@@ -99,6 +106,18 @@ class FakeDocumentRepository:
 
         return document
 
+    async def mark_internships_as_dirae_exported(
+        self,
+        internships,
+        actor_id,
+        reason,
+    ):
+        self.exported_internships = internships
+        self.export_actor_id = actor_id
+        self.export_reason = reason
+        for internship in internships:
+            internship.dirae_status = DiraeStatusEnum.exported
+
 
 def _config(tmp_path, max_bytes: int = 10) -> SimpleNamespace:
     return SimpleNamespace(
@@ -138,11 +157,15 @@ def _student(user_id: int) -> SimpleNamespace:
 def _internship(
     user_id: int,
     status_title: str = "Pendiente",
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started,
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=7,
         user_id=user_id,
         status=_status(status_title),
+        completion_status=completion_status,
+        dirae_status=dirae_status,
         student=_student(user_id),
         org_name="Empresa Demo SpA",
         city="Temuco",
@@ -557,6 +580,8 @@ async def test_admin_can_soft_delete_approved_document(tmp_path):
 def _package_repository(
     *,
     status_title: str = "Aprobada",
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.finalized,
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.ready,
     documents: list[SimpleNamespace] | None = None,
     required_types: list[SimpleNamespace] | None = None,
 ) -> FakeDocumentRepository:
@@ -564,6 +589,8 @@ def _package_repository(
     repository.internship_by_id = _internship(
         user_id=10,
         status_title=status_title,
+        completion_status=completion_status,
+        dirae_status=dirae_status,
     )
     if required_types is None:
         required_types = [
@@ -649,6 +676,38 @@ async def test_package_not_exportable_when_internship_is_not_approved(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_package_not_exportable_when_practice_is_not_finalized(tmp_path):
+    repository = _package_repository(
+        completion_status=CompletionStatusEnum.pending_evaluations,
+    )
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["practice_not_finalized"]
+
+
+@pytest.mark.asyncio
+async def test_package_not_exportable_when_dirae_status_is_not_ready(tmp_path):
+    repository = _package_repository(
+        dirae_status=DiraeStatusEnum.in_review,
+    )
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["dirae_not_ready"]
+
+
+@pytest.mark.asyncio
 async def test_package_not_exportable_when_required_document_missing(tmp_path):
     repository = _package_repository(documents=[])
     service = _service(tmp_path, repository=repository)
@@ -662,6 +721,34 @@ async def test_package_not_exportable_when_required_document_missing(tmp_path):
     assert package.reasons == ["missing_required_documents"]
     assert package.required_documents[0].status == "missing"
     assert package.required_documents[0].document is None
+
+
+@pytest.mark.asyncio
+async def test_package_not_exportable_when_observed_documents_are_pending(tmp_path):
+    repository = _package_repository()
+    document_type = repository.required_document_types[0]
+    approved = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=55,
+        document_type=document_type,
+    )
+    observed = _document(
+        status=DocumentStatusEnum.observed,
+        internship=repository.internship_by_id,
+        document_id=56,
+        document_type=document_type,
+    )
+    repository.package_documents = [approved, observed]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["observed_documents_pending"]
 
 
 @pytest.mark.asyncio
@@ -693,10 +780,20 @@ async def test_package_requires_all_required_document_types(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "document_status",
-    [DocumentStatusEnum.uploaded, DocumentStatusEnum.observed],
+    ("document_status", "expected_reasons"),
+    [
+        (DocumentStatusEnum.uploaded, ["missing_required_documents"]),
+        (
+            DocumentStatusEnum.observed,
+            ["missing_required_documents", "observed_documents_pending"],
+        ),
+    ],
 )
-async def test_package_ignores_non_approved_documents(tmp_path, document_status):
+async def test_package_ignores_non_approved_documents(
+    tmp_path,
+    document_status,
+    expected_reasons,
+):
     repository = _package_repository()
     repository.package_documents = [
         _document(
@@ -713,7 +810,7 @@ async def test_package_ignores_non_approved_documents(tmp_path, document_status)
     )
 
     assert package.exportable is False
-    assert package.reasons == ["missing_required_documents"]
+    assert package.reasons == expected_reasons
 
 
 @pytest.mark.asyncio
@@ -869,6 +966,10 @@ async def test_export_dirae_csv_authorized(tmp_path):
     assert export.audit_event.internship_ids == [7]
     assert export.audit_event.approved_document_ids == [55]
     assert export.audit_event.result == "generated"
+    assert repository.internship_by_id.dirae_status == DiraeStatusEnum.exported
+    assert repository.exported_internships == [repository.internship_by_id]
+    assert repository.export_actor_id == 99
+    assert repository.export_reason == "dirae_document_package_exported"
 
 
 @pytest.mark.asyncio
@@ -911,6 +1012,12 @@ async def test_export_dirae_csv_returns_409_for_requested_non_exportable(tmp_pat
         )
 
     assert exc.value.status_code == 409
+    assert exc.value.detail["internships"] == [
+        {
+            "internship_id": 7,
+            "reasons": ["internship_not_approved"],
+        },
+    ]
 
 
 @pytest.mark.asyncio
@@ -942,3 +1049,4 @@ async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
         "required_document_type_ids",
         "exported_at",
     ]
+    assert repository.exported_internships == []

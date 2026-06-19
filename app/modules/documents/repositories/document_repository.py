@@ -18,7 +18,10 @@ from app.modules.documents.models.document_model import (
     DocumentStatusEnum,
     DocumentType,
 )
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
+)
+from app.modules.internships.models.internship_model import DiraeStatusEnum, Internship
 
 
 class DocumentRepository:
@@ -175,6 +178,29 @@ class DocumentRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def mark_internships_as_dirae_exported(
+        self,
+        internships: list[Internship],
+        actor_id: int,
+        reason: str,
+    ) -> None:
+        """Marca practicas exportadas a DIRAE y registra historial local."""
+
+        for internship in internships:
+            previous_status = internship.dirae_status
+            internship.dirae_status = DiraeStatusEnum.exported
+            self.db.add(
+                InternshipDiraeStatusHistory(
+                    internship_id=internship.id,
+                    previous_status=previous_status,
+                    new_status=DiraeStatusEnum.exported,
+                    actor_id=actor_id,
+                    reason=reason,
+                )
+            )
+
+        await self.db.commit()
 
     async def create_document(self, document: Document) -> Document:
         """Persiste un documento.

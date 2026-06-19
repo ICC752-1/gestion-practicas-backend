@@ -122,7 +122,13 @@ class DocumentPackageResponse(BaseModel):
     dirae_status: DiraeStatusEnum
     exportable: bool
     reasons: list[
-        Literal["internship_not_approved", "missing_required_documents"]
+        Literal[
+            "internship_not_approved",
+            "practice_not_finalized",
+            "dirae_not_ready",
+            "missing_required_documents",
+            "observed_documents_pending",
+        ]
     ]
     student: DocumentPackageStudentResponse
     internship: DocumentPackageInternshipResponse

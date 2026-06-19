@@ -20,7 +20,11 @@ from app.modules.documents.models.document_model import (
 from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
-from app.modules.internships.models.internship_model import DiraeStatusEnum, Internship
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    DiraeStatusEnum,
+    Internship,
+)
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -41,9 +45,13 @@ DOCUMENT_ADMIN_ROLES = {
 TERMINAL_INTERNSHIP_STATES = {"Aprobada", "Rechazada", "Reprobada"}
 APPROVED_INTERNSHIP_STATE = "Aprobada"
 REASON_INTERNSHIP_NOT_APPROVED = "internship_not_approved"
+REASON_PRACTICE_NOT_FINALIZED = "practice_not_finalized"
+REASON_DIRAE_NOT_READY = "dirae_not_ready"
 REASON_MISSING_REQUIRED_DOCUMENTS = "missing_required_documents"
+REASON_OBSERVED_DOCUMENTS_PENDING = "observed_documents_pending"
 PACKAGE_DOCUMENT_APPROVED = "approved"
 PACKAGE_DOCUMENT_MISSING = "missing"
+DIRAE_EXPORTED_REASON = "dirae_document_package_exported"
 DIRAE_CSV_HEADER = [
     "internship_id",
     "student_id",
@@ -449,16 +457,30 @@ class DocumentService:
             "dirae_document_packages_"
             f"{exported_at:%Y%m%d_%H%M%S}.csv"
         )
+        content = self._build_dirae_csv(packages, exported_at)
+        audit_event = self._build_dirae_export_audit_event(
+            packages=packages,
+            actor=actor,
+            filename=filename,
+            exported_at=exported_at,
+        )
+
+        if packages:
+            packages_by_id = {package.internship_id: package for package in packages}
+            await self.repository.mark_internships_as_dirae_exported(
+                [
+                    internship
+                    for internship in internships
+                    if internship.id in packages_by_id
+                ],
+                actor.id,
+                DIRAE_EXPORTED_REASON,
+            )
 
         return DiraeDocumentPackageExport(
             filename=filename,
-            content=self._build_dirae_csv(packages, exported_at),
-            audit_event=self._build_dirae_export_audit_event(
-                packages=packages,
-                actor=actor,
-                filename=filename,
-                exported_at=exported_at,
-            ),
+            content=content,
+            audit_event=audit_event,
         )
 
     async def _get_internship_or_404(self, internship_id: int) -> Internship:
@@ -493,6 +515,7 @@ class DocumentService:
             internship.id,
         )
         selected_documents = self._select_latest_approved_documents(documents)
+        observed_documents_pending = self._has_observed_documents_pending(documents)
         required_type_ids = {document_type.id for document_type in required_types}
         required_documents = []
         missing_required = False
@@ -532,7 +555,11 @@ class DocumentService:
             and document.document_type is not None
         ]
 
-        reasons = self._get_package_reasons(internship, missing_required)
+        reasons = self._get_package_reasons(
+            internship,
+            missing_required,
+            observed_documents_pending,
+        )
 
         return DocumentPackage(
             internship_id=internship.id,
@@ -575,17 +602,34 @@ class DocumentService:
             and document.status != DocumentStatusEnum.deleted
         )
 
+    def _has_observed_documents_pending(self, documents: list[Document]) -> bool:
+        return any(
+            document.status == DocumentStatusEnum.observed
+            and document.deleted_at is None
+            for document in documents
+        )
+
     def _get_package_reasons(
         self,
         internship: Internship,
         missing_required: bool,
+        observed_documents_pending: bool,
     ) -> list[str]:
         reasons = []
         if self._get_internship_status_title(internship) != APPROVED_INTERNSHIP_STATE:
             reasons.append(REASON_INTERNSHIP_NOT_APPROVED)
 
+        if getattr(internship, "completion_status", None) != CompletionStatusEnum.finalized:
+            reasons.append(REASON_PRACTICE_NOT_FINALIZED)
+
+        if getattr(internship, "dirae_status", DiraeStatusEnum.not_started) != DiraeStatusEnum.ready:
+            reasons.append(REASON_DIRAE_NOT_READY)
+
         if missing_required:
             reasons.append(REASON_MISSING_REQUIRED_DOCUMENTS)
+
+        if observed_documents_pending:
+            reasons.append(REASON_OBSERVED_DOCUMENTS_PENDING)
 
         return reasons
 
