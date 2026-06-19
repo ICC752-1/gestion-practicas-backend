@@ -53,6 +53,7 @@ from app.modules.notifications.services.notification_service import (
 from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_approved_notification,
     build_internship_created_notification,
+    build_internship_derived_notification,
     build_internship_rejected_notification,
 )
 
@@ -883,6 +884,17 @@ class InternshipService:
             new_status.value,
             actor.id,
         )
+
+        if new_status == DiraeStatusEnum.in_review:
+            await self._dispatch_notification(
+                build_internship_derived_notification(
+                    recipient_user_id=result.user_id,
+                    recipient_email=result.student.email if result.student else None,
+                    internship_id=result.id,
+                    org_name=result.org_name,
+                    reason=reason,
+                ),
+            )
 
         return result
 
