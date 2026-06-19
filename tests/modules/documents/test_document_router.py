@@ -237,6 +237,8 @@ def test_documents_router_is_registered() -> None:
     )
     assert "/dirae/document-packages/export" in paths
     assert "GET" in _methods_for_path("/dirae/document-packages/export")
+    assert "/internships/{internship_id}/dirae-reopen" in paths
+    assert "POST" in _methods_for_path("/internships/{internship_id}/dirae-reopen")
 
 
 def test_download_document_requires_authentication() -> None:

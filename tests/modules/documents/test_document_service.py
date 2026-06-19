@@ -182,13 +182,14 @@ def _document_type(
     is_required: bool = True,
     name: str = "Formulario",
     is_sensitive: bool = False,
+    category: DocumentCategoryEnum = DocumentCategoryEnum.academic,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=document_type_id,
         name=name,
         description="Formulario de inscripción",
         is_required=is_required,
-        category=DocumentCategoryEnum.academic,
+        category=category,
         is_sensitive=is_sensitive,
         is_active=True,
     )
@@ -367,6 +368,139 @@ async def test_upload_rejects_terminal_internship(tmp_path):
         )
 
     assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_student_can_upload_correction_for_observed_document_after_approval(
+    tmp_path,
+):
+    repository = FakeDocumentRepository()
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    repository.listed_documents = [
+        _document(
+            status=DocumentStatusEnum.observed,
+            internship=repository.internship_by_id,
+            document_type=repository.document_types[1],
+        )
+    ]
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.upload_document(
+        internship_id=7,
+        document_type_id=1,
+        file_name="formulario-corregido.pdf",
+        content=b"data",
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert document is repository.created_document
+    assert document.user_id == 10
+    assert document.type_id == 1
+
+
+@pytest.mark.asyncio
+async def test_student_cannot_upload_new_document_after_approval_without_observation(
+    tmp_path,
+):
+    repository = FakeDocumentRepository()
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.upload_document(
+            internship_id=7,
+            document_type_id=1,
+            file_name="formulario.pdf",
+            content=b"data",
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_secretary_can_upload_non_sensitive_administrative_document(
+    tmp_path,
+):
+    repository = FakeDocumentRepository()
+    administrative_type = _document_type(
+        2,
+        name="Carta de aceptación",
+        category=DocumentCategoryEnum.administrative,
+    )
+    repository.document_types[2] = administrative_type
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.upload_document(
+        internship_id=7,
+        document_type_id=2,
+        file_name="carta.pdf",
+        content=b"data",
+        actor=_admin_user(),
+    )
+
+    assert document is repository.created_document
+    assert document.user_id == 99
+    assert document.type_id == 2
+
+
+@pytest.mark.asyncio
+async def test_secretary_cannot_upload_academic_document(tmp_path):
+    repository = FakeDocumentRepository()
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.upload_document(
+            internship_id=7,
+            document_type_id=1,
+            file_name="formulario.pdf",
+            content=b"data",
+            actor=_admin_user(),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_secretary_cannot_upload_sensitive_administrative_document(tmp_path):
+    repository = FakeDocumentRepository()
+    sensitive_type = _document_type(
+        2,
+        name="Seguro escolar",
+        is_sensitive=True,
+        category=DocumentCategoryEnum.administrative,
+    )
+    repository.document_types[2] = sensitive_type
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.upload_document(
+            internship_id=7,
+            document_type_id=2,
+            file_name="seguro.pdf",
+            content=b"data",
+            actor=_admin_user(),
+        )
+
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio

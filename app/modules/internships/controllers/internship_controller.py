@@ -788,6 +788,33 @@ async def derive_internship(
 
 
 @router.post(
+    "/{internship_id}/dirae-reopen",
+    response_model=InternshipActionResponse,
+)
+async def reopen_dirae_rectification(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Reabre el expediente DIRAE para rectificacion documental controlada."""
+
+    service = _build_service(db)
+    internship = await service.reopen_dirae_rectification(
+        internship_id,
+        current_user,
+        payload.comment,
+    )
+
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        dirae_status=internship.dirae_status,
+        comment=payload.comment,
+    )
+
+
+@router.post(
     "/{internship_id}/exceptions",
     response_model=InternshipExceptionResponse,
     status_code=status.HTTP_201_CREATED,

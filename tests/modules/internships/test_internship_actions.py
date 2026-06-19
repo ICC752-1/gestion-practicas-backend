@@ -410,3 +410,107 @@ class TestDerive:
             await service.derive(999, actor, comment="Motivo")
 
         assert exc.value.status_code == 404
+
+
+class TestDiraeRectification:
+
+    @pytest.mark.asyncio
+    async def test_reapertura_valida_desde_ready_registra_observed(self):
+        """Secretaría reabre un expediente listo para rectificación documental."""
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        result = await service.reopen_dirae_rectification(
+            internship.id,
+            actor,
+            reason="Observación documental posterior",
+        )
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+        assert result.dirae_status == DiraeStatusEnum.observed
+        service.internship_repository.update_internship_dirae_status_with_history.assert_awaited_once_with(
+            internship=internship,
+            new_status=DiraeStatusEnum.observed,
+            actor_id=actor.id,
+            reason="Observación documental posterior",
+        )
+
+    @pytest.mark.asyncio
+    async def test_reapertura_valida_desde_exported_registra_observed(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.exported,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        result = await service.reopen_dirae_rectification(
+            internship.id,
+            actor,
+            reason="Rectificación posterior a exportación",
+        )
+
+        assert result.dirae_status == DiraeStatusEnum.observed
+
+    @pytest.mark.asyncio
+    async def test_reapertura_exige_comentario(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason=" ",
+            )
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reapertura_rechaza_estado_no_reabrible(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.in_review,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason="Motivo",
+            )
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_reapertura_rechaza_rol_sin_permiso(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason="Motivo",
+            )
+
+        assert exc.value.status_code == 403

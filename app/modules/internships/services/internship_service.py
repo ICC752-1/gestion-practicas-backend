@@ -133,6 +133,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 EXCEPTABLE_RULES = {"school_insurance", "sequentiality", "sequentiality_thesis", "parallel_course"}
 APPROVED_STATUS_TITLE_SET = {APPROVED_STATUS_TITLE}
 DIRAE_REVIEW_START_STATUS = DiraeStatusEnum.in_review
+DIRAE_RECTIFICATION_STATUS = DiraeStatusEnum.observed
 
 INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
     "Encargado de practica",
@@ -833,6 +834,28 @@ class InternshipService:
             reason=comment,
         )
 
+    async def reopen_dirae_rectification(
+        self,
+        internship_id: int,
+        actor: User,
+        reason: str | None,
+    ) -> Internship:
+        """Reabre un expediente DIRAE para rectificacion documental."""
+
+        logger.info(
+            "Procesando reapertura DIRAE para práctica ID: %s por actor ID: %s",
+            internship_id,
+            actor.id,
+        )
+        self._require_action(actor, "derive")
+        self._require_comment(reason, "derive")
+        return await self.update_dirae_status(
+            internship_id=internship_id,
+            actor=actor,
+            new_status=DIRAE_RECTIFICATION_STATUS,
+            reason=reason,
+        )
+
     async def update_dirae_status(
         self,
         internship_id: int,
@@ -884,6 +907,10 @@ class InternshipService:
             self._require_dirae_review_start_conditions(internship)
             return
 
+        if new_status == DiraeStatusEnum.observed:
+            self._require_dirae_reopen_conditions(internship, current_status)
+            return
+
         raise HTTPException(
             status_code=409,
             detail=f"Invalid DIRAE status transition to {new_status.value}.",
@@ -901,6 +928,22 @@ class InternshipService:
             raise HTTPException(
                 status_code=409,
                 detail="DIRAE review requires a finalized internship.",
+            )
+
+    def _require_dirae_reopen_conditions(
+        self,
+        internship: Internship,
+        current_status: DiraeStatusEnum,
+    ) -> None:
+        self._require_dirae_review_start_conditions(internship)
+
+        if current_status not in {
+            DiraeStatusEnum.ready,
+            DiraeStatusEnum.exported,
+        }:
+            raise HTTPException(
+                status_code=409,
+                detail="DIRAE rectification can only reopen ready or exported packages.",
             )
 
     async def list_internship_dirae_tracking(

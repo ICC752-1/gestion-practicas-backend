@@ -14,6 +14,7 @@ from app.core.config import config
 from app.modules.auth.models.user_model import User
 from app.modules.documents.models.document_model import (
     Document,
+    DocumentCategoryEnum,
     DocumentStatusEnum,
     DocumentType,
 )
@@ -224,9 +225,6 @@ class DocumentService:
         """
 
         internship = await self._get_internship_or_404(internship_id)
-        self._require_owner(actor, internship)
-        self._require_uploadable_internship(internship)
-
         document_type = await self.repository.get_document_type_by_id(
             document_type_id,
         )
@@ -235,6 +233,8 @@ class DocumentService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document type not found",
             )
+
+        await self._require_upload_permission(actor, internship, document_type)
 
         normalized_name = self._normalize_file_name(file_name)
         extension = self._validate_extension(normalized_name)
@@ -920,6 +920,85 @@ class DocumentService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
             )
+
+    async def _require_upload_permission(
+        self,
+        actor: User,
+        internship: Internship,
+        document_type: DocumentType,
+    ) -> None:
+        if internship.user_id == actor.id:
+            await self._require_student_upload_permission(internship, document_type)
+            return
+
+        if self._is_secretary(actor):
+            self._require_secretary_upload_permission(internship, document_type)
+            return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    async def _require_student_upload_permission(
+        self,
+        internship: Internship,
+        document_type: DocumentType,
+    ) -> None:
+        status_title = self._get_internship_status_title(internship)
+        if status_title not in TERMINAL_INTERNSHIP_STATES:
+            return
+
+        if (
+            status_title == APPROVED_INTERNSHIP_STATE
+            and await self._has_observed_document_for_type(
+                internship.id,
+                document_type.id,
+            )
+        ):
+            return
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot upload documents for an internship in terminal "
+                f"state: {status_title}"
+            ),
+        )
+
+    def _require_secretary_upload_permission(
+        self,
+        internship: Internship,
+        document_type: DocumentType,
+    ) -> None:
+        if self._get_internship_status_title(internship) != APPROVED_INTERNSHIP_STATE:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Administrative document correction requires an approved internship request.",
+            )
+
+        if (
+            document_type.category != DocumentCategoryEnum.administrative
+            or self._is_sensitive_document_type(document_type)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+
+    async def _has_observed_document_for_type(
+        self,
+        internship_id: int,
+        document_type_id: int,
+    ) -> bool:
+        documents = await self.repository.list_documents_by_internship(internship_id)
+
+        return any(
+            document.type_id == document_type_id
+            and document.status == DocumentStatusEnum.observed
+            and document.deleted_at is None
+            for document in documents
+        )
 
     def _require_uploadable_internship(self, internship: Internship) -> None:
         status_title = self._get_internship_status_title(internship)
