@@ -7,7 +7,7 @@ informacion base de una practica profesional asociada a un estudiante.
 from datetime import UTC, date, datetime
 import enum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -67,6 +67,8 @@ class Internship(Base):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
+        blocks_new_registration: Indica si bloquea nuevas solicitudes del mismo
+            tipo para el mismo estudiante.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -163,6 +165,11 @@ class Internship(Base):
         nullable=True,
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blocks_new_registration: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User", foreign_keys=[user_id])
@@ -180,3 +187,12 @@ class Internship(Base):
         order_by="InternshipException.authorized_at",
         lazy="selectin",
     )
+
+
+Index(
+    "uq_internship_blocking_type_per_student",
+    Internship.user_id,
+    Internship.internship_type,
+    unique=True,
+    postgresql_where=text("blocks_new_registration IS TRUE"),
+)

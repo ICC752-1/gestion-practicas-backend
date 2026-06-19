@@ -127,11 +127,16 @@ CREATE TABLE Internship (
     cancelled_at TIMESTAMP,
     cancelled_by INTEGER REFERENCES Users(id),
     cancellation_reason TEXT,
+    blocks_new_registration BOOLEAN NOT NULL DEFAULT TRUE,
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),
     user_id INTEGER REFERENCES Users(id)
 );
+
+CREATE UNIQUE INDEX uq_internship_blocking_type_per_student
+ON Internship(user_id, internship_type)
+WHERE blocks_new_registration IS TRUE;
 
 CREATE TABLE internship_status_history (
     id SERIAL PRIMARY KEY,
@@ -344,8 +349,8 @@ INSERT INTO induction_questions (content_version_id, question_text, options, cor
 SELECT
     id,
     'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"choices": ["Entiendo y acepto", "No acepto"]}'::jsonb,
-    'Entiendo y acepto',
+    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
+    'accept',
     1
 FROM induction_content_versions
 WHERE title = 'Induccion obligatoria demo';

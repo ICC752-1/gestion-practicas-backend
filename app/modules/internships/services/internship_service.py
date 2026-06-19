@@ -4,11 +4,15 @@ Este modulo define `InternshipService`, encargado de coordinar los casos de uso
 del modulo `internships` y delegar operaciones de persistencia al repositorio.
 """
 import logging
+from types import SimpleNamespace
 
+from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from typing import Any
 
+from app.core.config import config
 from app.modules.internships.models.current_state_model import CurrentState
 from app.modules.internships.models.induction_model import InductionAttempt
 from app.modules.internships.models.internship_model import (
@@ -33,6 +37,9 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
     RegistrationEligibilityResponse,
+    DuplicateInternshipTypeDetail,
+    StudentInternshipActionAvailabilityResponse,
+    StudentInternshipUpdateRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_exception_model import InternshipException
@@ -128,6 +135,18 @@ INTERNSHIP_CREATION_NOTIFICATION_ROLES = {
     "Encargado de practica",
     "Director de carrera",
 }
+STUDENT_ALLOWED_HISTORY_ACTIONS = {
+    None,
+    "student_update",
+}
+STUDENT_BLOCKING_HISTORY_ACTIONS = {
+    "admin_update",
+    "approve",
+    "reject",
+    "derive",
+    "cancel",
+    "student_cancel",
+}
 
 
 class InternshipService:
@@ -143,6 +162,7 @@ class InternshipService:
         self,
         internship_repository: InternshipRepository,
         notification_service: NotificationService | None = None,
+        student_edit_window_hours: int | None = None,
     ) -> None:
         """Inicializa el servicio con sus dependencias.
 
@@ -152,10 +172,18 @@ class InternshipService:
             notification_service: Servicio de notificaciones para despachar
                 eventos tras acciones administrativas. Si es `None`, no se
                 generan notificaciones.
+            student_edit_window_hours: Ventana temporal para correcciones y
+                anulaciones recientes del propietario. Si es `None`, se usa la
+                configuracion de aplicacion.
         """
 
         self.internship_repository = internship_repository
         self.notification_service = notification_service
+        self.student_edit_window_hours = (
+            student_edit_window_hours
+            if student_edit_window_hours is not None
+            else config.STUDENT_EFFECTIVE_CORRECTION_WINDOW_HOURS
+        )
 
     async def create_internship(
         self,
@@ -186,21 +214,56 @@ class InternshipService:
         )
         data["has_school_insurance"] = insurance_req.is_completed if insurance_req else False
 
+        blocking_internship = (
+            await self.internship_repository.get_blocking_internship_for_registration(
+                user_id=user_id,
+                internship_type=internship_data.internship_type,
+            )
+        )
+        if blocking_internship is not None:
+            self._raise_duplicate_internship_type(blocking_internship)
+
+        has_induction = await self._has_passed_induction(user_id)
+        if not has_induction:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "induction_required",
+                    "message": (
+                        "Debe aprobar la inducción obligatoria antes de crear "
+                        "una solicitud de práctica."
+                    ),
+                },
+            )
+
         internship = Internship(
             **data,
             user_id=user_id,
             status_id=initial_status.id,
+            blocks_new_registration=True,
         )
 
-        created_internship = (
-            await self.internship_repository.create_internship_with_history(
-                internship=internship,
-                initial_status=initial_status,
-                actor_id=user_id,
-                reason=INITIAL_HISTORY_REASON,
-                metadata={"event": "internship_created"},
+        try:
+            created_internship = (
+                await self.internship_repository.create_internship_with_history(
+                    internship=internship,
+                    initial_status=initial_status,
+                    actor_id=user_id,
+                    reason=INITIAL_HISTORY_REASON,
+                    metadata={"event": "internship_created"},
+                )
             )
-        )
+        except IntegrityError:
+            await self.internship_repository.rollback()
+            blocking_internship = (
+                await self.internship_repository.get_blocking_internship_for_registration(
+                    user_id=user_id,
+                    internship_type=internship_data.internship_type,
+                )
+            )
+            if blocking_internship is not None:
+                self._raise_duplicate_internship_type(blocking_internship)
+            raise
 
         await self._dispatch_internship_created_notifications(created_internship)
 
@@ -881,6 +944,201 @@ class InternshipService:
             reason=clean_reason,
         )
 
+    async def get_student_action_availability(
+        self,
+        internship_id: int,
+        actor: User,
+    ) -> StudentInternshipActionAvailabilityResponse:
+        """Obtiene disponibilidad de correccion/anulacion para el propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante autenticado que consulta sus acciones.
+
+        Returns:
+            Disponibilidad y razones estables para que el frontend oculte
+            acciones no permitidas.
+
+        Raises:
+            HTTPException 403: Si el actor no es propietario de la practica.
+            HTTPException 404: Si la practica no existe.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+
+        return await self._build_student_action_availability(internship)
+
+    async def update_student_fields(
+        self,
+        internship_id: int,
+        actor: User,
+        payload: StudentInternshipUpdateRequest,
+    ) -> Internship:
+        """Corrige una solicitud reciente desde el estudiante propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante propietario.
+            payload: Campos permitidos y motivo obligatorio de correccion.
+
+        Returns:
+            La practica actualizada.
+
+        Raises:
+            HTTPException 400: Si falta motivo o no hay campos para corregir.
+            HTTPException 403: Si el actor no es propietario.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si el estado, ventana o historial lo bloquean.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+        await self._require_student_action_available(
+            internship,
+            action_label="corregir",
+        )
+
+        reason = payload.reason.strip()
+        if not reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de corrección es obligatorio.",
+            )
+
+        updates = payload.model_dump(exclude={"reason"}, exclude_none=True)
+        if not updates:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe informar al menos un campo editable.",
+            )
+
+        if (
+            "internship_type" in updates
+            and updates["internship_type"] != internship.internship_type
+            and internship.blocks_new_registration
+        ):
+            await self._require_no_blocking_internship_type(
+                user_id=actor.id,
+                internship_type=updates["internship_type"],
+                exclude_internship_id=internship.id,
+            )
+            await self._validate_updated_internship_type_rules(
+                internship=internship,
+                actor_id=actor.id,
+                new_internship_type=updates["internship_type"],
+            )
+
+        start_date = updates.get("start_date", internship.start_date)
+        end_date = updates.get("end_date", internship.end_date)
+        if end_date < start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de término no puede ser anterior a la fecha de inicio.",
+            )
+
+        try:
+            return await self.internship_repository.update_internship_admin_fields_with_history(
+                internship=internship,
+                updates=updates,
+                actor_id=actor.id,
+                reason=reason,
+                changed_fields=list(updates.keys()),
+                action="student_update",
+            )
+        except IntegrityError:
+            await self.internship_repository.rollback()
+            if "internship_type" in updates:
+                await self._require_no_blocking_internship_type(
+                    user_id=actor.id,
+                    internship_type=updates["internship_type"],
+                    exclude_internship_id=internship.id,
+                )
+            raise
+
+    async def cancel_by_student(
+        self,
+        internship_id: int,
+        actor: User,
+        reason: str,
+    ) -> Internship:
+        """Anula una solicitud reciente desde el estudiante propietario.
+
+        Args:
+            internship_id: Identificador de la practica.
+            actor: Estudiante propietario.
+            reason: Motivo obligatorio de anulacion.
+
+        Returns:
+            La practica marcada como anulada.
+
+        Raises:
+            HTTPException 400: Si falta el motivo.
+            HTTPException 403: Si el actor no es propietario.
+            HTTPException 404: Si la practica no existe.
+            HTTPException 409: Si el estado, ventana o historial lo bloquean.
+        """
+
+        internship = await self._get_or_404(internship_id)
+        self._require_student_owner(internship, actor)
+        await self._require_student_action_available(
+            internship,
+            action_label="anular",
+        )
+
+        clean_reason = reason.strip()
+        if not clean_reason:
+            raise HTTPException(
+                status_code=400,
+                detail="El motivo de anulación es obligatorio.",
+            )
+
+        return await self.internship_repository.cancel_internship_with_history(
+            internship=internship,
+            actor_id=actor.id,
+            reason=clean_reason,
+            action="student_cancel",
+        )
+
+    def _raise_duplicate_internship_type(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Responde con detalle estable cuando existe una solicitud bloqueante."""
+
+        detail = DuplicateInternshipTypeDetail(
+            code="duplicate_internship_type",
+            existing_internship_id=internship.id,
+            internship_type=internship.internship_type,
+            existing_status=self._status_title_or_default(internship.status),
+            message=(
+                "Ya existe una solicitud vigente para este tipo de práctica. "
+                "Revisa el registro existente antes de crear una nueva solicitud."
+            ),
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=detail.model_dump(mode="json"),
+        )
+
+    async def _require_no_blocking_internship_type(
+        self,
+        user_id: int,
+        internship_type: PracticeTypeEnum,
+        exclude_internship_id: int | None = None,
+    ) -> None:
+        """Valida que no exista otro registro bloqueante para el tipo."""
+
+        blocking_internship = (
+            await self.internship_repository.get_blocking_internship_for_registration(
+                user_id=user_id,
+                internship_type=internship_type,
+                exclude_internship_id=exclude_internship_id,
+            )
+        )
+        if blocking_internship is not None:
+            self._raise_duplicate_internship_type(blocking_internship)
+
     def _require_editable_internship(
         self,
         internship: Internship,
@@ -903,6 +1161,104 @@ class InternshipService:
                     f"terminal: {current_title}."
                 ),
             )
+
+    def _require_student_owner(
+        self,
+        internship: Internship,
+        actor: User,
+    ) -> None:
+        """Valida ownership estricto para acciones del estudiante."""
+
+        if internship.user_id != actor.id:
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permissions",
+            )
+
+    async def _require_student_action_available(
+        self,
+        internship: Internship,
+        action_label: str,
+    ) -> None:
+        """Bloquea correccion/anulacion cuando backend no la permite."""
+
+        availability = await self._build_student_action_availability(internship)
+        allowed = availability.can_update if action_label == "corregir" else availability.can_cancel
+        if allowed:
+            return
+
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"No se puede {action_label} esta solicitud.",
+                "reasons": availability.reasons,
+                "editable_until": availability.editable_until.isoformat()
+                if availability.editable_until is not None
+                else None,
+            },
+        )
+
+    async def _build_student_action_availability(
+        self,
+        internship: Internship,
+    ) -> StudentInternshipActionAvailabilityResponse:
+        """Construye razones estables para habilitar u ocultar acciones."""
+
+        reasons = []
+        editable_until = self._get_student_edit_deadline(internship)
+
+        if internship.is_cancelled:
+            reasons.append("internship_cancelled")
+
+        current_title = self._status_title_or_default(internship.status)
+        if current_title != PENDING_STATUS_TITLE:
+            reasons.append("status_not_pending")
+
+        if (
+            editable_until is not None
+            and datetime.now(UTC).replace(tzinfo=None) > editable_until
+        ):
+            reasons.append("window_expired")
+
+        if await self._has_blocking_history_action(internship):
+            reasons.append("administrative_action_exists")
+
+        can_act = len(reasons) == 0
+        return StudentInternshipActionAvailabilityResponse(
+            can_update=can_act,
+            can_cancel=can_act,
+            editable_until=editable_until,
+            reasons=reasons,
+        )
+
+    def _get_student_edit_deadline(
+        self,
+        internship: Internship,
+    ) -> datetime | None:
+        """Calcula el limite temporal de correccion reciente."""
+
+        upload_date = getattr(internship, "upload_date", None)
+        if upload_date is None:
+            return None
+
+        return upload_date + timedelta(hours=self.student_edit_window_hours)
+
+    async def _has_blocking_history_action(
+        self,
+        internship: Internship,
+    ) -> bool:
+        """Detecta acciones administrativas previas sobre la solicitud."""
+
+        history = await self.internship_repository.list_internship_status_history(
+            internship_id=internship.id,
+        )
+        for entry in history:
+            metadata = entry.metadata_json or {}
+            action = metadata.get("action")
+            if action not in STUDENT_ALLOWED_HISTORY_ACTIONS:
+                return True
+
+        return False
 
     async def _get_or_404(self, internship_id: int) -> Internship:
         """Busca una practica o lanza 404 si no existe.
@@ -1217,24 +1573,30 @@ class InternshipService:
         habilitar consultas de secuencialidad sin depender del estado
         administrativo de prácticas individuales.
         """
+        internship_id = internship.id
+        user_id = internship.user_id
+        practice_type = internship.internship_type.value
+        actor_id = actor.id
+
         try:
             await self.internship_repository.upsert_academic_requirement_status(
-                user_id=internship.user_id,
-                practice_type=internship.internship_type.value,
+                user_id=user_id,
+                practice_type=practice_type,
                 new_status="Aprobada",
-                updated_by=actor.id,
+                updated_by=actor_id,
             )
             logger.info(
                 "Requisito académico sincronizado para práctica ID: %s, tipo: %s",
-                internship.id,
-                internship.internship_type.value,
+                internship_id,
+                practice_type,
             )
         except Exception:
+            await self.internship_repository.rollback()
             logger.exception(
                 "Fallo al sincronizar requisito académico para práctica ID: %s. "
                 "La práctica ya fue aprobada; la sincronización puede reintentarse "
                 "manualmente.",
-                internship.id,
+                internship_id,
             )
 
     async def _dispatch_notification(self, notification) -> None:
@@ -1327,6 +1689,7 @@ class InternshipService:
     async def _has_passed_induction(
         self,
         user_id: int | None,
+        active_content=None,
     ) -> bool:
         """Verifica si un estudiante ha aprobado la inducción obligatoria.
 
@@ -1343,6 +1706,9 @@ class InternshipService:
         if user_id is None:
             return False
 
+        if active_content is None:
+            active_content = await self.internship_repository.get_active_induction_content()
+
         req = await self.internship_repository.get_student_requirement(
             user_id=user_id,
             requirement="induction",
@@ -1350,9 +1716,7 @@ class InternshipService:
         if req is not None and req.is_completed:
             return True
 
-        passed_attempt = await self.internship_repository.get_passed_induction_attempt(
-            user_id=user_id,
-        )
+        passed_attempt = await self.internship_repository.get_passed_induction_attempt(user_id=user_id)
         return passed_attempt is not None
 
     async def get_registration_eligibility(
@@ -1363,8 +1727,9 @@ class InternshipService:
     ) -> RegistrationEligibilityResponse:
         """Evalúa requisitos para formalizar una solicitud de práctica.
 
-        La ausencia de seguro solo bloquea periodos estivales y la inducción
-        solo bloquea la Práctica de Estudio I.
+        La ausencia de seguro solo bloquea periodos estivales. La inducción
+        aprobada habilita la creación de solicitudes y además condiciona la
+        aprobación administrativa cuando corresponde.
 
         Args:
             user_id: Identificador del estudiante.
@@ -1381,7 +1746,11 @@ class InternshipService:
         )
         has_insurance = insurance_req is not None and insurance_req.is_completed
 
-        has_induction = await self._has_passed_induction(user_id)
+        active_induction_content = await self.internship_repository.get_active_induction_content()
+        has_induction = await self._has_passed_induction(
+            user_id,
+            active_content=active_induction_content,
+        )
 
         internships = await self.internship_repository.list_internships_by_user(user_id)
 
@@ -1403,22 +1772,33 @@ class InternshipService:
             any(exc.rule == "sequentiality" for exc in (internship.exceptions or []))
             for internship in internships
         )
+        blocking_internship = None
+        if internship_type is not None:
+            blocking_internship = (
+                await self.internship_repository.get_blocking_internship_for_registration(
+                    user_id=user_id,
+                    internship_type=internship_type,
+                )
+            )
+        has_blocking_internship = blocking_internship is not None
 
         insurance_blocked = (
             internship_period is not None
             and internship_period.value in SEASONAL_PERIODS
             and not has_insurance
         )
-        induction_blocked = (
-            internship_type == PracticeTypeEnum.practice_1
-            and not has_induction
-        )
-        blocked = insurance_blocked or induction_blocked
+        induction_blocked = not has_induction
+        blocked = has_blocking_internship or insurance_blocked or induction_blocked
         next_step = (
             "Puede crear la solicitud y continuar con su revisión administrativa."
         )
 
-        if insurance_blocked:
+        if has_blocking_internship:
+            next_step = (
+                "Ya existe una solicitud vigente para este tipo de práctica. "
+                "Revisa el registro existente antes de crear una nueva solicitud."
+            )
+        elif insurance_blocked:
             next_step = (
                 "Debe registrar el seguro escolar ante la unidad correspondiente "
                 "o contar con una excepción antes de aprobar la práctica estival."
@@ -1426,7 +1806,7 @@ class InternshipService:
         elif induction_blocked:
             next_step = (
                 "Debe completar la inducción obligatoria y aprobar el cuestionario "
-                "antes de tramitar la aprobación de la Práctica de Estudio I."
+                "antes de crear la solicitud de práctica."
             )
 
         return RegistrationEligibilityResponse(
@@ -1436,9 +1816,68 @@ class InternshipService:
             has_approved_practice_1=has_approved_practice_1,
             sequentiality_blocked=sequentiality_blocked,
             has_sequentiality_exception=has_sequentiality_exception,
+            has_blocking_internship=has_blocking_internship,
+            blocking_internship_id=blocking_internship.id
+            if blocking_internship is not None
+            else None,
+            blocking_internship_status=self._status_title_or_default(
+                blocking_internship.status,
+            )
+            if blocking_internship is not None
+            else None,
+            can_create_request=not has_blocking_internship and not induction_blocked,
             blocked=blocked,
             next_step=next_step,
         )
+
+    async def _validate_updated_internship_type_rules(
+        self,
+        internship: Internship,
+        actor_id: int,
+        new_internship_type: PracticeTypeEnum,
+    ) -> None:
+        """Revalida reglas académicas al corregir el tipo de práctica."""
+
+        candidate = SimpleNamespace(
+            id=internship.id,
+            org_name=internship.org_name,
+            sector=internship.sector,
+            address=internship.address,
+            city=internship.city,
+            org_phone=internship.org_phone,
+            web=internship.web,
+            supervisor_name=internship.supervisor_name,
+            supervisor_profession=internship.supervisor_profession,
+            supervisor_position=internship.supervisor_position,
+            supervisor_department=internship.supervisor_department,
+            supervisor_email=internship.supervisor_email,
+            supervisor_phone=internship.supervisor_phone,
+            start_date=internship.start_date,
+            end_date=internship.end_date,
+            schedule=internship.schedule,
+            days=internship.days,
+            modality=internship.modality,
+            internship_address=internship.internship_address,
+            act_description=internship.act_description,
+            ben_description=internship.ben_description,
+            amount=internship.amount,
+            upload_date=internship.upload_date,
+            status_id=internship.status_id,
+            user_id=actor_id,
+            internship_period=internship.internship_period,
+            internship_type=new_internship_type,
+            has_school_insurance=getattr(internship, "has_school_insurance", False),
+            is_cancelled=internship.is_cancelled,
+            cancelled_at=getattr(internship, "cancelled_at", None),
+            cancelled_by=getattr(internship, "cancelled_by", None),
+            cancellation_reason=getattr(internship, "cancellation_reason", None),
+            blocks_new_registration=internship.blocks_new_registration,
+            exceptions=getattr(internship, "exceptions", []),
+        )
+
+        await self._check_sequentiality_or_exception(candidate)
+        await self._check_thesis_sequentiality(candidate)
+        await self._check_parallel_course_or_exception(candidate)
 
     async def _dispatch_internship_created_notifications(
         self,
@@ -1462,3 +1901,4 @@ class InternshipService:
                     student_user_id=internship.user_id,
                 ),
             )
+            

@@ -43,6 +43,7 @@ from app.modules.notifications.utils.notification_event_helpers import (
 logger = logging.getLogger(__name__)
 
 UNKNOWN_STATUS = "Sin estado"
+CANCELLED_STATUS_TITLE = "Anulada"
 PENDING_STATUS_TITLE = "Pendiente"
 IN_REVIEW_STATUS_TITLE = "En revisión"
 IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
@@ -209,6 +210,9 @@ class AdminService:
             user_id=internship.user_id,
             student=student_info,
             status=status_info,
+            is_cancelled=internship.is_cancelled,
+            cancelled_at=internship.cancelled_at,
+            cancellation_reason=internship.cancellation_reason,
         )
 
         return detail
@@ -465,6 +469,7 @@ class AdminService:
                 user_id=internship.user_id,
                 student=student_info,
                 status=status_info,
+                is_cancelled=internship.is_cancelled,
             )
             internship_items.append(internship_item)
 
@@ -493,6 +498,9 @@ class AdminService:
         status_filter: AdminInternshipStatusFilter,
     ) -> bool:
         """Evalua si una practica corresponde al filtro normalizado admin."""
+
+        if internship.is_cancelled:
+            return False
 
         status_title = PENDING_STATUS_TITLE
         if internship.status is not None and internship.status.title:
