@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import and_, not_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,9 +29,7 @@ from app.modules.internships.models.internship_dirae_status_history_model import
     InternshipDiraeStatusHistory,
 )
 from app.modules.internships.models.internship_model import (
-    CompletionStatusEnum,
     DiraeStatusEnum,
-    FinalResultEnum,
     Internship,
     PracticeTypeEnum,
 )
@@ -42,6 +40,8 @@ from app.modules.internships.models.student_internship_requirement_model import 
     StudentInternshipRequirement,
     StudentRegistrationRequirement,
 )
+
+REJECTED_STATUS_TITLE = "Rechazada"
 
 
 class InternshipRepository:
@@ -149,7 +149,9 @@ class InternshipRepository:
             .options(
                 selectinload(Internship.status),
                 selectinload(Internship.student),
-                selectinload(Internship.exceptions),
+                selectinload(Internship.exceptions).selectinload(
+                    InternshipException.actor
+                ),
             )
         )
         result = await self.db.execute(query)
@@ -170,12 +172,6 @@ class InternshipRepository:
                 Internship.user_id == user_id,
                 Internship.internship_type == internship_type,
                 Internship.blocks_new_registration.is_(True),
-                not_(
-                    and_(
-                        Internship.completion_status == CompletionStatusEnum.finalized,
-                        Internship.final_result == FinalResultEnum.failed,
-                    )
-                ),
             )
             .options(selectinload(Internship.status))
             .order_by(Internship.upload_date.desc(), Internship.id.desc())
@@ -220,7 +216,9 @@ class InternshipRepository:
             .where(Internship.user_id == user_id)
             .options(
                 selectinload(Internship.status),
-                selectinload(Internship.exceptions),
+                selectinload(Internship.exceptions).selectinload(
+                    InternshipException.actor
+                ),
             )
             .order_by(Internship.upload_date.desc())
         )
@@ -364,7 +362,7 @@ class InternshipRepository:
         """
 
         internship.status_id = new_status.id
-        internship.blocks_new_registration = new_status.title != "Rechazada"
+        internship.blocks_new_registration = new_status.title != REJECTED_STATUS_TITLE
         status_history = InternshipStatusHistory(
             internship_id=internship.id,
             previous_status_id=None if previous_status is None else previous_status.id,
@@ -372,71 +370,6 @@ class InternshipRepository:
             actor_id=actor_id,
             reason=reason,
             metadata_json=metadata,
-        )
-        self.db.add(status_history)
-        await self.db.commit()
-        await self.db.refresh(internship)
-
-        loaded_internship = await self.get_internship_by_id(internship.id)
-        if loaded_internship is None:
-            return internship
-
-        return loaded_internship
-
-    async def update_internship_completion_with_history(
-        self,
-        internship: Internship,
-        completion_status: CompletionStatusEnum,
-        final_result: FinalResultEnum,
-        actor_id: int,
-        reason: str | None,
-        metadata: dict[str, Any] | None = None,
-    ) -> Internship:
-        """Actualiza el cierre de una practica y sincroniza duplicidad.
-
-        Una practica finalizada con resultado ``failed`` libera el tipo para
-        que el estudiante pueda registrar un nuevo intento. Una finalizada con
-        ``passed`` conserva el bloqueo.
-        """
-
-        previous_values = {
-            "completion_status": self._serialize_history_value(
-                internship.completion_status,
-            ),
-            "final_result": self._serialize_history_value(internship.final_result),
-            "blocks_new_registration": internship.blocks_new_registration,
-        }
-
-        internship.completion_status = completion_status
-        internship.final_result = final_result
-        if completion_status == CompletionStatusEnum.finalized:
-            internship.blocks_new_registration = final_result != FinalResultEnum.failed
-
-        status_history = InternshipStatusHistory(
-            internship_id=internship.id,
-            previous_status_id=internship.status_id,
-            new_status_id=internship.status_id,
-            actor_id=actor_id,
-            reason=reason,
-            metadata_json={
-                "action": "completion_update",
-                "changed_fields": [
-                    "completion_status",
-                    "final_result",
-                    "blocks_new_registration",
-                ],
-                "previous_values": previous_values,
-                "new_values": {
-                    "completion_status": self._serialize_history_value(
-                        internship.completion_status,
-                    ),
-                    "final_result": self._serialize_history_value(
-                        internship.final_result,
-                    ),
-                    "blocks_new_registration": internship.blocks_new_registration,
-                },
-                **(metadata or {}),
-            },
         )
         self.db.add(status_history)
         await self.db.commit()
@@ -784,25 +717,6 @@ class InternshipRepository:
             select(InductionAttempt)
             .where(
                 InductionAttempt.user_id == user_id,
-                InductionAttempt.passed.is_(True),
-            )
-            .order_by(InductionAttempt.attempted_at.desc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
-
-    async def get_passed_induction_attempt_for_version(
-        self,
-        user_id: int,
-        content_version_id: int,
-    ) -> InductionAttempt | None:
-        """Obtiene un intento aprobado para una versión específica."""
-
-        result = await self.db.execute(
-            select(InductionAttempt)
-            .where(
-                InductionAttempt.user_id == user_id,
-                InductionAttempt.content_version_id == content_version_id,
                 InductionAttempt.passed.is_(True),
             )
             .order_by(InductionAttempt.attempted_at.desc())

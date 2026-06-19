@@ -22,6 +22,12 @@ FROM base AS runtime
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        fonts-liberation \
+        libreoffice-writer \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app /app
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 

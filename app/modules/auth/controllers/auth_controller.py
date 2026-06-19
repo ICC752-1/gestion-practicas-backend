@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,24 +47,26 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
 
 
-def _refresh_cookie_max_age_seconds() -> int:
-    return config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
-
-
-def _set_refresh_token_cookie(response: Response, refresh_token: str) -> None:
+def _set_refresh_token_cookie(
+    response: Response,
+    refresh_token: str,
+) -> None:
     response.set_cookie(
         config.REFRESH_TOKEN_COOKIE_NAME,
         refresh_token,
         httponly=True,
-        max_age=_refresh_cookie_max_age_seconds(),
+        max_age=config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         path="/",
         samesite="lax",
-        secure=config.GOOGLE_COOKIE_SECURE,
+        secure=config.REFRESH_TOKEN_COOKIE_SECURE,
     )
 
 
-def _delete_refresh_token_cookie(response: Response) -> None:
-    response.delete_cookie(config.REFRESH_TOKEN_COOKIE_NAME, path="/")
+def _clear_refresh_token_cookie(response: Response) -> None:
+    response.delete_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        path="/",
+    )
 
 
 def _frontend_callback_url(params: dict[str, str], success: bool) -> str:
@@ -96,6 +98,7 @@ def _oauth_error_redirect(
 async def login(
     credentials: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
 ) -> TokenResponse:
     """Inicia sesión y devuelve tokens de acceso y refresco.
 
@@ -124,10 +127,12 @@ async def login(
 
     try:
         logger.info("Login request received")
-        return await auth_service.login(
+        token_response = await auth_service.login(
             email=credentials.email,
             password=credentials.password,
         )
+        _set_refresh_token_cookie(response, token_response.refresh_token)
+        return token_response
 
     except TemporaryPasswordChangeRequiredError:
         raise HTTPException(
@@ -175,18 +180,19 @@ async def complete_temporary_password(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    request: Request,
-    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
     payload: RefreshTokenRequest | None = None,
 ) -> TokenResponse:
     """Renueva tokens usando un refresh token valido.
 
     Args:
-        request: Solicitud HTTP, usada para leer cookie HttpOnly OAuth.
-        response: Respuesta HTTP, usada para rotar cookie HttpOnly OAuth.
+        payload: Solicitud con refresh token emitido previamente.
         db: Sesion asincrona de base de datos inyectada por `get_db`.
-        payload: Solicitud opcional con refresh token emitido previamente.
 
     Returns:
         `TokenResponse` con nuevos tokens de acceso y refresco.
@@ -205,19 +211,13 @@ async def refresh_token(
         token_service=TokenService(),
     )
 
-    refresh_token_value = (
-        payload.refresh_token
-        if payload is not None and payload.refresh_token
-        else request.cookies.get(config.REFRESH_TOKEN_COOKIE_NAME)
-    )
-    if not refresh_token_value:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing refresh token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
     try:
+        refresh_token_value = (
+            payload.refresh_token if payload and payload.refresh_token else refresh_token_cookie
+        )
+        if refresh_token_value is None:
+            raise ValueError("Refresh token is required")
+
         token_response = await auth_service.refresh_session(refresh_token_value)
     except ValueError:
         raise HTTPException(
@@ -322,7 +322,6 @@ async def google_callback(
     )
     response.delete_cookie(config.GOOGLE_STATE_COOKIE_NAME, path="/")
     _set_refresh_token_cookie(response, token_response.refresh_token)
-
     return response
 
 
@@ -357,8 +356,11 @@ async def get_me(
 async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    request: Request,
     payload: LogoutRequest | None = None,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
 ) -> Response:
     """Cierra sesión (logout) para el dispositivo actual.
 
@@ -368,7 +370,6 @@ async def logout(
     Args:
         current_user: Usuario autenticado (access token válido).
         db: Sesión asíncrona de base de datos inyectada por `get_db`.
-        request: Solicitud HTTP, usada para leer cookie HttpOnly OAuth.
         payload: Opcional. Incluye `refresh_token` para validación.
 
     Returns:
@@ -385,14 +386,13 @@ async def logout(
     )
 
     try:
-        refresh_token_value = (
-            payload.refresh_token
-            if payload is not None and payload.refresh_token
-            else request.cookies.get(config.REFRESH_TOKEN_COOKIE_NAME)
-        )
         await auth_service.logout_session(
             current_user=current_user,
-            refresh_token=refresh_token_value,
+            refresh_token=(
+                payload.refresh_token
+                if payload and payload.refresh_token
+                else refresh_token_cookie
+            ),
         )
     except ValueError as exc:
         raise HTTPException(
@@ -402,6 +402,6 @@ async def logout(
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
     logger.info("Logout completed", extra={"user_id": current_user.id})
-    response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    _delete_refresh_token_cookie(response)
-    return response
+    final_response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_token_cookie(final_response)
+    return final_response

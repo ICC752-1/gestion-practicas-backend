@@ -40,6 +40,7 @@ def _internship(**overrides):
         "internship_type": SimpleNamespace(value="Práctica de Estudio I"),
         "is_cancelled": False,
         "user_id": 5,
+        "completion_status": "not_started",
         "student": SimpleNamespace(first_name="Ana", last_name="Perez"),
         "status": SimpleNamespace(title="Aprobada"),
     }

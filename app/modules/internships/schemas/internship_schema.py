@@ -163,14 +163,14 @@ class InternshipDashboardListItem(BaseModel):
     org_name: str
     city: str
     internship_type: PracticeTypeEnum
-    completion_status: CompletionStatusEnum
-    final_result: FinalResultEnum
-    dirae_status: DiraeStatusEnum
     start_date: date
     end_date: date
     upload_date: datetime
     status: DashboardInternshipStatus
     status_label: str
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
     student: InternshipDashboardStudentResponse | None
 
 
@@ -225,10 +225,10 @@ class InternshipResponse(BaseModel):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
-    blocks_new_registration: Indica si impide crear otra solicitud del
+        blocks_new_registration: Indica si impide crear otra solicitud del
             mismo tipo para el mismo estudiante.
-        completion_status: Estado del ciclo final de ejecución.
-        final_result: Resultado final de la práctica.
+        completion_status: Estado de ejecucion/cierre de la practica.
+        final_result: Resultado final consolidado de la practica.
         dirae_status: Estado local del expediente documental DIRAE.
     """
 
@@ -267,9 +267,9 @@ class InternshipResponse(BaseModel):
     cancelled_by: int | None
     cancellation_reason: str | None
     blocks_new_registration: bool
-    completion_status: CompletionStatusEnum
-    final_result: FinalResultEnum
-    dirae_status: DiraeStatusEnum
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
 
     exceptions: list["InternshipExceptionResponse"] = []
 
@@ -527,7 +527,6 @@ class InductionContentVersionResponse(BaseModel):
     id: int
     title: str
     description: str | None
-    requires_retake: bool = False
     min_score: int
     videos: list[InductionVideoResponse] = []
     questions: list[InductionQuestionResponse] = []
@@ -575,8 +574,6 @@ class RegistrationEligibilityResponse(BaseModel):
             el cumplimiento del seguro escolar.
         has_induction: ``True`` si el estudiante aprobó el cuestionario
             de inducción obligatoria.
-        requires_retake: ``True`` si la versión activa exige repetir la
-            inducción aunque exista un cumplimiento histórico.
         has_school_insurance_exception: ``True`` si existe una excepción
             administrativa activa para seguro escolar en alguna práctica
             vigente del estudiante.
@@ -591,8 +588,7 @@ class RegistrationEligibilityResponse(BaseModel):
             que bloquea crear otra del mismo tipo.
         blocking_internship_id: Identificador de la solicitud bloqueante.
         blocking_internship_status: Estado actual de la solicitud bloqueante.
-        can_create_request: ``False`` cuando existe duplicidad bloqueante o
-            falta una inducción obligatoria aprobada para abrir la solicitud.
+        can_create_request: ``False`` cuando existe duplicidad bloqueante.
         blocked: ``True`` si existe un bloqueo contextual que impide la
             creación, aprobación o formalización, según la regla afectada.
         next_step: Texto descriptivo de la siguiente acción recomendada
@@ -601,7 +597,6 @@ class RegistrationEligibilityResponse(BaseModel):
 
     has_school_insurance: bool
     has_induction: bool
-    requires_retake: bool = False
     has_school_insurance_exception: bool = False
     has_approved_practice_1: bool = False
     sequentiality_blocked: bool = False

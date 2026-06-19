@@ -29,6 +29,12 @@ class Config(BaseSettings):
 
     # Documentos
     DOCUMENT_STORAGE_DIR: str = "storage/documents"
+    PRESENTATION_LETTER_STORAGE_DIR: str = "storage/presentation_letters"
+    PRESENTATION_LETTER_DOCX_TEMPLATE_PATH: str = (
+        "app/core/assets/presentation_letter_template.docx"
+    )
+    LIBREOFFICE_BINARY: str = "libreoffice"
+    LIBREOFFICE_TIMEOUT_SECONDS: int = 60
     DOCUMENT_MAX_BYTES: int = 10485760
     DOCUMENT_ALLOWED_EXTENSIONS: str = "pdf,docx,jpg,png,zip"
     DOCUMENT_RETENTION_DAYS: int = 0
@@ -65,8 +71,9 @@ class Config(BaseSettings):
     GOOGLE_FRONTEND_ERROR_URL: str = "http://localhost:5173/auth/callback"
     GOOGLE_STATE_EXPIRE_MINUTES: int = 10
     GOOGLE_STATE_COOKIE_NAME: str = "google_oauth_state"
-    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
     GOOGLE_COOKIE_SECURE: bool = False
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    REFRESH_TOKEN_COOKIE_SECURE: bool = False
 
     @property
     def DATABASE_URL(self) -> str:

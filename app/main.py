@@ -16,11 +16,23 @@ from app.modules.auth.controllers.user_controller import router as users_router
 from app.modules.documents.controllers.document_controller import (
     router as documents_router,
 )
+from app.modules.data_portability.controllers.data_portability_controller import (
+    router as data_portability_router,
+)
 from app.modules.notifications.controllers.notification_controller import (
     router as notifications_router,
 )
+from app.modules.presentation_letters.controllers.presentation_letter_controller import (
+    router as presentation_letters_router,
+)
+from app.modules.scheduling.controllers.scheduling_controller import (
+    router as scheduling_router,
+)
 from app.modules.supervisor_evaluations.controllers.supervisor_evaluation_controller import (
     router as supervisor_evaluations_router,
+)
+from app.modules.self_evaluations.controllers.self_evaluation_controller import (
+    router as self_evaluations_router,
 )
 from app.modules.internships.controllers.induction_admin_controller import (
     router as induction_admin_router,
@@ -62,4 +74,8 @@ app.include_router(notifications_router)
 app.include_router(internships_router)
 app.include_router(induction_admin_router)
 app.include_router(supervisor_evaluations_router)
+app.include_router(self_evaluations_router)
 app.include_router(documents_router)
+app.include_router(scheduling_router)
+app.include_router(data_portability_router)
+app.include_router(presentation_letters_router)

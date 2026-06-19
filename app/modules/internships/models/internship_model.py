@@ -32,7 +32,7 @@ class PracticeTypeEnum(str, enum.Enum):
 
 
 class CompletionStatusEnum(str, enum.Enum):
-    """Estado del ciclo final de ejecución de la práctica."""
+    """Estados del ciclo de ejecucion/cierre de la practica."""
 
     not_started = "not_started"
     in_progress = "in_progress"
@@ -42,7 +42,7 @@ class CompletionStatusEnum(str, enum.Enum):
 
 
 class FinalResultEnum(str, enum.Enum):
-    """Resultado final de una práctica una vez cerrada."""
+    """Resultado final consolidado de la practica."""
 
     pending = "pending"
     passed = "passed"
@@ -97,8 +97,9 @@ class Internship(Base):
         cancellation_reason: Motivo funcional de la anulacion logica.
         blocks_new_registration: Indica si bloquea nuevas solicitudes del mismo
             tipo para el mismo estudiante.
-        completion_status: Estado del ciclo de ejecución/cierre de la práctica.
-        final_result: Resultado final del ciclo de práctica.
+        completion_status: Estado del ciclo de ejecucion/cierre posterior a la
+            aprobacion administrativa.
+        final_result: Resultado final consolidado de la practica.
         dirae_status: Estado local del expediente documental DIRAE.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
@@ -205,7 +206,7 @@ class Internship(Base):
         PGEnum(
             CompletionStatusEnum,
             name="enumCompletionStatus",
-            values_callable=lambda x: [e.value for e in x],
+            values_callable=lambda values: [item.value for item in values],
             create_type=False,
         ),
         default=CompletionStatusEnum.not_started,
@@ -215,7 +216,7 @@ class Internship(Base):
         PGEnum(
             FinalResultEnum,
             name="enumFinalResult",
-            values_callable=lambda x: [e.value for e in x],
+            values_callable=lambda values: [item.value for item in values],
             create_type=False,
         ),
         default=FinalResultEnum.pending,
@@ -261,8 +262,5 @@ Index(
     Internship.user_id,
     Internship.internship_type,
     unique=True,
-    postgresql_where=text(
-        "blocks_new_registration IS TRUE "
-        "AND NOT (completion_status = 'finalized' AND final_result = 'failed')"
-    ),
+    postgresql_where=text("blocks_new_registration IS TRUE"),
 )

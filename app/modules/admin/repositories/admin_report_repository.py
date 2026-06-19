@@ -17,12 +17,16 @@ from app.modules.internships.models.internship_exception_model import (
     ExceptableRule,
     InternshipException,
 )
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import CompletionStatusEnum, Internship
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
+)
+from app.modules.self_evaluations.models.self_evaluation_model import (
+    SelfEvaluation,
+    SelfEvaluationStatusEnum,
 )
 
 APPROVED_STATUS = "Aprobada"
@@ -255,6 +259,31 @@ class AdminReportRepository:
 
         return submitted, max(total - submitted, 0)
 
+    async def self_evaluation_counts(
+        self,
+        filters: AdminReportFilters,
+    ) -> tuple[int, int]:
+        total = await self.count_internships(filters)
+        query = (
+            self._self_evaluation_query(
+                filters,
+                func.count(distinct(SelfEvaluation.id)),
+            )
+            .where(SelfEvaluation.status == SelfEvaluationStatusEnum.submitted)
+        )
+        result = await self.db.execute(query)
+        submitted = result.scalar_one() or 0
+
+        return submitted, max(total - submitted, 0)
+
+    async def finalized_internship_count(self, filters: AdminReportFilters) -> int:
+        query = self._internship_query(filters, func.count(Internship.id)).where(
+            Internship.completion_status == CompletionStatusEnum.finalized,
+        )
+        result = await self.db.execute(query)
+
+        return result.scalar_one() or 0
+
     async def summer_without_school_insurance(self, filters: AdminReportFilters) -> int:
         exception_subquery = (
             select(InternshipException.internship_id)
@@ -323,6 +352,16 @@ class AdminReportRepository:
             select(*columns)
             .select_from(SupervisorEvaluation)
             .join(Internship, Internship.id == SupervisorEvaluation.internship_id)
+            .outerjoin(User, User.id == Internship.user_id)
+            .outerjoin(CurrentState, CurrentState.id == Internship.status_id)
+            .where(*self._filter_conditions(filters))
+        )
+
+    def _self_evaluation_query(self, filters: AdminReportFilters, *columns) -> Select:
+        return (
+            select(*columns)
+            .select_from(SelfEvaluation)
+            .join(Internship, Internship.id == SelfEvaluation.internship_id)
             .outerjoin(User, User.id == Internship.user_id)
             .outerjoin(CurrentState, CurrentState.id == Internship.status_id)
             .where(*self._filter_conditions(filters))
