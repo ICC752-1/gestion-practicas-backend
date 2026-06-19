@@ -28,6 +28,14 @@ class PresentationStatusEnum(str, enum.Enum):
     closed = "closed"
 
 
+class PresentationResultEnum(str, enum.Enum):
+    """Resultados funcionales posibles de una entrevista/presentacion."""
+
+    pending = "Pendiente"
+    approved = "Aprobada"
+    failed = "Reprobado"
+
+
 class Presentation(Base):
     """Representa un bloque publicado o reservado en la agenda."""
 
@@ -72,12 +80,11 @@ class Presentation(Base):
         default=PresentationStatusEnum.available,
         nullable=False,
     )
-    result: Mapped[str | None] = mapped_column(
+    result: Mapped[PresentationResultEnum | None] = mapped_column(
         PGEnum(
-            "Pendiente",
-            "Aprobada",
-            "Reprobado",
+            PresentationResultEnum,
             name="enumResult",
+            values_callable=lambda values: [item.value for item in values],
             create_type=False,
         ),
         nullable=True,

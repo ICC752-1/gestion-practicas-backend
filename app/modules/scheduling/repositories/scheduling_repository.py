@@ -12,10 +12,19 @@ from app.modules.scheduling.models.presentation_model import (
     PresentationPurposeEnum,
     PresentationStatusEnum,
 )
+from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+    SupervisorEvaluation,
+)
 
 
 ACTIVE_BLOCK_STATUSES = (
     PresentationStatusEnum.available,
+    PresentationStatusEnum.scheduled,
+    PresentationStatusEnum.completed,
+    PresentationStatusEnum.no_show,
+)
+
+VISIBLE_APPOINTMENT_STATUSES = (
     PresentationStatusEnum.scheduled,
     PresentationStatusEnum.completed,
     PresentationStatusEnum.no_show,
@@ -137,7 +146,7 @@ class SchedulingRepository:
             select(Presentation)
             .where(
                 Presentation.owner_id == owner_id,
-                Presentation.status == PresentationStatusEnum.scheduled,
+                Presentation.status.in_(VISIBLE_APPOINTMENT_STATUSES),
             )
             .options(
                 selectinload(Presentation.internship),
@@ -156,7 +165,7 @@ class SchedulingRepository:
             select(Presentation)
             .where(
                 Presentation.user_id == user_id,
-                Presentation.status == PresentationStatusEnum.scheduled,
+                Presentation.status.in_(VISIBLE_APPOINTMENT_STATUSES),
             )
             .options(
                 selectinload(Presentation.internship),
@@ -189,6 +198,16 @@ class SchedulingRepository:
         if exclude_slot_id is not None:
             query = query.where(Presentation.id != exclude_slot_id)
 
+        result = await self.db.execute(query.limit(1))
+
+        return result.scalar_one_or_none() is not None
+
+    async def has_supervisor_evaluation(self, internship_id: int) -> bool:
+        """Indica si la practica ya cuenta con evaluacion de supervisor."""
+
+        query = select(SupervisorEvaluation.id).where(
+            SupervisorEvaluation.internship_id == internship_id
+        )
         result = await self.db.execute(query.limit(1))
 
         return result.scalar_one_or_none() is not None

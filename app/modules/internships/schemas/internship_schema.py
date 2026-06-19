@@ -11,6 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
 )
@@ -151,6 +153,8 @@ class InternshipDashboardListItem(BaseModel):
     upload_date: datetime
     status: DashboardInternshipStatus
     status_label: str
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
     student: InternshipDashboardStudentResponse | None
 
 
@@ -207,6 +211,8 @@ class InternshipResponse(BaseModel):
         cancellation_reason: Motivo funcional de la anulacion logica.
         blocks_new_registration: Indica si impide crear otra solicitud del
             mismo tipo para el mismo estudiante.
+        completion_status: Estado de ejecucion/cierre de la practica.
+        final_result: Resultado final consolidado de la practica.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -244,6 +250,8 @@ class InternshipResponse(BaseModel):
     cancelled_by: int | None
     cancellation_reason: str | None
     blocks_new_registration: bool
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
 
     exceptions: list["InternshipExceptionResponse"] = []
 

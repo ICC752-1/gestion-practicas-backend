@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,28 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
 
 
+def _set_refresh_token_cookie(
+    response: Response,
+    refresh_token: str,
+) -> None:
+    response.set_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        refresh_token,
+        httponly=True,
+        max_age=config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/",
+        samesite="lax",
+        secure=config.REFRESH_TOKEN_COOKIE_SECURE,
+    )
+
+
+def _clear_refresh_token_cookie(response: Response) -> None:
+    response.delete_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        path="/",
+    )
+
+
 def _frontend_callback_url(params: dict[str, str], success: bool) -> str:
     base_url = (
         config.GOOGLE_FRONTEND_SUCCESS_URL
@@ -72,6 +94,7 @@ def _oauth_error_redirect(
 async def login(
     credentials: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
 ) -> TokenResponse:
     """Inicia sesión y devuelve tokens de acceso y refresco.
 
@@ -100,10 +123,12 @@ async def login(
 
     try:
         logger.info("Login request received")
-        return await auth_service.login(
+        token_response = await auth_service.login(
             email=credentials.email,
             password=credentials.password,
         )
+        _set_refresh_token_cookie(response, token_response.refresh_token)
+        return token_response
 
     except ValueError:
         raise HTTPException(
@@ -115,8 +140,13 @@ async def login(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    payload: RefreshTokenRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
+    payload: RefreshTokenRequest | None = None,
 ) -> TokenResponse:
     """Renueva tokens usando un refresh token valido.
 
@@ -142,7 +172,13 @@ async def refresh_token(
     )
 
     try:
-        token_response = await auth_service.refresh_session(payload.refresh_token)
+        refresh_token_value = (
+            payload.refresh_token if payload and payload.refresh_token else refresh_token_cookie
+        )
+        if refresh_token_value is None:
+            raise ValueError("Refresh token is required")
+
+        token_response = await auth_service.refresh_session(refresh_token_value)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -150,6 +186,7 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    _set_refresh_token_cookie(response, token_response.refresh_token)
     logger.info("Refresh token completed")
 
     return token_response
@@ -244,6 +281,7 @@ async def google_callback(
         status_code=status.HTTP_303_SEE_OTHER,
     )
     response.delete_cookie(config.GOOGLE_STATE_COOKIE_NAME, path="/")
+    _set_refresh_token_cookie(response, token_response.refresh_token)
     return response
 
 
@@ -279,6 +317,10 @@ async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     payload: LogoutRequest | None = None,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
 ) -> Response:
     """Cierra sesión (logout) para el dispositivo actual.
 
@@ -306,7 +348,11 @@ async def logout(
     try:
         await auth_service.logout_session(
             current_user=current_user,
-            refresh_token=payload.refresh_token if payload else None,
+            refresh_token=(
+                payload.refresh_token
+                if payload and payload.refresh_token
+                else refresh_token_cookie
+            ),
         )
     except ValueError as exc:
         raise HTTPException(
@@ -316,4 +362,6 @@ async def logout(
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
     logger.info("Logout completed", extra={"user_id": current_user.id})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    final_response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_token_cookie(final_response)
+    return final_response
