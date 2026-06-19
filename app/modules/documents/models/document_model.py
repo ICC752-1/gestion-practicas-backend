@@ -51,6 +51,7 @@ class DocumentType(Base):
         description: Descripcion funcional del documento esperado.
         is_required: Indica si el documento forma parte del paquete minimo.
         category: Categoria funcional del documento.
+        is_sensitive: Indica si contiene antecedentes reservados.
         is_active: Indica si el tipo documental puede usarse en cargas nuevas.
         documents: Relacion ORM con documentos asociados a este tipo.
     """
@@ -70,6 +71,7 @@ class DocumentType(Base):
         ),
         nullable=True,
     )
+    is_sensitive: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     documents = relationship("Document", back_populates="document_type")

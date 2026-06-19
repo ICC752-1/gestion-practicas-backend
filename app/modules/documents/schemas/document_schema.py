@@ -22,6 +22,7 @@ class DocumentTypeResponse(BaseModel):
         description: Descripcion funcional.
         is_required: Indica si es parte del paquete minimo.
         category: Categoria funcional.
+        is_sensitive: Indica si contiene antecedentes reservados.
         is_active: Indica si puede usarse en cargas nuevas.
     """
 
@@ -32,6 +33,7 @@ class DocumentTypeResponse(BaseModel):
     description: str
     is_required: bool
     category: DocumentCategoryEnum | None
+    is_sensitive: bool
     is_active: bool
 
 
@@ -128,6 +130,7 @@ class DocumentPackageResponse(BaseModel):
             "dirae_not_ready",
             "missing_required_documents",
             "observed_documents_pending",
+            "sensitive_document_restricted",
         ]
     ]
     student: DocumentPackageStudentResponse

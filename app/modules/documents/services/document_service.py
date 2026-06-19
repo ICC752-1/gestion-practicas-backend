@@ -42,6 +42,7 @@ DOCUMENT_ADMIN_ROLES = {
     "Director de carrera",
     "Secretaria de Carrera",
 }
+SECRETARY_ROLE = "Secretaria de Carrera"
 TERMINAL_INTERNSHIP_STATES = {"Aprobada", "Rechazada", "Reprobada"}
 APPROVED_INTERNSHIP_STATE = "Aprobada"
 REASON_INTERNSHIP_NOT_APPROVED = "internship_not_approved"
@@ -49,6 +50,7 @@ REASON_PRACTICE_NOT_FINALIZED = "practice_not_finalized"
 REASON_DIRAE_NOT_READY = "dirae_not_ready"
 REASON_MISSING_REQUIRED_DOCUMENTS = "missing_required_documents"
 REASON_OBSERVED_DOCUMENTS_PENDING = "observed_documents_pending"
+REASON_SENSITIVE_DOCUMENT_RESTRICTED = "sensitive_document_restricted"
 PACKAGE_DOCUMENT_APPROVED = "approved"
 PACKAGE_DOCUMENT_MISSING = "missing"
 DIRAE_EXPORTED_REASON = "dirae_document_package_exported"
@@ -279,7 +281,9 @@ class DocumentService:
         internship = await self._get_internship_or_404(internship_id)
         self._require_read_access(actor, internship)
 
-        return await self.repository.list_documents_by_internship(internship_id)
+        documents = await self.repository.list_documents_by_internship(internship_id)
+
+        return self._filter_accessible_documents(actor, documents)
 
     async def prepare_download(
         self,
@@ -299,6 +303,7 @@ class DocumentService:
         document = await self._get_document_or_404(document_id)
         self._require_not_deleted(document)
         self._require_read_access(actor, document.internship)
+        self._require_sensitive_document_access(actor, document)
 
         file_path = self._resolve_storage_key(document.file_path)
         if not file_path.is_file():
@@ -393,7 +398,7 @@ class DocumentService:
         internship = await self._get_internship_or_404(internship_id)
         self._require_read_access(actor, internship)
 
-        return await self._build_document_package(internship)
+        return await self._build_document_package(internship, actor=actor)
 
     async def export_dirae_document_packages(
         self,
@@ -431,6 +436,7 @@ class DocumentService:
             package = await self._build_document_package(
                 internship,
                 required_types=required_types,
+                actor=actor,
             )
             if package.exportable:
                 packages.append(package)
@@ -507,6 +513,7 @@ class DocumentService:
         self,
         internship: Internship,
         required_types: list[DocumentType] | None = None,
+        actor: User | None = None,
     ) -> DocumentPackage:
         if required_types is None:
             required_types = await self.repository.list_required_document_types()
@@ -514,6 +521,13 @@ class DocumentService:
         documents = await self.repository.list_package_documents_by_internship(
             internship.id,
         )
+        sensitive_restricted = self._has_sensitive_restriction(
+            actor,
+            documents,
+            required_types,
+        )
+        documents = self._filter_accessible_documents(actor, documents)
+        required_types = self._filter_accessible_document_types(actor, required_types)
         selected_documents = self._select_latest_approved_documents(documents)
         observed_documents_pending = self._has_observed_documents_pending(documents)
         required_type_ids = {document_type.id for document_type in required_types}
@@ -559,6 +573,7 @@ class DocumentService:
             internship,
             missing_required,
             observed_documents_pending,
+            sensitive_restricted,
         )
 
         return DocumentPackage(
@@ -614,6 +629,7 @@ class DocumentService:
         internship: Internship,
         missing_required: bool,
         observed_documents_pending: bool,
+        sensitive_restricted: bool,
     ) -> list[str]:
         reasons = []
         if self._get_internship_status_title(internship) != APPROVED_INTERNSHIP_STATE:
@@ -631,7 +647,77 @@ class DocumentService:
         if observed_documents_pending:
             reasons.append(REASON_OBSERVED_DOCUMENTS_PENDING)
 
+        if sensitive_restricted:
+            reasons.append(REASON_SENSITIVE_DOCUMENT_RESTRICTED)
+
         return reasons
+
+    def _filter_accessible_documents(
+        self,
+        actor: User | None,
+        documents: list[Document],
+    ) -> list[Document]:
+        if not self._is_secretary(actor):
+            return documents
+
+        return [
+            document
+            for document in documents
+            if not self._is_sensitive_document(document)
+        ]
+
+    def _filter_accessible_document_types(
+        self,
+        actor: User | None,
+        document_types: list[DocumentType],
+    ) -> list[DocumentType]:
+        if not self._is_secretary(actor):
+            return document_types
+
+        return [
+            document_type
+            for document_type in document_types
+            if not self._is_sensitive_document_type(document_type)
+        ]
+
+    def _has_sensitive_restriction(
+        self,
+        actor: User | None,
+        documents: list[Document],
+        required_types: list[DocumentType],
+    ) -> bool:
+        if not self._is_secretary(actor):
+            return False
+
+        return any(
+            self._is_sensitive_document(document)
+            and document.deleted_at is None
+            and document.status != DocumentStatusEnum.deleted
+            for document in documents
+        ) or any(
+            self._is_sensitive_document_type(document_type)
+            for document_type in required_types
+        )
+
+    def _require_sensitive_document_access(
+        self,
+        actor: User,
+        document: Document,
+    ) -> None:
+        if self._is_secretary(actor) and self._is_sensitive_document(document):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+
+    def _is_secretary(self, actor: User | None) -> bool:
+        return actor is not None and self._has_any_role(actor, {SECRETARY_ROLE})
+
+    def _is_sensitive_document(self, document: Document) -> bool:
+        return self._is_sensitive_document_type(document.document_type)
+
+    def _is_sensitive_document_type(self, document_type: DocumentType | None) -> bool:
+        return bool(getattr(document_type, "is_sensitive", False))
 
     def _build_student_summary(
         self,

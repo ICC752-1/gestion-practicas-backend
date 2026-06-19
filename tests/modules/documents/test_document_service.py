@@ -181,6 +181,7 @@ def _document_type(
     *,
     is_required: bool = True,
     name: str = "Formulario",
+    is_sensitive: bool = False,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=document_type_id,
@@ -188,6 +189,7 @@ def _document_type(
         description="Formulario de inscripción",
         is_required=is_required,
         category=DocumentCategoryEnum.academic,
+        is_sensitive=is_sensitive,
         is_active=True,
     )
 
@@ -387,6 +389,32 @@ async def test_list_documents_allows_owner_and_admin(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_list_documents_filters_sensitive_documents_for_secretary(tmp_path):
+    repository = FakeDocumentRepository()
+    public_document = _document(
+        document_id=55,
+        document_type=_document_type(1, name="Formulario"),
+    )
+    sensitive_document = _document(
+        document_id=56,
+        document_type=_document_type(
+            2,
+            name="Seguro escolar",
+            is_sensitive=True,
+        ),
+    )
+    repository.listed_documents = [public_document, sensitive_document]
+    service = _service(tmp_path, repository=repository)
+
+    documents = await service.list_internship_documents(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert documents == [public_document]
+
+
+@pytest.mark.asyncio
 async def test_list_documents_rejects_cross_access(tmp_path):
     service = _service(tmp_path)
 
@@ -450,6 +478,29 @@ async def test_download_rejects_fica_role(tmp_path):
         await service.prepare_download(
             document_id=document.id,
             actor=_user(99, "FICA"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_download_rejects_sensitive_document_for_secretary(tmp_path):
+    repository = FakeDocumentRepository()
+    document = _document(
+        user_id=10,
+        document_type=_document_type(
+            2,
+            name="Seguro escolar",
+            is_sensitive=True,
+        ),
+    )
+    repository.documents_by_id[document.id] = document
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.prepare_download(
+            document_id=document.id,
+            actor=_admin_user(),
         )
 
     assert exc.value.status_code == 403
@@ -752,6 +803,70 @@ async def test_package_not_exportable_when_observed_documents_are_pending(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_package_filters_sensitive_documents_for_secretary(tmp_path):
+    repository = _package_repository()
+    public_type = repository.required_document_types[0]
+    sensitive_type = _document_type(
+        2,
+        is_required=False,
+        name="Seguro escolar",
+        is_sensitive=True,
+    )
+    public_document = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=55,
+        document_type=public_type,
+    )
+    sensitive_document = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=56,
+        document_type=sensitive_type,
+    )
+    repository.package_documents = [public_document, sensitive_document]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is False
+    assert package.reasons == ["sensitive_document_restricted"]
+    assert package.required_documents[0].document == public_document
+    assert package.optional_documents == []
+
+
+@pytest.mark.asyncio
+async def test_package_allows_sensitive_documents_for_director(tmp_path):
+    repository = _package_repository()
+    sensitive_type = _document_type(
+        2,
+        is_required=False,
+        name="Seguro escolar",
+        is_sensitive=True,
+    )
+    sensitive_document = _document(
+        status=DocumentStatusEnum.approved,
+        internship=repository.internship_by_id,
+        document_id=56,
+        document_type=sensitive_type,
+    )
+    repository.package_documents.append(sensitive_document)
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_user(99, "Director de carrera"),
+    )
+
+    assert package.exportable is True
+    assert package.reasons == []
+    assert package.optional_documents[0].document == sensitive_document
+
+
+@pytest.mark.asyncio
 async def test_package_requires_all_required_document_types(tmp_path):
     required_types = [
         _document_type(1, name="Formulario de inscripción"),
@@ -1018,6 +1133,41 @@ async def test_export_dirae_csv_returns_409_for_requested_non_exportable(tmp_pat
             "reasons": ["internship_not_approved"],
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_rejects_sensitive_document_for_secretary(tmp_path):
+    repository = _package_repository()
+    sensitive_type = _document_type(
+        2,
+        is_required=False,
+        name="Seguro escolar",
+        is_sensitive=True,
+    )
+    repository.package_documents.append(
+        _document(
+            status=DocumentStatusEnum.approved,
+            internship=repository.internship_by_id,
+            document_id=56,
+            document_type=sensitive_type,
+        )
+    )
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.export_dirae_document_packages(
+            actor=_admin_user(),
+            internship_ids=[7],
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["internships"] == [
+        {
+            "internship_id": 7,
+            "reasons": ["sensitive_document_restricted"],
+        },
+    ]
+    assert repository.exported_internships == []
 
 
 @pytest.mark.asyncio

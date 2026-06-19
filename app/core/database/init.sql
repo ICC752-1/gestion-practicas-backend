@@ -173,6 +173,7 @@ CREATE TABLE DocumentType (
     description VARCHAR(255) NOT NULL,
     is_required BOOLEAN NOT NULL,
     category "enumCategory",
+    is_sensitive BOOLEAN NOT NULL DEFAULT FALSE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -199,11 +200,11 @@ CREATE INDEX ix_document_internship_id ON Document(internship_id);
 CREATE INDEX ix_document_user_id ON Document(user_id);
 CREATE INDEX ix_document_status ON Document(status);
 
-INSERT INTO DocumentType (name, description, is_required, category) VALUES
-    ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', TRUE, 'Académico'),
-    ('Carta de aceptación', 'Documento emitido por la organización receptora.', TRUE, 'Administrativo'),
-    ('Seguro escolar', 'Respaldo administrativo de cobertura cuando corresponda.', FALSE, 'Administrativo'),
-    ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo');
+INSERT INTO DocumentType (name, description, is_required, category, is_sensitive) VALUES
+    ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', TRUE, 'Académico', FALSE),
+    ('Carta de aceptación', 'Documento emitido por la organización receptora.', TRUE, 'Administrativo', FALSE),
+    ('Seguro escolar', 'Respaldo administrativo de cobertura cuando corresponda.', FALSE, 'Administrativo', TRUE),
+    ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo', FALSE);
 
 CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,

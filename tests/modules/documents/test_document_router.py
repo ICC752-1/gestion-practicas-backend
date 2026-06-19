@@ -50,6 +50,7 @@ def _document_type() -> SimpleNamespace:
         description="Formulario de inscripción",
         is_required=True,
         category=DocumentCategoryEnum.academic,
+        is_sensitive=False,
         is_active=True,
     )
 
