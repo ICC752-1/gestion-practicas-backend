@@ -181,8 +181,8 @@ class AdminReportService:
                 exported_to_dirae=None,
                 notes=(
                     "Un paquete completo tiene todos los documentos requeridos "
-                    "activos aprobados. La auditoría de exportación DIRAE aún no "
-                    "está persistida como entidad consultable."
+                    "activos aprobados. Cada exportación DIRAE local persiste "
+                    "auditoría de negocio en LogAction."
                 ),
             ),
             evaluations=AdminReportEvaluations(

@@ -37,6 +37,7 @@ class FakeDocumentRepository:
         self.exported_internships = []
         self.export_actor_id = None
         self.export_reason = None
+        self.export_audit_payload = None
 
     async def list_active_document_types(self):
         return list(self.document_types.values())
@@ -111,10 +112,12 @@ class FakeDocumentRepository:
         internships,
         actor_id,
         reason,
+        audit_payload=None,
     ):
         self.exported_internships = internships
         self.export_actor_id = actor_id
         self.export_reason = reason
+        self.export_audit_payload = audit_payload
         for internship in internships:
             internship.dirae_status = DiraeStatusEnum.exported
 
@@ -1219,6 +1222,14 @@ async def test_export_dirae_csv_authorized(tmp_path):
     assert repository.exported_internships == [repository.internship_by_id]
     assert repository.export_actor_id == 99
     assert repository.export_reason == "dirae_document_package_exported"
+    assert repository.export_audit_payload is not None
+    assert repository.export_audit_payload["name"] == "dirae_export_generated"
+    assert repository.export_audit_payload["actor_id"] == 99
+    assert repository.export_audit_payload["internship_ids"] == [7]
+    assert repository.export_audit_payload["approved_document_ids"] == [55]
+    assert repository.export_audit_payload["filename"] == export.filename
+    assert repository.export_audit_payload["result"] == "generated"
+    assert isinstance(repository.export_audit_payload["exported_at"], datetime)
 
 
 @pytest.mark.asyncio
@@ -1302,6 +1313,7 @@ async def test_export_dirae_csv_rejects_sensitive_document_for_secretary(tmp_pat
         },
     ]
     assert repository.exported_internships == []
+    assert repository.export_audit_payload is None
 
 
 @pytest.mark.asyncio

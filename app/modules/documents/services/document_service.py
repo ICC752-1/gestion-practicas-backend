@@ -481,6 +481,7 @@ class DocumentService:
                 ],
                 actor.id,
                 DIRAE_EXPORTED_REASON,
+                self._build_dirae_export_audit_payload(audit_event),
             )
 
         return DiraeDocumentPackageExport(
@@ -894,6 +895,20 @@ class DocumentService:
             exported_at=exported_at,
             result="generated",
         )
+
+    def _build_dirae_export_audit_payload(
+        self,
+        audit_event: DiraeExportAuditEvent,
+    ) -> dict[str, object]:
+        return {
+            "name": audit_event.name,
+            "actor_id": audit_event.actor_id,
+            "internship_ids": audit_event.internship_ids,
+            "approved_document_ids": audit_event.approved_document_ids,
+            "filename": audit_event.filename,
+            "exported_at": audit_event.exported_at,
+            "result": audit_event.result,
+        }
 
     def _require_owner(self, actor: User, internship: Internship) -> None:
         if internship.user_id != actor.id:
