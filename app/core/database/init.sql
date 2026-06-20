@@ -471,6 +471,7 @@ CREATE TABLE induction_content_versions (
     status "content_status_enum" NOT NULL DEFAULT 'draft',
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
     min_score INTEGER NOT NULL DEFAULT 5,
+    requires_retake BOOLEAN NOT NULL DEFAULT FALSE,
     published_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -574,13 +575,14 @@ JOIN Roles roles ON roles.name = assignments.role_name;
 -- Contenido minimo de induccion para flujos demo/Insomnia.
 -- Permite que el estudiante complete el prerrequisito inexceptuable antes
 -- de aprobar una Practica de Estudio I.
-INSERT INTO induction_content_versions (title, description, status, is_active, min_score, published_at)
+INSERT INTO induction_content_versions (title, description, status, is_active, min_score, requires_retake, published_at)
 VALUES (
     'Induccion obligatoria demo',
     'Contenido minimo para validar el flujo de induccion en ambiente local.',
     'published',
     TRUE,
     1,
+    FALSE,
     CURRENT_TIMESTAMP
 );
 

@@ -62,6 +62,11 @@ class InductionContentVersion(Base):
         default=5,
         nullable=False,
     )
+    requires_retake: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
