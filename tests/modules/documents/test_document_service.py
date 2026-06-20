@@ -100,6 +100,11 @@ class FakeDocumentRepository:
         return document
 
 
+class FailingCreateDocumentRepository(FakeDocumentRepository):
+    async def create_document(self, document):
+        raise RuntimeError("database write failed")
+
+
 def _config(tmp_path, max_bytes: int = 10) -> SimpleNamespace:
     return SimpleNamespace(
         DOCUMENT_STORAGE_DIR=str(tmp_path),
@@ -271,6 +276,77 @@ async def test_upload_rejects_size_over_limit(tmp_path):
         )
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_empty_file(tmp_path):
+    service = _service(tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.upload_document(
+            internship_id=7,
+            document_type_id=1,
+            file_name="formulario.pdf",
+            content=b"",
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_upload_normalizes_file_name_and_keeps_storage_private(tmp_path):
+    repository = FakeDocumentRepository()
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.upload_document(
+        internship_id=7,
+        document_type_id=1,
+        file_name="../../secret.pdf",
+        content=b"data",
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert document.file_name == "secret.pdf"
+    assert document.file_path.startswith("7/")
+    assert ".." not in document.file_path
+    assert not (tmp_path / "secret.pdf").exists()
+    assert (tmp_path / document.file_path).read_bytes() == b"data"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("file_path", ["../secret.pdf", "/tmp/secret.pdf"])
+async def test_download_rejects_unsafe_storage_key(tmp_path, file_path):
+    repository = FakeDocumentRepository()
+    document = _document(user_id=10, file_path=file_path)
+    repository.documents_by_id[document.id] = document
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.prepare_download(
+            document_id=document.id,
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_upload_removes_written_file_when_metadata_persistence_fails(
+    tmp_path,
+):
+    service = _service(tmp_path, repository=FailingCreateDocumentRepository())
+
+    with pytest.raises(RuntimeError):
+        await service.upload_document(
+            internship_id=7,
+            document_type_id=1,
+            file_name="formulario.pdf",
+            content=b"data",
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert not any(path.is_file() for path in tmp_path.rglob("*"))
 
 
 @pytest.mark.asyncio
@@ -473,6 +549,50 @@ async def test_observed_status_with_comment_updates_document(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "new_status,comment",
+    [
+        (DocumentStatusEnum.observed, "Falta firma"),
+        (DocumentStatusEnum.approved, None),
+    ],
+)
+async def test_student_cannot_review_document(tmp_path, new_status, comment):
+    repository = FakeDocumentRepository()
+    repository.documents_by_id[55] = _document()
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.update_document_status(
+            document_id=55,
+            new_status=new_status,
+            comment=comment,
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_deleted_document(tmp_path):
+    repository = FakeDocumentRepository()
+    repository.documents_by_id[55] = _document(
+        status=DocumentStatusEnum.deleted,
+        deleted_at=datetime(2026, 6, 1, 10, 0, 0),
+    )
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.update_document_status(
+            document_id=55,
+            new_status=DocumentStatusEnum.approved,
+            comment=None,
+            actor=_user(99, "Secretaria de Carrera"),
+        )
+
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_approved_status_updates_document(tmp_path):
     repository = FakeDocumentRepository()
     repository.documents_by_id[55] = _document()
@@ -504,6 +624,43 @@ async def test_student_cannot_delete_approved_document(tmp_path):
         )
 
     assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_student_cannot_delete_document_from_another_student(tmp_path):
+    repository = FakeDocumentRepository()
+    repository.documents_by_id[55] = _document(user_id=10)
+    service = _service(tmp_path, repository=repository)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.soft_delete_document(
+            document_id=55,
+            actor=_user(99, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "document_status",
+    [DocumentStatusEnum.uploaded, DocumentStatusEnum.observed],
+)
+async def test_owner_can_delete_non_approved_document(
+    tmp_path,
+    document_status,
+):
+    repository = FakeDocumentRepository()
+    repository.documents_by_id[55] = _document(status=document_status)
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.soft_delete_document(
+        document_id=55,
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert document.status == DocumentStatusEnum.deleted
+    assert document.deleted_by == 10
 
 
 @pytest.mark.asyncio
@@ -769,6 +926,42 @@ async def test_package_tiebreaks_latest_approved_document_by_id(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_package_includes_approved_optional_documents(tmp_path):
+    required_type = _document_type(1, name="Formulario de inscripción")
+    optional_type = _document_type(
+        3,
+        is_required=False,
+        name="Documento complementario",
+    )
+    repository = _package_repository(required_types=[required_type])
+    repository.package_documents = [
+        _document(
+            status=DocumentStatusEnum.approved,
+            internship=repository.internship_by_id,
+            document_id=55,
+            document_type=required_type,
+        ),
+        _document(
+            status=DocumentStatusEnum.approved,
+            internship=repository.internship_by_id,
+            document_id=56,
+            document_type=optional_type,
+        ),
+    ]
+    service = _service(tmp_path, repository=repository)
+
+    package = await service.get_document_package(
+        internship_id=7,
+        actor=_admin_user(),
+    )
+
+    assert package.exportable is True
+    assert package.required_documents[0].document.id == 55
+    assert package.optional_documents[0].type_id == 3
+    assert package.optional_documents[0].document.id == 56
+
+
+@pytest.mark.asyncio
 async def test_package_access_allows_owner_and_document_admin(tmp_path):
     repository = _package_repository()
     service = _service(tmp_path, repository=repository)
@@ -897,3 +1090,23 @@ async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
         "required_document_type_ids",
         "exported_at",
     ]
+
+
+@pytest.mark.asyncio
+async def test_export_dirae_csv_without_ids_exports_only_exportable_packages(
+    tmp_path,
+):
+    repository = _package_repository()
+    non_exportable = _internship(user_id=11, status_title="Pendiente")
+    non_exportable.id = 8
+    repository.export_internships = [repository.internship_by_id, non_exportable]
+    service = _service(tmp_path, repository=repository)
+
+    export = await service.export_dirae_document_packages(
+        actor=_admin_user(),
+    )
+    rows = list(DictReader(StringIO(export.content)))
+
+    assert [row["internship_id"] for row in rows] == ["7"]
+    assert export.audit_event.internship_ids == [7]
+    assert export.audit_event.approved_document_ids == [55]

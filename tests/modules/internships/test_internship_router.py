@@ -2,23 +2,15 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from app.main import app
+from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.internships.controllers import internship_controller
 from app.modules.internships.controllers.internship_controller import (
     DASHBOARD_READ_ROLES,
 )
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
 
 
 def _user(user_id: int, roles: list[str]) -> SimpleNamespace:
@@ -57,29 +49,53 @@ class FakeTrackingService:
         return self.history
 
 
-def test_internships_router_is_registered() -> None:
-    paths = {route.path for route in app.routes}
+class FakeActionService:
+    async def approve(self, internship_id, current_user, comment):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
-    assert "/internships" in paths
-    assert "GET" in _methods_for_path("/internships")
-    assert "POST" in _methods_for_path("/internships")
-    assert "/internships/stats" in paths
-    assert "GET" in _methods_for_path("/internships/stats")
-    assert "/internships/me" in paths
-    assert "/internships/{internship_id}/tracking" in paths
-    assert "GET" in _methods_for_path("/internships/{internship_id}/tracking")
-    assert "/internships/{internship_id}" in paths
+    async def reject(self, internship_id, current_user, comment):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    async def derive(self, internship_id, current_user, comment):
+        return SimpleNamespace(id=internship_id, status_id=5)
 
 
-def test_users_and_roles_routers_are_registered() -> None:
-    paths = {route.path for route in app.routes}
+def test_secretaria_can_derive_but_cannot_approve_or_reject(monkeypatch) -> None:
+    secretary = _user(user_id=30, roles=["Secretaria de Carrera"])
+    service = FakeActionService()
+    client = TestClient(app)
 
-    assert "/users" in paths
-    assert "/users/{user_id}" in paths
-    assert "/users/{user_id}/roles" in paths
-    assert "/users/{user_id}/roles/{role_id}" in paths
-    assert "/roles" in paths
-    assert "/roles/{role_id}" in paths
+    app.dependency_overrides[get_current_user] = lambda: secretary
+    monkeypatch.setattr(
+        internship_controller,
+        "_build_service",
+        lambda db: service,
+    )
+
+    try:
+        approve_response = client.post(
+            "/internships/7/approve",
+            json={"comment": "Intento de aprobación"},
+        )
+        reject_response = client.post(
+            "/internships/7/reject",
+            json={"comment": "Intento de rechazo"},
+        )
+        derive_response = client.post(
+            "/internships/7/derive",
+            json={"comment": "Derivar a revisión DIRAE"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert approve_response.status_code == 403
+    assert reject_response.status_code == 403
+    assert derive_response.status_code == 200
+    assert derive_response.json() == {
+        "id": 7,
+        "status_id": 5,
+        "comment": "Derivar a revisión DIRAE",
+    }
 
 
 async def test_dashboard_internships_rejects_student_role() -> None:

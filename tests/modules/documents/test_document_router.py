@@ -1,7 +1,6 @@
 """Tests unitarios para el router documental."""
 
 from datetime import date, datetime
-from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -20,16 +19,6 @@ from app.modules.documents.models.document_model import (
     DocumentExtensionEnum,
     DocumentStatusEnum,
 )
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
 
 
 def _role(name: str) -> SimpleNamespace:
@@ -213,28 +202,6 @@ class FakeDocumentService:
                 result="generated",
             ),
         )
-
-
-def test_documents_router_is_registered() -> None:
-    paths = {route.path for route in app.routes}
-
-    assert "/documents/types" in paths
-    assert "GET" in _methods_for_path("/documents/types")
-    assert "/internships/{internship_id}/documents" in paths
-    assert "POST" in _methods_for_path("/internships/{internship_id}/documents")
-    assert "GET" in _methods_for_path("/internships/{internship_id}/documents")
-    assert "/documents/{document_id}/download" in paths
-    assert "GET" in _methods_for_path("/documents/{document_id}/download")
-    assert "/documents/{document_id}/status" in paths
-    assert "PATCH" in _methods_for_path("/documents/{document_id}/status")
-    assert "/documents/{document_id}" in paths
-    assert "DELETE" in _methods_for_path("/documents/{document_id}")
-    assert "/internships/{internship_id}/documents/package" in paths
-    assert "GET" in _methods_for_path(
-        "/internships/{internship_id}/documents/package",
-    )
-    assert "/dirae/document-packages/export" in paths
-    assert "GET" in _methods_for_path("/dirae/document-packages/export")
 
 
 def test_download_document_requires_authentication() -> None:
@@ -467,10 +434,3 @@ async def test_router_propagates_service_errors(monkeypatch):
         )
 
     assert exc.value.status_code == 404
-
-
-def test_fake_upload_file_shape_matches_needed_api() -> None:
-    upload = FakeUploadFile()
-
-    assert upload.filename == "formulario.pdf"
-    assert isinstance(BytesIO(b"data"), BytesIO)

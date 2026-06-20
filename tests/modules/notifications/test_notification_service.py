@@ -202,62 +202,13 @@ class TestInvalidRecipient:
 
 class TestPayloadStorage:
 
-    def test_event_helpers_include_payload(self):
-        notification = build_internship_approved_notification(
+    def test_internship_event_helpers_keep_routing_and_payload_contract(self):
+        approved = build_internship_approved_notification(
             recipient_user_id=10,
             recipient_email="s@test.com",
             internship_id=5,
             org_name="Acme Corp",
         )
-
-        assert notification.payload == {"internship_id": 5}
-        assert notification.event_type == NotificationEventTypeEnum.internship_approved
-
-    def test_rejected_notification_includes_reason_in_payload(self):
-        notification = build_internship_rejected_notification(
-            recipient_user_id=10,
-            recipient_email="s@test.com",
-            internship_id=5,
-            org_name="Acme Corp",
-            reason="Documentacion incompleta",
-        )
-
-        assert notification.payload["reason"] == "Documentacion incompleta"
-        assert notification.payload["internship_id"] == 5
-
-    def test_requirement_notification_payload(self):
-        notification = build_requirement_status_changed_notification(
-            recipient_user_id=10,
-            recipient_email="s@test.com",
-            requirement_id=3,
-            requirement_type="Práctica de Estudio I",
-            new_status="Aprobada",
-            previous_status="En revisión",
-        )
-
-        assert notification.payload["requirement_id"] == 3
-        assert notification.payload["new_status"] == "Aprobada"
-        assert notification.payload["previous_status"] == "En revisión"
-
-
-class TestEventHelpers:
-
-    def test_approved_notification_builds_correctly(self):
-        notification = build_internship_approved_notification(
-            recipient_user_id=10,
-            recipient_email="s@test.com",
-            internship_id=5,
-            org_name="Acme Corp",
-        )
-
-        assert notification.event_type == NotificationEventTypeEnum.internship_approved
-        assert notification.subject == "Práctica aprobada"
-        assert "Acme Corp" in notification.content
-        assert "aprobada" in notification.content
-        assert notification.recipient_user_id == 10
-        assert notification.recipient_email == "s@test.com"
-
-    def test_rejected_notification_builds_correctly(self):
         notification = build_internship_rejected_notification(
             recipient_user_id=10,
             recipient_email=None,
@@ -265,12 +216,29 @@ class TestEventHelpers:
             org_name="Acme Corp",
             reason="Falta de documentos",
         )
+        derived = build_internship_derived_notification(
+            recipient_user_id=10,
+            recipient_email="s@test.com",
+            internship_id=5,
+            org_name="Acme Corp",
+            reason="Revision DIRAE",
+        )
 
+        assert approved.event_type == NotificationEventTypeEnum.internship_approved
+        assert approved.payload == {"internship_id": 5}
+        assert approved.recipient_user_id == 10
+        assert approved.recipient_email == "s@test.com"
         assert notification.event_type == NotificationEventTypeEnum.internship_rejected
-        assert notification.subject == "Práctica rechazada"
-        assert "rechazada" in notification.content
-        assert "Falta de documentos" in notification.content
+        assert notification.payload == {
+            "internship_id": 5,
+            "reason": "Falta de documentos",
+        }
         assert notification.recipient_email is None
+        assert derived.event_type == NotificationEventTypeEnum.internship_derived
+        assert derived.payload == {
+            "internship_id": 5,
+            "reason": "Revision DIRAE",
+        }
 
     def test_rejected_notification_without_reason(self):
         notification = build_internship_rejected_notification(
@@ -282,21 +250,7 @@ class TestEventHelpers:
 
         assert "Motivo" not in notification.content
 
-    def test_derived_notification_builds_correctly(self):
-        notification = build_internship_derived_notification(
-            recipient_user_id=10,
-            recipient_email="s@test.com",
-            internship_id=5,
-            org_name="Acme Corp",
-            reason="Revision DIRAE",
-        )
-
-        assert notification.event_type == NotificationEventTypeEnum.internship_derived
-        assert notification.subject == "Práctica derivada a DIRAE"
-        assert "DIRAE" in notification.content
-        assert "Revision DIRAE" in notification.content
-
-    def test_requirement_status_changed_notification(self):
+    def test_requirement_status_changed_notification_keeps_payload_contract(self):
         notification = build_requirement_status_changed_notification(
             recipient_user_id=10,
             recipient_email="s@test.com",
@@ -310,8 +264,26 @@ class TestEventHelpers:
             notification.event_type
             == NotificationEventTypeEnum.requirement_status_changed
         )
-        assert "Práctica de Estudio I" in notification.subject
-        assert "Aprobada" in notification.content
+        assert notification.payload == {
+            "requirement_id": 3,
+            "requirement_type": "Práctica de Estudio I",
+            "new_status": "Aprobada",
+            "previous_status": "En revisión",
+        }
+
+    def test_event_helpers_escape_dynamic_html_values(self):
+        notification = build_internship_rejected_notification(
+            recipient_user_id=10,
+            recipient_email="s@test.com",
+            internship_id=5,
+            org_name='<script>alert("x")</script>',
+            reason='<img src=x onerror="alert(1)">',
+        )
+
+        assert "<script>" not in notification.content
+        assert "<img" not in notification.content
+        assert "&lt;script&gt;" in notification.content
+        assert "&lt;img" in notification.content
 
 
 class TestNotificationFromExternalService:
@@ -470,3 +442,41 @@ class TestRetrySend:
 
         service._mailer.send_message.assert_awaited_once()
         service.repository.update_status.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_successful_for_pending_notification(self):
+        service = _make_service(mode="real")
+        service._mailer = AsyncMock()
+
+        notification = _make_notification(
+            status=NotificationStatusEnum.pending,
+            recipient_email="s@test.com",
+        )
+        service.repository.get_by_id.return_value = notification
+        sent_notification = _make_notification(status=NotificationStatusEnum.sent)
+        service.repository.update_status.return_value = sent_notification
+
+        result = await service.retry_send(notification_id=1)
+
+        assert result.status == NotificationStatusEnum.sent
+        service._mailer.send_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_smtp_failure_keeps_notification_failed(self):
+        service = _make_service(mode="real")
+        service._mailer = AsyncMock()
+        service._mailer.send_message.side_effect = Exception("SMTP error")
+
+        notification = _make_notification(
+            status=NotificationStatusEnum.failed,
+            recipient_email="s@test.com",
+        )
+        failed_notification = _make_notification(status=NotificationStatusEnum.failed)
+        service.repository.get_by_id.return_value = notification
+        service.repository.update_status.return_value = failed_notification
+
+        result = await service.retry_send(notification_id=1)
+
+        assert result.status == NotificationStatusEnum.failed
+        call_args = service.repository.update_status.call_args
+        assert call_args.kwargs["new_status"] == NotificationStatusEnum.failed

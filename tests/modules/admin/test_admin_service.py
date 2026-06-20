@@ -1,7 +1,12 @@
 from datetime import date, datetime, UTC
 from types import SimpleNamespace
 
-from app.modules.admin.schemas.admin_schema import AdminUpdateSchoolInsuranceRequest
+import pytest
+
+from app.modules.admin.schemas.admin_schema import (
+    AdminUpdateSchoolInsuranceRequest,
+    AdminUpdateStudentInternshipRequirementStatusRequest,
+)
 from app.modules.admin.services.admin_service import AdminService
 from app.modules.internships.models.student_internship_requirement_model import (
     RegistrationRequirementType,
@@ -86,6 +91,36 @@ class FakeRegistrationRequirement:
         self.updated_by = None
 
 
+class FakeStudentInternshipRequirement:
+    def __init__(
+        self,
+        requirement_id: int,
+        user_id: int,
+        requirement_type: str,
+        status: str,
+    ) -> None:
+        self.id = requirement_id
+        self.user_id = user_id
+        self.type = requirement_type
+        self.status = status
+        self.status_updated_at = None
+        self.status_updated_by = None
+        self.created_at = datetime(2026, 5, 1, tzinfo=UTC)
+        self.updated_at = datetime(2026, 5, 1, tzinfo=UTC)
+
+
+class FakeNotificationService:
+    def __init__(self, *, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.notifications = []
+
+    async def create_and_dispatch(self, notification):
+        self.notifications.append(notification)
+        if self.should_fail:
+            raise RuntimeError("notification failed")
+        return notification
+
+
 def _internship(
     internship_id: int = 10,
     student: FakeStudent | None = None,
@@ -106,6 +141,13 @@ class FakeAdminRepository:
         self.students: list[FakeStudent] = []
         self.internships: list[FakeInternship] = []
         self.internship_by_id: FakeInternship | None = None
+        self.student_internship_requirements: list[
+            FakeStudentInternshipRequirement
+        ] = []
+        self.student_internship_requirement: (
+            FakeStudentInternshipRequirement | None
+        ) = None
+        self.updated_student_internship_requirement = None
         self.registration_requirements: list[FakeRegistrationRequirement] = []
         self.registration_requirement: FakeRegistrationRequirement | None = None
         self.saved_registration_requirement = None
@@ -127,6 +169,32 @@ class FakeAdminRepository:
 
     async def get_internship_by_id(self, internship_id: int) -> FakeInternship | None:
         return self.internship_by_id
+
+    async def list_student_internship_requirements(
+        self,
+        student_id: int,
+    ) -> list[FakeStudentInternshipRequirement]:
+        return [
+            requirement
+            for requirement in self.student_internship_requirements
+            if requirement.user_id == student_id
+        ]
+
+    async def get_student_internship_requirement(
+        self,
+        student_id: int,
+        requirement_id: int,
+    ) -> FakeStudentInternshipRequirement | None:
+        requirement = self.student_internship_requirement
+        if requirement is None:
+            return None
+        if requirement.user_id != student_id or requirement.id != requirement_id:
+            return None
+        return requirement
+
+    async def update_student_internship_requirement(self, requirement):
+        self.updated_student_internship_requirement = requirement
+        return requirement
 
     async def get_user_by_id(self, user_id: int) -> FakeStudent | None:
         return next(
@@ -405,6 +473,241 @@ async def test_get_internship_detail_returns_none() -> None:
     internship = await service.get_internship_detail(internship_id=404)
 
     assert internship is None
+
+
+async def test_get_student_internship_requirements_maps_requirements() -> None:
+    repository = FakeAdminRepository()
+    repository.student_internship_requirements = [
+        FakeStudentInternshipRequirement(
+            requirement_id=3,
+            user_id=7,
+            requirement_type="Práctica de Estudio I",
+            status="Habilitada",
+        ),
+    ]
+    service = AdminService(db=None)
+    service.repository = repository
+
+    requirements = await service.get_student_internship_requirements(7)
+
+    assert len(requirements) == 1
+    assert requirements[0].id == 3
+    assert requirements[0].user_id == 7
+    assert requirements[0].type == "Práctica de Estudio I"
+    assert requirements[0].status == "Habilitada"
+
+
+@pytest.mark.parametrize(
+    "current_status,new_status",
+    [
+        ("Pendiente", "Habilitada"),
+        ("Habilitada", "En revisión"),
+        ("En revisión", "Aprobada"),
+        ("En revisión", "Rechazada"),
+        ("Rechazada", "Habilitada"),
+    ],
+)
+async def test_update_student_internship_requirement_accepts_valid_transition(
+    current_status,
+    new_status,
+) -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    repository.student_internship_requirement = FakeStudentInternshipRequirement(
+        requirement_id=3,
+        user_id=7,
+        requirement_type="Práctica de Estudio I",
+        status=current_status,
+    )
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_student_internship_requirement_status(
+        student_id=7,
+        requirement_id=3,
+        payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+            status=new_status,
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.status == new_status
+    assert result.status_updated_at is not None
+    assert result.status_updated_by == 20
+
+
+@pytest.mark.parametrize(
+    "current_status,new_status",
+    [
+        ("Pendiente", "Aprobada"),
+        ("Aprobada", "Rechazada"),
+        ("Habilitada", "Aprobada"),
+    ],
+)
+async def test_update_student_internship_requirement_rejects_invalid_transition(
+    current_status,
+    new_status,
+) -> None:
+    repository = FakeAdminRepository()
+    repository.student_internship_requirement = FakeStudentInternshipRequirement(
+        requirement_id=3,
+        user_id=7,
+        requirement_type="Práctica de Estudio I",
+        status=current_status,
+    )
+    service = AdminService(db=None)
+    service.repository = repository
+
+    with pytest.raises(ValueError):
+        await service.update_student_internship_requirement_status(
+            student_id=7,
+            requirement_id=3,
+            payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+                status=new_status,
+            ),
+            updated_by_user_id=20,
+        )
+
+
+async def test_update_student_internship_requirement_allows_same_status() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    repository.student_internship_requirement = FakeStudentInternshipRequirement(
+        requirement_id=3,
+        user_id=7,
+        requirement_type="Práctica de Estudio I",
+        status="Habilitada",
+    )
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_student_internship_requirement_status(
+        student_id=7,
+        requirement_id=3,
+        payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+            status="Habilitada",
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.status == "Habilitada"
+    assert result.status_updated_by == 20
+
+
+async def test_update_student_internship_requirement_returns_none_when_missing() -> None:
+    repository = FakeAdminRepository()
+    repository.student_internship_requirement = None
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_student_internship_requirement_status(
+        student_id=7,
+        requirement_id=404,
+        payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+            status="Habilitada",
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is None
+
+
+async def test_update_student_internship_requirement_dispatches_notification() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    repository.student_internship_requirement = FakeStudentInternshipRequirement(
+        requirement_id=3,
+        user_id=7,
+        requirement_type="Práctica de Estudio I",
+        status="Pendiente",
+    )
+    notification_service = FakeNotificationService()
+    service = AdminService(db=None, notification_service=notification_service)
+    service.repository = repository
+
+    result = await service.update_student_internship_requirement_status(
+        student_id=7,
+        requirement_id=3,
+        payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+            status="Habilitada",
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert len(notification_service.notifications) == 1
+    notification = notification_service.notifications[0]
+    assert notification.recipient_user_id == 7
+    assert notification.recipient_email == "ana@example.com"
+    assert notification.payload["requirement_id"] == 3
+    assert notification.payload["new_status"] == "Habilitada"
+    assert notification.payload["previous_status"] == "Pendiente"
+
+
+async def test_update_student_internship_requirement_ignores_notification_failure() -> None:
+    repository = FakeAdminRepository()
+    repository.students = [
+        FakeStudent(
+            student_id=7,
+            email="ana@example.com",
+            first_name="Ana",
+            last_name="Lopez",
+            rut="12.345.678-9",
+            is_active=True,
+        ),
+    ]
+    repository.student_internship_requirement = FakeStudentInternshipRequirement(
+        requirement_id=3,
+        user_id=7,
+        requirement_type="Práctica de Estudio I",
+        status="Pendiente",
+    )
+    service = AdminService(
+        db=None,
+        notification_service=FakeNotificationService(should_fail=True),
+    )
+    service.repository = repository
+
+    result = await service.update_student_internship_requirement_status(
+        student_id=7,
+        requirement_id=3,
+        payload=AdminUpdateStudentInternshipRequirementStatusRequest(
+            status="Habilitada",
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.status == "Habilitada"
 
 
 async def test_get_student_registration_requirements_returns_institutional_data() -> None:
