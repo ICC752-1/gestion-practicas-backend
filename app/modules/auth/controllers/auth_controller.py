@@ -17,11 +17,15 @@ from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.core.database.database import get_db
 
 from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
+from app.modules.auth.repositories.account_activation_token_repository import (
+    AccountActivationTokenRepository,
+)
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
+    ActivateAccountRequest,
     CompleteTemporaryPasswordRequest,
     LoginRequest,
     LogoutRequest,
@@ -33,6 +37,7 @@ from app.modules.auth.schemas.user_schema import CurrentUserResponse
 from app.modules.auth.models.user_model import User
 
 from app.modules.auth.services.auth_service import (
+    AccountActivationError,
     AuthService,
     TemporaryPasswordChangeRequiredError,
 )
@@ -170,6 +175,35 @@ async def complete_temporary_password(
             new_password=payload.new_password,
         )
     except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/activate-account", status_code=status.HTTP_204_NO_CONTENT)
+async def activate_account(
+    payload: ActivateAccountRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Activa una cuenta nueva mediante enlace de un solo uso."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        await auth_service.activate_account(
+            token=payload.token,
+            new_password=payload.new_password,
+        )
+    except AccountActivationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

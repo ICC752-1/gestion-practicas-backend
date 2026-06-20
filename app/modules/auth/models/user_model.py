@@ -92,3 +92,9 @@ class User(Base):
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
+    activation_tokens = relationship(
+        "AccountActivationToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="AccountActivationToken.user_id",
+    )

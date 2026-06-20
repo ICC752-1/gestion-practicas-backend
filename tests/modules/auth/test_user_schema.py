@@ -26,6 +26,15 @@ def test_user_create_request_normalizes_rut_and_phone() -> None:
     assert user.sup_phone == "+56987654321"
 
 
+def test_user_create_request_accepts_missing_password() -> None:
+    payload = _base_payload()
+    payload.pop("password")
+
+    user = UserCreateRequest(**payload)
+
+    assert user.password is None
+
+
 def test_user_update_request_normalizes_rut_and_phone() -> None:
     payload = {
         "rut": "12.345.678-5",

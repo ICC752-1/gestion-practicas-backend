@@ -26,6 +26,13 @@ class CompleteTemporaryPasswordRequest(BaseModel):
     temporary_password: str = Field(min_length=8, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
 
+
+class ActivateAccountRequest(BaseModel):
+    """Payload para activar una cuenta mediante enlace de un solo uso."""
+
+    token: str = Field(min_length=32, max_length=512)
+    new_password: str = Field(min_length=8, max_length=128)
+
 class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
 

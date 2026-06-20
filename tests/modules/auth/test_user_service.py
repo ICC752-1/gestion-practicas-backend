@@ -57,6 +57,33 @@ async def test_create_user_normalizes_rut_and_phones() -> None:
     assert user.is_verified is False
 
 
+async def test_create_user_generates_internal_password_when_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.auth.services.user_service.secrets.token_urlsafe",
+        lambda length: "generated-internal-password",
+    )
+    repository = FakeUserRepository()
+    service = UserService(
+        user_repository=repository,
+        password_service=FakePasswordService(),
+    )
+    payload = UserCreateRequest(
+        email="user@example.com",
+        first_name="Ana",
+        last_name="Perez",
+        rut="12.345.678-5",
+    )
+
+    user = await service.create_user(payload)
+
+    assert repository.created_user is user
+    assert user.password_hash == "hashed-generated-internal-password"
+    assert user.must_change_password is True
+    assert user.is_verified is False
+
+
 async def test_update_user_normalizes_fields() -> None:
     repository = FakeUserRepository()
     service = UserService(

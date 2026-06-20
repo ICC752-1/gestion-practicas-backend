@@ -18,8 +18,9 @@ class UserCreateRequest(BaseModel):
 
     Attributes:
         email: Correo electrónico del usuario.
-        password: Contraseña en texto plano.
-            Restricciones: longitud mínima 8 y máxima 128 caracteres.
+        password: Contraseña inicial opcional para compatibilidad.
+            Si no se entrega, el backend genera una credencial interna aleatoria
+            y el usuario define su contraseña mediante enlace de activación.
         first_name: Nombre(s) del usuario.
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
         last_name: Apellido(s) del usuario.
@@ -38,7 +39,8 @@ class UserCreateRequest(BaseModel):
 
     email: EmailStr
 
-    password: str = Field(
+    password: str | None = Field(
+        default=None,
         min_length=8,
         max_length=128,
     )

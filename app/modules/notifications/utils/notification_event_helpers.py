@@ -6,6 +6,7 @@ de practicas y cambios de estado de requisitos. Cada helper construye
 el asunto, contenido y payload minimos correspondientes al tipo de evento.
 """
 
+from datetime import UTC, datetime
 from html import escape
 
 from app.modules.notifications.models.notification_model import (
@@ -30,6 +31,7 @@ def _build_email_body(
     intro: str,
     details: list[tuple[str, str | int | None]],
     action_label: str = "Ingresar a la plataforma",
+    action_url: str | None = None,
     footer_note: str | None = None,
 ) -> str:
     """Construye el HTML transaccional compartido para notificaciones."""
@@ -42,10 +44,23 @@ def _build_email_body(
     safe_title = escape(title)
     safe_intro = escape(intro)
     safe_action_label = escape(action_label)
+    safe_action_url = escape(action_url, quote=True) if action_url else None
     note = footer_note or (
         "Este es un mensaje automático del Sistema de Gestión de Prácticas FICA."
     )
     safe_note = escape(note)
+    action_html = (
+        f'<a href="{safe_action_url}" '
+        f'style="display:inline-block;background:{BRAND_PRIMARY};color:#ffffff;'
+        "text-decoration:none;padding:14px 22px;border-radius:12px;"
+        f'font-weight:700;font-size:15px;">{safe_action_label}</a>'
+        if safe_action_url
+        else (
+            f'<span style="display:inline-block;background:{BRAND_PRIMARY};'
+            "color:#ffffff;text-decoration:none;padding:14px 22px;"
+            f'border-radius:12px;font-weight:700;font-size:15px;">{safe_action_label}</span>'
+        )
+    )
 
     return f"""
 <!doctype html>
@@ -73,7 +88,7 @@ def _build_email_body(
                   </tr>
                 </table>
                 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:{TEXT_SECONDARY};">Ingresa a la plataforma para revisar el detalle actualizado y continuar con el proceso si corresponde.</p>
-                <span style="display:inline-block;background:{BRAND_PRIMARY};color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:12px;font-weight:700;font-size:15px;">{safe_action_label}</span>
+                {action_html}
               </td>
             </tr>
             <tr>
@@ -362,6 +377,65 @@ def build_document_status_changed_notification(
             "new_status": new_status,
             "comment": comment,
         },
+    )
+
+
+def build_user_activation_notification(
+    recipient_user_id: int,
+    recipient_email: str,
+    activation_url: str,
+    expires_at: datetime,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion de activacion para usuarios creados por Superadmin."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Cuenta creada en Sistema de Gestión de Prácticas",
+        content=_build_email_body(
+            title="Cuenta creada",
+            intro=(
+                "Se creó una cuenta para usted en el Sistema de Gestión de "
+                "Prácticas. Use el enlace de activación para definir su "
+                "contraseña definitiva."
+            ),
+            details=[
+                ("Usuario", recipient_email),
+                ("Acción requerida", "Definir contraseña inicial"),
+                ("Vencimiento", expires_at.strftime("%Y-%m-%d %H:%M")),
+            ],
+            action_label="Activar cuenta",
+            action_url=activation_url,
+            footer_note=(
+                "Este enlace es de un solo uso. Si usted no solicitó o no esperaba "
+                "esta cuenta, contacte al equipo administrativo."
+            ),
+        ),
+        status=status,
+        payload={
+            "event": "user_account_activation_created",
+            "recipient_user_id": recipient_user_id,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+
+
+def build_user_temporary_credentials_notification(
+    recipient_user_id: int,
+    recipient_email: str,
+    temporary_password: str,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Compatibilidad: ya no debe usarse para altas nuevas por Superadmin."""
+
+    return build_user_activation_notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        activation_url="",
+        expires_at=datetime.now(UTC).replace(tzinfo=None),
+        status=status,
     )
 
 

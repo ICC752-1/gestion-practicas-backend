@@ -85,6 +85,20 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX ix_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX ix_refresh_tokens_jti ON refresh_tokens(jti);
 
+CREATE TABLE account_activation_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_by_id INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_account_activation_tokens_user_id ON account_activation_tokens(user_id);
+CREATE INDEX ix_account_activation_tokens_token_hash ON account_activation_tokens(token_hash);
+
 CREATE TABLE user_roles (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES Users(id),
