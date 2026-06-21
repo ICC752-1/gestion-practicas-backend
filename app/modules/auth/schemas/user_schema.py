@@ -29,6 +29,7 @@ class UserCreateRequest(BaseModel):
             Restricciones: longitud máxima 100 caracteres.
         degree: Carrera o grado academico del usuario (opcional).
         cod_degree: Codigo interno de la carrera (opcional).
+        admission_year: Año de ingreso del estudiante (opcional).
         sexo: Identificador de genero del usuario (opcional).
         phone: Telefono de contacto del usuario (opcional).
         profession: Profesion del usuario (opcional).
@@ -62,6 +63,7 @@ class UserCreateRequest(BaseModel):
 
     degree: str | None = Field(default=None, max_length=255)
     cod_degree: str | None = Field(default=None, max_length=100)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
     sexo: Literal["Femenino", "Masculino", "Otro", "No definido"] | None = None
     phone: str | None = Field(default=None, max_length=100)
     profession: str | None = Field(default=None, max_length=100)
@@ -96,6 +98,7 @@ class UserUpdateRequest(BaseModel):
         rut: RUT del usuario.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
+        admission_year: Año de ingreso del estudiante.
         sexo: Identificador de genero del usuario.
         phone: Telefono de contacto del usuario.
         profession: Profesion del usuario.
@@ -120,6 +123,7 @@ class UserUpdateRequest(BaseModel):
     rut: str | None = Field(default=None, min_length=1, max_length=100)
     degree: str | None = Field(default=None, min_length=1, max_length=255)
     cod_degree: str | None = Field(default=None, min_length=1, max_length=100)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
     sexo: Literal["Femenino", "Masculino", "Otro", "No definido"] | None = None
     phone: str | None = Field(default=None, min_length=1, max_length=100)
     profession: str | None = Field(default=None, min_length=1, max_length=100)
@@ -158,6 +162,7 @@ class UserResponse(BaseModel):
         rut: Identificador RUT del usuario.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
+        admission_year: Año de ingreso del estudiante.
         sexo: Identificador de genero del usuario.
         phone: Telefono de contacto del usuario.
         profession: Profesion del usuario.
@@ -179,6 +184,7 @@ class UserResponse(BaseModel):
     rut: str
     degree: str | None
     cod_degree: str | None
+    admission_year: int | None
     sexo: str | None
     phone: str | None
     profession: str | None

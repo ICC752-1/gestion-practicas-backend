@@ -11,6 +11,7 @@ def _base_payload() -> dict[str, object]:
         "first_name": "Ana",
         "last_name": "Perez",
         "rut": "12.345.678-5",
+        "admission_year": 2023,
         "phone": "912345678",
         "sup_phone": "+56 9 8765 4321",
     }
@@ -22,6 +23,7 @@ def test_user_create_request_normalizes_rut_and_phone() -> None:
     user = UserCreateRequest(**payload)
 
     assert user.rut == "12345678-5"
+    assert user.admission_year == 2023
     assert user.phone == "+56912345678"
     assert user.sup_phone == "+56987654321"
 
@@ -47,6 +49,17 @@ def test_user_update_request_normalizes_rut_and_phone() -> None:
     assert user.rut == "12345678-5"
     assert user.phone == "+56912345678"
     assert user.sup_phone == "+56987654321"
+
+
+@pytest.mark.parametrize("admission_year", [1899, 2101])
+def test_user_create_request_rejects_invalid_admission_year(
+    admission_year: int,
+) -> None:
+    payload = _base_payload()
+    payload["admission_year"] = admission_year
+
+    with pytest.raises(ValidationError):
+        UserCreateRequest(**payload)
 
 
 @pytest.mark.parametrize("field", ["rut", "phone", "sup_phone"])

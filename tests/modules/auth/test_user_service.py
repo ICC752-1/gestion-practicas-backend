@@ -34,6 +34,7 @@ def _valid_create_payload() -> UserCreateRequest:
         first_name="Ana",
         last_name="Perez",
         rut="12.345.678-5",
+        admission_year=2023,
         phone="912345678",
         sup_phone="+56 9 8765 4321",
     )
@@ -50,6 +51,7 @@ async def test_create_user_normalizes_rut_and_phones() -> None:
 
     assert repository.created_user is user
     assert user.rut == "12345678-5"
+    assert user.admission_year == 2023
     assert user.phone == "+56912345678"
     assert user.sup_phone == "+56987654321"
     assert user.password_hash == "hashed-my-secret-password"
@@ -94,6 +96,7 @@ async def test_update_user_normalizes_fields() -> None:
     user = SimpleNamespace(
         id=1,
         rut="1-9",
+        admission_year=None,
         phone=None,
         sup_phone=None,
         first_name="Ana",
@@ -101,6 +104,7 @@ async def test_update_user_normalizes_fields() -> None:
 
     payload = UserUpdateRequest(
         rut="12.345.678-5",
+        admission_year=2024,
         phone="912345678",
         sup_phone="+56 9 8765 4321",
         first_name="Carla",
@@ -110,6 +114,7 @@ async def test_update_user_normalizes_fields() -> None:
 
     assert repository.updated_user is updated
     assert updated.rut == "12345678-5"
+    assert updated.admission_year == 2024
     assert updated.phone == "+56912345678"
     assert updated.sup_phone == "+56987654321"
     assert updated.first_name == "Carla"

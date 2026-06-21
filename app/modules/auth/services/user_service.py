@@ -64,6 +64,7 @@ class UserService:
             rut=normalize_rut(payload.rut),
             degree=payload.degree,
             cod_degree=payload.cod_degree,
+            admission_year=payload.admission_year,
             sexo=payload.sexo,
             phone=normalize_phone(payload.phone) if payload.phone else None,
             profession=payload.profession,

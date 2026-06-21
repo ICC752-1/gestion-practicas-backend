@@ -59,6 +59,7 @@ CREATE TABLE Users (
     rut VARCHAR(100) UNIQUE NOT NULL,
     degree VARCHAR(255),
     cod_degree VARCHAR(100),
+    admission_year INTEGER,
     sexo "enumGender",
     phone VARCHAR(100),
     profession VARCHAR(100),
