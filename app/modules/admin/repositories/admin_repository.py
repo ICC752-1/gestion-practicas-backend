@@ -6,6 +6,8 @@ lectura administrativas sobre estudiantes y practicas.
 
 import logging
 
+from datetime import UTC, datetime
+
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,7 +16,10 @@ from app.modules.auth.models.role_model import Role
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.current_state_model import CurrentState
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import (
+    Internship,
+    SchoolInsuranceStatusEnum,
+)
 from app.modules.internships.models.student_internship_requirement_model import (
     StudentInternshipRequirement,
     StudentRegistrationRequirement,
@@ -284,3 +289,38 @@ class AdminRepository:
         await self.db.refresh(requirement)
 
         return requirement
+
+    async def update_internship_school_insurance(
+        self,
+        internship: Internship,
+        status: SchoolInsuranceStatusEnum,
+        updated_by_user_id: int,
+        notes: str | None,
+    ) -> Internship:
+        """Actualiza el estado de seguro escolar de una solicitud concreta."""
+
+        internship.insurance_status = status
+        internship.insurance_notes = notes
+
+        if status in (
+            SchoolInsuranceStatusEnum.validated,
+            SchoolInsuranceStatusEnum.exception_authorized,
+            SchoolInsuranceStatusEnum.not_applicable,
+        ):
+            internship.insurance_validated_by = updated_by_user_id
+            internship.insurance_validated_at = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            internship.insurance_validated_by = None
+            internship.insurance_validated_at = None
+
+        if status == SchoolInsuranceStatusEnum.validated:
+            internship.has_school_insurance = True
+        elif status == SchoolInsuranceStatusEnum.requires_exception:
+            internship.has_school_insurance = False
+
+        self.db.add(internship)
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        loaded = await self.get_internship_by_id(internship.id)
+        return loaded or internship

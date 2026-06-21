@@ -59,6 +59,16 @@ class DiraeStatusEnum(str, enum.Enum):
     exported = "exported"
 
 
+class SchoolInsuranceStatusEnum(str, enum.Enum):
+    """Estado de validacion del seguro escolar para una solicitud concreta."""
+
+    pending = "pending"
+    validated = "validated"
+    requires_exception = "requires_exception"
+    exception_authorized = "exception_authorized"
+    not_applicable = "not_applicable"
+
+
 class Internship(Base):
     """Representa una practica profesional registrada en el sistema.
 
@@ -101,6 +111,12 @@ class Internship(Base):
             aprobacion administrativa.
         final_result: Resultado final consolidado de la practica.
         dirae_status: Estado local del expediente documental DIRAE.
+        insurance_status: Estado de validacion del seguro escolar para esta
+            solicitud concreta.
+        insurance_validated_by: Identificador del actor que valido o regularizo
+            el seguro escolar para esta solicitud.
+        insurance_validated_at: Fecha y hora de la validacion o regularizacion.
+        insurance_notes: Observacion administrativa asociada a la validacion.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -232,10 +248,31 @@ class Internship(Base):
         default=DiraeStatusEnum.not_started,
         nullable=False,
     )
+    insurance_status: Mapped[SchoolInsuranceStatusEnum] = mapped_column(
+        PGEnum(
+            SchoolInsuranceStatusEnum,
+            name="enumSchoolInsuranceStatus",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=SchoolInsuranceStatusEnum.pending,
+        nullable=False,
+    )
+    insurance_validated_by: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    insurance_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+    insurance_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User", foreign_keys=[user_id])
     cancellation_actor = relationship("User", foreign_keys=[cancelled_by])
+    insurance_validator = relationship("User", foreign_keys=[insurance_validated_by])
     status_history = relationship(
         "InternshipStatusHistory",
         back_populates="internship",

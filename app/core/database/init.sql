@@ -27,6 +27,7 @@ CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'f
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
 CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
 CREATE TYPE "enumDiraeStatus" AS ENUM ('not_started', 'in_review', 'observed', 'ready', 'exported');
+CREATE TYPE "enumSchoolInsuranceStatus" AS ENUM ('pending', 'validated', 'requires_exception', 'exception_authorized', 'not_applicable');
 
 -- 2. Creación de Tablas
 
@@ -154,6 +155,10 @@ CREATE TABLE Internship (
     completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
     final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
     dirae_status "enumDiraeStatus" NOT NULL DEFAULT 'not_started',
+    insurance_status "enumSchoolInsuranceStatus" NOT NULL DEFAULT 'pending',
+    insurance_validated_by INTEGER REFERENCES Users(id),
+    insurance_validated_at TIMESTAMP,
+    insurance_notes TEXT,
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),

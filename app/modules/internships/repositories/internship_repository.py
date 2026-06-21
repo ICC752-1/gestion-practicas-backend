@@ -32,6 +32,7 @@ from app.modules.internships.models.internship_model import (
     DiraeStatusEnum,
     Internship,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -329,6 +330,43 @@ class InternshipRepository:
                 reason=reason,
             )
         )
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
+
+    async def update_school_insurance_validation(
+        self,
+        internship: Internship,
+        status: SchoolInsuranceStatusEnum,
+        actor_id: int | None,
+        notes: str | None = None,
+    ) -> Internship:
+        """Actualiza la validacion de seguro escolar de una solicitud concreta."""
+
+        internship.insurance_status = status
+        internship.insurance_notes = notes
+
+        if status in (
+            SchoolInsuranceStatusEnum.validated,
+            SchoolInsuranceStatusEnum.exception_authorized,
+            SchoolInsuranceStatusEnum.not_applicable,
+        ):
+            internship.insurance_validated_by = actor_id
+            internship.insurance_validated_at = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            internship.insurance_validated_by = None
+            internship.insurance_validated_at = None
+
+        if status == SchoolInsuranceStatusEnum.validated:
+            internship.has_school_insurance = True
+        elif status == SchoolInsuranceStatusEnum.requires_exception:
+            internship.has_school_insurance = False
+
         await self.db.commit()
         await self.db.refresh(internship)
 

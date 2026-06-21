@@ -19,6 +19,7 @@ from app.modules.admin.schemas.admin_schema import (
     AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryResponse,
+    AdminUpdateInternshipSchoolInsuranceRequest,
     AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
@@ -171,6 +172,51 @@ async def get_internship_detail(
 
     service = _build_service(db)
     internship = await service.get_internship_detail(internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    return internship
+
+
+@router.patch(
+    "/internships/{internship_id}/school-insurance",
+    response_model=AdminInternshipDetailResponse,
+)
+async def update_internship_school_insurance(
+    internship_id: int,
+    payload: AdminUpdateInternshipSchoolInsuranceRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(SCHOOL_INSURANCE_ADMIN_ROLES)),
+    ],
+) -> AdminInternshipDetailResponse:
+    """Actualiza la validacion de seguro escolar de una solicitud concreta."""
+
+    logger.info(
+        "Admin internship school insurance update request received",
+        extra={
+            "user_id": current_user.id,
+            "internship_id": internship_id,
+            "status": payload.status,
+        },
+    )
+
+    try:
+        internship = await _build_service(db).update_internship_school_insurance(
+            internship_id=internship_id,
+            payload=payload,
+            updated_by_user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
 
     if internship is None:
         raise HTTPException(

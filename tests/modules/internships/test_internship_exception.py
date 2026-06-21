@@ -120,6 +120,9 @@ class FakeInternshipRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self.updated_insurance_status = None
+        self.updated_insurance_actor_id = None
+        self.updated_insurance_notes = None
         
         # Atributos de rastreo para Excepciones Administrativas
         self.created_exception_internship_id = None
@@ -213,6 +216,21 @@ class FakeInternshipRepository:
             authorized_by=authorized_by,
             actor=_user(authorized_by, "Encargado", "De Práctica")
         )
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = actor_id
+        internship.insurance_notes = notes
+        self.updated_insurance_status = status
+        self.updated_insurance_actor_id = actor_id
+        self.updated_insurance_notes = notes
+        return internship
 
     async def list_exceptions(self, internship_id: int):
         return self.exceptions_list

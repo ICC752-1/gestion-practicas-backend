@@ -36,9 +36,11 @@ def test_school_insurance_admin_routes_are_registered() -> None:
     update_path = (
         "/admin/students/{student_id}/registration-requirements/school-insurance"
     )
+    internship_update_path = "/admin/internships/{internship_id}/school-insurance"
 
     assert "GET" in _methods_for_path(list_path)
     assert "PATCH" in _methods_for_path(update_path)
+    assert "PATCH" in _methods_for_path(internship_update_path)
 
 
 @pytest.mark.parametrize(

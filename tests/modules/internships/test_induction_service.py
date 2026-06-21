@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.schemas.internship_schema import (
     InductionAttemptRequest,
@@ -138,6 +139,9 @@ class FakeInductionRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self.updated_insurance_status = None
+        self.updated_insurance_actor_id = None
+        self.updated_insurance_notes = None
 
         self._student_requirements = {}
         self._passed_induction_for_user = {}
@@ -204,6 +208,21 @@ class FakeInductionRepository:
         if dict_val is not None:
             return dict_val
         return getattr(self, "_exception_by_rule_value", None)
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = actor_id
+        internship.insurance_notes = notes
+        self.updated_insurance_status = status
+        self.updated_insurance_actor_id = actor_id
+        self.updated_insurance_notes = notes
+        return internship
 
     # ── Prerrequisitos ───────────────────────────────────────────────────
 
@@ -473,8 +492,8 @@ class TestIntegratedRules:
         assert result.status.title == IN_REVIEW_STATUS_TITLE
 
     @pytest.mark.asyncio
-    async def test_approval_uses_current_insurance_instead_of_creation_snapshot(self):
-        """3.d. Un seguro regularizado después de crear permite aprobar."""
+    async def test_approval_requires_explicit_validation_after_insurance_regularization(self):
+        """3.d. Seguro global regularizado no basta para aprobar periodo estival."""
         repo = FakeInductionRepository()
         service = InternshipService(internship_repository=repo)
         actor = _make_user("Encargado de practica")
@@ -495,6 +514,39 @@ class TestIntegratedRules:
             internship_period=PracticePeriodEnum.summer,
             internship_type=PracticeTypeEnum.practice_1,
             has_school_insurance=False,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship_id=7, actor=actor, comment=None)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["rule"] == "school_insurance"
+        assert exc.value.detail["insurance_status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_approval_uses_request_level_insurance_validation(self):
+        """3.e. La validación explícita de la solicitud permite aprobar verano."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=True,
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=7,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=2,
+            status=_status(2, IN_REVIEW_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=True,
+            insurance_status=SchoolInsuranceStatusEnum.validated,
         )
 
         result = await service.approve(internship_id=7, actor=actor, comment=None)

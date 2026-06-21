@@ -2,10 +2,12 @@ from datetime import date, datetime, UTC
 from types import SimpleNamespace
 
 from app.modules.admin.schemas.admin_schema import (
+    AdminUpdateInternshipSchoolInsuranceRequest,
     AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.admin.services.admin_service import AdminService
+from app.modules.internships.models.internship_model import SchoolInsuranceStatusEnum
 from app.modules.internships.models.student_internship_requirement_model import (
     RegistrationRequirementType,
 )
@@ -78,6 +80,11 @@ class FakeInternship:
         self.is_cancelled = is_cancelled
         self.cancelled_at = cancelled_at
         self.cancellation_reason = cancellation_reason
+        self.insurance_status = SchoolInsuranceStatusEnum.pending
+        self.insurance_validated_by = None
+        self.insurance_validated_at = None
+        self.insurance_notes = None
+        self.has_school_insurance = False
 
 
 class FakeRegistrationRequirement:
@@ -138,6 +145,7 @@ class FakeAdminRepository:
         self.saved_registration_requirement = None
         self.student_internship_requirement: FakeAcademicRequirement | None = None
         self.updated_student_internship_requirement = None
+        self.updated_internship_school_insurance = None
 
     async def get_students_count(self) -> int:
         return self.students_count
@@ -203,6 +211,21 @@ class FakeAdminRepository:
     async def update_student_internship_requirement(self, requirement):
         self.updated_student_internship_requirement = requirement
         return requirement
+
+    async def update_internship_school_insurance(
+        self,
+        internship,
+        status,
+        updated_by_user_id,
+        notes,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = updated_by_user_id
+        internship.insurance_validated_at = datetime(2026, 6, 21, 12, 0)
+        internship.insurance_notes = notes
+        internship.has_school_insurance = status == SchoolInsuranceStatusEnum.validated
+        self.updated_internship_school_insurance = internship
+        return internship
 
 
 # Caso de prueba:
@@ -532,6 +555,40 @@ async def test_get_internship_detail_returns_none() -> None:
     internship = await service.get_internship_detail(internship_id=404)
 
     assert internship is None
+
+
+async def test_update_internship_school_insurance_validates_request() -> None:
+    repository = FakeAdminRepository()
+    student = FakeStudent(
+        student_id=7,
+        email="ana@example.com",
+        first_name="Ana",
+        last_name="Lopez",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    repository.internship_by_id = _internship(
+        internship_id=15,
+        student=student,
+        status=FakeStatus(1, "Pendiente", "Pendiente"),
+    )
+    service = AdminService(db=None)
+    service.repository = repository
+
+    result = await service.update_internship_school_insurance(
+        internship_id=15,
+        payload=AdminUpdateInternshipSchoolInsuranceRequest(
+            status="validated",
+            notes="Seguro validado para esta solicitud.",
+        ),
+        updated_by_user_id=20,
+    )
+
+    assert result is not None
+    assert result.insurance_status == SchoolInsuranceStatusEnum.validated
+    assert result.insurance_validated_by == 20
+    assert result.insurance_notes == "Seguro validado para esta solicitud."
+    assert repository.updated_internship_school_insurance.has_school_insurance is True
 
 
 async def test_get_student_registration_requirements_returns_institutional_data() -> None:

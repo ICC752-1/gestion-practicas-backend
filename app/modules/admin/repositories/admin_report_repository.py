@@ -17,7 +17,11 @@ from app.modules.internships.models.internship_exception_model import (
     ExceptableRule,
     InternshipException,
 )
-from app.modules.internships.models.internship_model import CompletionStatusEnum, Internship
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    Internship,
+    SchoolInsuranceStatusEnum,
+)
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
 )
@@ -298,7 +302,13 @@ class AdminReportRepository:
             )
             .where(
                 Internship.internship_period == "Verano",
-                Internship.has_school_insurance.is_(False),
+                Internship.insurance_status.not_in(
+                    (
+                        SchoolInsuranceStatusEnum.validated,
+                        SchoolInsuranceStatusEnum.exception_authorized,
+                        SchoolInsuranceStatusEnum.not_applicable,
+                    )
+                ),
                 exception_subquery.c.internship_id.is_(None),
             )
         )

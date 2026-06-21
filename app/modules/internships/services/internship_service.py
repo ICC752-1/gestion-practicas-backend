@@ -22,6 +22,7 @@ from app.modules.internships.models.internship_model import (
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -218,7 +219,12 @@ class InternshipService:
             user_id=user_id,
             requirement="school_insurance",
         )
-        data["has_school_insurance"] = insurance_req.is_completed if insurance_req else False
+        has_school_insurance = insurance_req.is_completed if insurance_req else False
+        data["has_school_insurance"] = has_school_insurance
+        data["insurance_status"] = self._initial_school_insurance_status(
+            internship_period=internship_data.internship_period,
+            has_school_insurance=has_school_insurance,
+        )
 
         blocking_internship = (
             await self.internship_repository.get_blocking_internship_for_registration(
@@ -461,7 +467,33 @@ class InternshipService:
                 "dirae_status",
                 DiraeStatusEnum.not_started,
             ),
+            insurance_status=getattr(
+                internship,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            ),
             student=student,
+        )
+
+    def _initial_school_insurance_status(
+        self,
+        internship_period: PracticePeriodEnum,
+        has_school_insurance: bool,
+    ) -> SchoolInsuranceStatusEnum:
+        """Define el estado inicial de seguro para una solicitud concreta."""
+
+        is_seasonal = internship_period.value in SEASONAL_PERIODS
+        if is_seasonal:
+            return (
+                SchoolInsuranceStatusEnum.pending
+                if has_school_insurance
+                else SchoolInsuranceStatusEnum.requires_exception
+            )
+
+        return (
+            SchoolInsuranceStatusEnum.validated
+            if has_school_insurance
+            else SchoolInsuranceStatusEnum.pending
         )
 
     def _normalize_dashboard_status(
@@ -1488,6 +1520,13 @@ class InternshipService:
             reason=reason,
             authorized_by=actor.id,
         )
+        if rule == "school_insurance":
+            await self.internship_repository.update_school_insurance_validation(
+                internship=internship,
+                status=SchoolInsuranceStatusEnum.exception_authorized,
+                actor_id=actor.id,
+                notes=reason,
+            )
         logger.info("Excepción '%s' creada con éxito para práctica ID: %s", rule, internship_id)
         return result
     
@@ -1513,6 +1552,21 @@ class InternshipService:
         if not is_seasonal:
             return
 
+        insurance_status = getattr(
+            internship,
+            "insurance_status",
+            SchoolInsuranceStatusEnum.pending,
+        )
+        if isinstance(insurance_status, str):
+            insurance_status = SchoolInsuranceStatusEnum(insurance_status)
+
+        if insurance_status in (
+            SchoolInsuranceStatusEnum.validated,
+            SchoolInsuranceStatusEnum.exception_authorized,
+            SchoolInsuranceStatusEnum.not_applicable,
+        ):
+            return
+
         insurance_requirement = (
             await self.internship_repository.get_student_requirement(
                 user_id=internship.user_id,
@@ -1525,28 +1579,50 @@ class InternshipService:
         )
         internship.has_school_insurance = has_current_insurance
 
-        if has_current_insurance:
-            return
-
         logger.info("Evaluando seguro escolar estival requerido para práctica ID: %s en periodo: %s", 
                     internship.id, internship.internship_period)
         existing = await self.internship_repository.get_exception_by_rule(
             internship_id=internship.id,
             rule="school_insurance",
         )
-        if existing is None:
-            logger.warning("Bloqueo por matriz de riesgo: Práctica estival ID: %s no cuenta con seguro ni excepción registrada", internship.id)
+        if existing is not None:
+            await self.internship_repository.update_school_insurance_validation(
+                internship=internship,
+                status=SchoolInsuranceStatusEnum.exception_authorized,
+                actor_id=getattr(existing, "authorized_by", None),
+                notes=getattr(existing, "reason", None),
+            )
+            logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
+            return
+
+        if has_current_insurance:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "rule": "school_insurance",
+                    "insurance_status": insurance_status.value,
                     "message": (
-                        "La práctica es estival y no cuenta con seguro escolar. "
-                        "Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
+                        "La práctica es estival y requiere validación explícita "
+                        "del seguro escolar por Encargado o Director antes de aprobar la solicitud."
                     ),
                 },
             )
-        logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
+
+        if insurance_status != SchoolInsuranceStatusEnum.requires_exception:
+            internship.insurance_status = SchoolInsuranceStatusEnum.requires_exception
+
+        logger.warning("Bloqueo por matriz de riesgo: Práctica estival ID: %s no cuenta con seguro ni excepción registrada", internship.id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "rule": "school_insurance",
+                "insurance_status": SchoolInsuranceStatusEnum.requires_exception.value,
+                "message": (
+                    "La práctica es estival y no cuenta con seguro escolar. "
+                    "Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
+                ),
+            },
+        )
 
     async def _check_sequentiality_or_exception(
         self,
@@ -1928,6 +2004,18 @@ class InternshipService:
             and internship_period.value in SEASONAL_PERIODS
             and not has_insurance
         )
+        insurance_status = (
+            self._initial_school_insurance_status(
+                internship_period=internship_period,
+                has_school_insurance=has_insurance,
+            )
+            if internship_period is not None
+            else (
+                SchoolInsuranceStatusEnum.validated
+                if has_insurance
+                else SchoolInsuranceStatusEnum.pending
+            )
+        )
         induction_blocked = not has_induction
         blocked = has_blocking_internship or insurance_blocked or induction_blocked
         next_step = (
@@ -1952,6 +2040,7 @@ class InternshipService:
 
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
+            insurance_status=insurance_status,
             has_induction=has_induction,
             has_school_insurance_exception=has_school_insurance_exception,
             has_approved_practice_1=has_approved_practice_1,
