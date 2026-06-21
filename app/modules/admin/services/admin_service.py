@@ -481,6 +481,8 @@ class AdminService:
             first_name=student.first_name,
             last_name=student.last_name,
             rut=student.rut,
+            degree=getattr(student, "degree", None),
+            cod_degree=getattr(student, "cod_degree", None),
         )
 
         return student_info

@@ -1,5 +1,6 @@
 """Casos de uso de autoevaluaciones de estudiantes."""
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import HTTPException, status
@@ -31,6 +32,12 @@ from app.modules.self_evaluations.schemas.self_evaluation_schema import (
     SelfEvaluationScaleResponse,
     SelfEvaluationSubmitRequest,
 )
+from app.modules.supervisor_evaluations.services.supervisor_evaluation_service import (
+    SupervisorEvaluationError,
+    SupervisorEvaluationService,
+)
+
+logger = logging.getLogger(__name__)
 
 STUDENT_ROLE = "Estudiante"
 ADMIN_ROLES = {"Encargado de practica", "Director de carrera", "Secretaria de Carrera"}
@@ -57,9 +64,11 @@ class SelfEvaluationService:
         self,
         repository: SelfEvaluationRepository,
         notification_service: NotificationService | None = None,
+        supervisor_evaluation_service: SupervisorEvaluationService | None = None,
     ) -> None:
         self.repository = repository
         self.notification_service = notification_service
+        self.supervisor_evaluation_service = supervisor_evaluation_service
 
     async def get_form(
         self,
@@ -161,6 +170,7 @@ class SelfEvaluationService:
 
         saved = await self.repository.save(evaluation)
         await self._notify_submission(internship=internship, evaluation=saved)
+        await self._generate_supervisor_invitation_after_submission(internship)
         return saved
 
     async def reopen(
@@ -348,6 +358,35 @@ class SelfEvaluationService:
                 },
             )
             await self.notification_service.create_and_dispatch(admin_notification)
+
+    async def _generate_supervisor_invitation_after_submission(
+        self,
+        internship: Internship,
+    ) -> None:
+        """Genera el link del supervisor sin bloquear el envío de autoevaluación."""
+
+        if self.supervisor_evaluation_service is None:
+            return
+
+        try:
+            await self.supervisor_evaluation_service.generate_invitation_for_internship(
+                internship_id=internship.id,
+                created_by_user_id=None,
+            )
+        except SupervisorEvaluationError:
+            logger.warning(
+                "No se pudo generar invitación automática de supervisor para "
+                "práctica ID: %s tras autoevaluación.",
+                internship.id,
+                exc_info=True,
+            )
+        except Exception:
+            logger.warning(
+                "Fallo inesperado al generar invitación automática de supervisor "
+                "para práctica ID: %s.",
+                internship.id,
+                exc_info=True,
+            )
 
 
 def _clean_text(value: str | None) -> str | None:

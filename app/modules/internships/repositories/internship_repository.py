@@ -41,6 +41,12 @@ from app.modules.internships.models.student_internship_requirement_model import 
     StudentInternshipRequirement,
     StudentRegistrationRequirement,
 )
+from app.modules.scheduling.models.presentation_model import Presentation
+from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
+from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+    SupervisorEvaluation,
+    SupervisorEvaluationInvitation,
+)
 
 REJECTED_STATUS_TITLE = "Rechazada"
 
@@ -308,6 +314,64 @@ class InternshipRepository:
         )
         result = await self.db.execute(query)
 
+        return list(result.scalars().all())
+
+    async def get_self_evaluation_by_internship(
+        self,
+        internship_id: int,
+    ) -> SelfEvaluation | None:
+        """Obtiene la autoevaluacion asociada a una practica."""
+
+        result = await self.db.execute(
+            select(SelfEvaluation).where(SelfEvaluation.internship_id == internship_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_supervisor_evaluation_by_internship(
+        self,
+        internship_id: int,
+    ) -> SupervisorEvaluation | None:
+        """Obtiene la evaluacion del supervisor asociada a una practica."""
+
+        result = await self.db.execute(
+            select(SupervisorEvaluation).where(
+                SupervisorEvaluation.internship_id == internship_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_supervisor_invitations_by_internship(
+        self,
+        internship_id: int,
+    ) -> list[SupervisorEvaluationInvitation]:
+        """Lista invitaciones de evaluacion de supervisor de una practica."""
+
+        result = await self.db.execute(
+            select(SupervisorEvaluationInvitation)
+            .where(SupervisorEvaluationInvitation.internship_id == internship_id)
+            .order_by(
+                SupervisorEvaluationInvitation.sent_at.desc().nullslast(),
+                SupervisorEvaluationInvitation.created_at.desc(),
+                SupervisorEvaluationInvitation.id.desc(),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_presentations_by_internship(
+        self,
+        internship_id: int,
+    ) -> list[Presentation]:
+        """Lista entrevistas y presentaciones asociadas a una practica."""
+
+        result = await self.db.execute(
+            select(Presentation)
+            .where(Presentation.internship_id == internship_id)
+            .order_by(
+                Presentation.date.asc(),
+                Presentation.start_time.asc(),
+                Presentation.id.asc(),
+            )
+        )
         return list(result.scalars().all())
 
     async def update_internship_dirae_status_with_history(

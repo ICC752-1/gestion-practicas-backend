@@ -54,6 +54,7 @@ class FakeRepository:
         self.invitation = None
         self.evaluation = None
         self.revoked_count = 0
+        self.has_submitted_self_evaluation_value = True
 
     async def get_internship(self, internship_id: int):
         if internship_id != self.internship.id:
@@ -62,6 +63,12 @@ class FakeRepository:
 
     async def get_evaluation_by_internship(self, internship_id: int):
         return self.evaluation if internship_id == self.internship.id else None
+
+    async def has_submitted_self_evaluation(self, internship_id: int):
+        return (
+            internship_id == self.internship.id
+            and self.has_submitted_self_evaluation_value
+        )
 
     async def revoke_active_invitations(self, internship_id: int):
         return self.revoked_count
@@ -147,6 +154,19 @@ async def test_generate_invitation_requires_approved_internship() -> None:
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "Internship is not approved"
+    assert repository.invitation is None
+
+
+async def test_generate_invitation_requires_submitted_self_evaluation() -> None:
+    repository = FakeRepository()
+    repository.has_submitted_self_evaluation_value = False
+    service = _service(repository=repository)
+
+    with pytest.raises(SupervisorEvaluationError) as exc_info:
+        await service.generate_invitation(internship_id=10, actor=_user())
+
+    assert exc_info.value.status_code == 409
+    assert "autoevaluación" in exc_info.value.detail
     assert repository.invitation is None
 
 

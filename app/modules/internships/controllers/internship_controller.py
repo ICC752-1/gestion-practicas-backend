@@ -39,6 +39,7 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
     InternshipDiraeStatusHistoryResponse,
+    InternshipLifecycleResponse,
     InternshipResponse,
     InternshipTrackingResponse,
     RegistrationEligibilityResponse,
@@ -444,6 +445,55 @@ async def get_internship_tracking(
         InternshipTrackingResponse.model_validate(history)
         for history in status_history
     ]
+
+
+@router.get(
+    "/{internship_id}/lifecycle-tracking",
+    response_model=InternshipLifecycleResponse,
+)
+async def get_internship_lifecycle_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> InternshipLifecycleResponse:
+    """Obtiene el seguimiento agregado de solicitud, ejecución y cierre."""
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return await service.get_lifecycle_tracking(internship_id=internship_id)
+
+
+@router.post(
+    "/{internship_id}/start-review",
+    response_model=InternshipActionResponse,
+)
+async def start_internship_review(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Marca una solicitud pendiente como en revisión al abrir su detalle."""
+
+    service = _build_service(db)
+    internship = await service.start_review(internship_id, current_user)
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=None,
+    )
 
 
 @router.get(

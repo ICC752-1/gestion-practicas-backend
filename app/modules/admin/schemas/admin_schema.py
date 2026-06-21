@@ -65,6 +65,8 @@ class AdminStudentListItem(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    degree: str | None = None
+    cod_degree: str | None = None
     is_active: bool
 
 

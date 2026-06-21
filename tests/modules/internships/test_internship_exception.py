@@ -214,7 +214,7 @@ class FakeInternshipRepository:
             rule=rule,
             reason=reason,
             authorized_by=authorized_by,
-            actor=_user(authorized_by, "Encargado", "De Práctica")
+            actor=_user(authorized_by, "Ana", "Director", roles=["Director de carrera"])
         )
 
     async def update_school_insurance_validation(
@@ -497,7 +497,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     
-    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    actor = _user(user_id=22, first_name="Ana", last_name="Director", roles=["Director de carrera"])
     repository.internship_by_id = SimpleNamespace(
         id=7,
         status_id=1,

@@ -144,6 +144,34 @@ class InternshipDiraeStatusHistoryResponse(BaseModel):
     changed_at: datetime
 
 
+class InternshipLifecycleEventResponse(BaseModel):
+    """Evento normalizado del ciclo completo de una práctica."""
+
+    id: str
+    type: str
+    title: str
+    description: str | None = None
+    status: Literal["completed", "current", "pending", "blocked"]
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = {}
+
+
+class InternshipLifecycleResponse(BaseModel):
+    """Seguimiento agregado desde solicitud hasta cierre final."""
+
+    internship_id: int
+    progress_percentage: int
+    current_step: str
+    self_evaluation_submitted: bool
+    supervisor_invitation_sent: bool
+    supervisor_evaluation_submitted: bool
+    final_presentation_scheduled: bool
+    final_presentation_completed: bool
+    can_generate_supervisor_invitation: bool
+    can_close_practice: bool
+    events: list[InternshipLifecycleEventResponse]
+
+
 class InternshipDashboardStudentResponse(BaseModel):
     """Informacion basica del estudiante para el dashboard coordinador."""
 
@@ -155,6 +183,7 @@ class InternshipDashboardStudentResponse(BaseModel):
     last_name: str
     rut: str
     degree: str | None
+    cod_degree: str | None = None
 
 
 class InternshipDashboardListItem(BaseModel):
