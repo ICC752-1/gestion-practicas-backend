@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,11 +17,16 @@ from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.core.database.database import get_db
 
 from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
+from app.modules.auth.repositories.account_activation_token_repository import (
+    AccountActivationTokenRepository,
+)
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
+    ActivationAccountInfoResponse,
+    ActivateAccountRequest,
     CompleteTemporaryPasswordRequest,
     LoginRequest,
     LogoutRequest,
@@ -33,6 +38,7 @@ from app.modules.auth.schemas.user_schema import CurrentUserResponse
 from app.modules.auth.models.user_model import User
 
 from app.modules.auth.services.auth_service import (
+    AccountActivationError,
     AuthService,
     TemporaryPasswordChangeRequiredError,
 )
@@ -176,6 +182,62 @@ async def complete_temporary_password(
         ) from exc
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/activate-account", status_code=status.HTTP_204_NO_CONTENT)
+async def activate_account(
+    payload: ActivateAccountRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Activa una cuenta nueva mediante enlace de un solo uso."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        await auth_service.activate_account(
+            token=payload.token,
+            new_password=payload.new_password,
+            admission_year=payload.admission_year,
+        )
+    except AccountActivationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/activation-info", response_model=ActivationAccountInfoResponse)
+async def get_activation_info(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    token: str = Query(min_length=32, max_length=512),
+) -> ActivationAccountInfoResponse:
+    """Devuelve datos mínimos para completar una activacion por enlace."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        info = await auth_service.get_activation_account_info(token=token)
+    except AccountActivationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return ActivationAccountInfoResponse(**info)
 
 
 @router.post("/refresh", response_model=TokenResponse)

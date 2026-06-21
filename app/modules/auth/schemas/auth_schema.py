@@ -26,6 +26,24 @@ class CompleteTemporaryPasswordRequest(BaseModel):
     temporary_password: str = Field(min_length=8, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
 
+
+class ActivateAccountRequest(BaseModel):
+    """Payload para activar una cuenta mediante enlace de un solo uso."""
+
+    token: str = Field(min_length=32, max_length=512)
+    new_password: str = Field(min_length=8, max_length=128)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
+
+
+class ActivationAccountInfoResponse(BaseModel):
+    """Datos mínimos de una cuenta pendiente de activación."""
+
+    email: EmailStr
+    first_name: str
+    last_name: str
+    roles: list[str]
+    admission_year: int | None = None
+
 class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
 

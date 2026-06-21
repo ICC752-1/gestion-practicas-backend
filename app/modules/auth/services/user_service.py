@@ -6,6 +6,7 @@ repositorios correspondientes.
 """
 
 import logging
+import secrets
 
 from app.modules.auth.models.user_model import User
 from app.modules.auth.repositories.user_repository import UserRepository
@@ -52,7 +53,8 @@ class UserService:
             Entidad `User` persistida.
         """
 
-        hashed_password = self.password_service.hash_password(payload.password)
+        initial_password = payload.password or secrets.token_urlsafe(32)
+        hashed_password = self.password_service.hash_password(initial_password)
 
         user = User(
             email=payload.email,
@@ -62,6 +64,7 @@ class UserService:
             rut=normalize_rut(payload.rut),
             degree=payload.degree,
             cod_degree=payload.cod_degree,
+            admission_year=payload.admission_year,
             sexo=payload.sexo,
             phone=normalize_phone(payload.phone) if payload.phone else None,
             profession=payload.profession,

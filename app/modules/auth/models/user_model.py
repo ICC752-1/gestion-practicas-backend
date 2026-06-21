@@ -29,6 +29,7 @@ class User(Base):
         rut: Identificador RUT del usuario.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
+        admission_year: Ano de ingreso del estudiante.
         sexo: Identificador de genero del usuario.
         phone: Telefono de contacto del usuario.
         profession: Profesion del usuario.
@@ -55,6 +56,7 @@ class User(Base):
 
     degree: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cod_degree: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    admission_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sexo: Mapped[str | None] = mapped_column(
         PGEnum(
             "Femenino",
@@ -91,4 +93,10 @@ class User(Base):
     )
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
+    activation_tokens = relationship(
+        "AccountActivationToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        foreign_keys="AccountActivationToken.user_id",
     )

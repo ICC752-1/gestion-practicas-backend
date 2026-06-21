@@ -726,6 +726,7 @@ class InternshipService:
                 recipient_email=result.student.email if result.student else None,
                 internship_id=result.id,
                 org_name=result.org_name,
+                internship_type=result.internship_type,
             ),
         )
 

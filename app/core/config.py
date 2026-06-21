@@ -59,6 +59,10 @@ class Config(BaseSettings):
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Frontend
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+    USER_ACTIVATION_TOKEN_EXPIRE_HOURS: int = 24
+
     # Google OAuth
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
