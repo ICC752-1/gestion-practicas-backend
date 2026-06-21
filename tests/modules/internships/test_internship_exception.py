@@ -699,12 +699,30 @@ async def test_registration_eligibility_school_insurance_exception_filtered() ->
 
 
 @pytest.mark.asyncio
-async def test_create_practice_2_allowed_without_approved_practice_1() -> None:
+@pytest.mark.parametrize(
+    "existing_internships",
+    [
+        [],
+        [
+            SimpleNamespace(
+                id=1,
+                user_id=10,
+                status=_status(1, "Pendiente"),
+                internship_type=PracticeTypeEnum.practice_1,
+                exceptions=[],
+            ),
+        ],
+    ],
+)
+async def test_create_practice_2_does_not_apply_sequentiality_block(
+    existing_internships,
+) -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository.internships_by_user = existing_internships
 
     payload = _valid_payload()
     payload.internship_type = PracticeTypeEnum.practice_2
@@ -717,32 +735,4 @@ async def test_create_practice_2_allowed_without_approved_practice_1() -> None:
     assert internship is repository.created_internship
     assert internship.user_id == 10
     assert internship.status_id == 1
-    assert internship.internship_type == PracticeTypeEnum.practice_2
-
-
-@pytest.mark.asyncio
-async def test_create_practice_2_allowed_with_active_practice_1() -> None:
-    repository = FakeInternshipRepository()
-    service = InternshipService(internship_repository=repository)
-    repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
-        is_completed=True,
-    )
-    repository.internships_by_user = [
-        SimpleNamespace(
-            id=1, user_id=10,
-            status=_status(1, "Pendiente"),
-            internship_type=PracticeTypeEnum.practice_1,
-            exceptions=[],
-        ),
-    ]
-
-    payload = _valid_payload()
-    payload.internship_type = PracticeTypeEnum.practice_2
-
-    internship = await service.create_internship(
-        internship_data=payload,
-        user_id=10,
-    )
-
-    assert internship is repository.created_internship
     assert internship.internship_type == PracticeTypeEnum.practice_2

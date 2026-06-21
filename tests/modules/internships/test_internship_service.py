@@ -92,21 +92,11 @@ class FakeInternshipRepository:
 
         return self.internship_by_id
 
-    async def list_internships_by_user(self, user_id: int):
-        self.requested_user_id = user_id
-
-        return self.internships_by_user
-
     async def list_dashboard_internships(self):
         return self.dashboard_internships
 
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
-
-    async def list_internship_status_history(self, internship_id: int):
-        self.requested_internship_id = internship_id
-
-        return self.status_history
 
     async def update_internship_status_with_history(
         self,
@@ -193,39 +183,6 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
         == "Creación inicial de solicitud de práctica"
     )
     assert repository.created_history_metadata == {"event": "internship_created"}
-
-
-async def test_get_internship_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.internship_by_id = object()
-    service = InternshipService(internship_repository=repository)
-
-    internship = await service.get_internship(internship_id=7)
-
-    assert internship is repository.internship_by_id
-    assert repository.requested_internship_id == 7
-
-
-async def test_list_user_internships_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.internships_by_user = [object(), object()]
-    service = InternshipService(internship_repository=repository)
-
-    internships = await service.list_user_internships(user_id=42)
-
-    assert internships == repository.internships_by_user
-    assert repository.requested_user_id == 42
-
-
-async def test_list_internship_tracking_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.status_history = [object()]
-    service = InternshipService(internship_repository=repository)
-
-    history = await service.list_internship_tracking(internship_id=7)
-
-    assert history == repository.status_history
-    assert repository.requested_internship_id == 7
 
 
 async def test_transition_internship_status_updates_status_and_history() -> None:

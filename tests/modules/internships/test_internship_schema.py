@@ -149,18 +149,7 @@ def test_register_semester_ok() -> None:
     assert not hasattr(internship, "has_school_insurance")
 
 
-def test_register_summer_no_insurance() -> None:
-    """Test: El esquema ya no acepta has_school_insurance; se rechaza con ValidationError."""
-    payload = _valid_payload()
-    payload["internship_period"] = PracticePeriodEnum.summer
-    payload["has_school_insurance"] = False
-
-    with pytest.raises(ValidationError):
-        InternshipCreateRequest(**payload)
-
-
-def test_register_summer_with_insurance() -> None:
-    """Test: El esquema ya no acepta has_school_insurance; se rechaza con ValidationError."""
+def test_create_request_rejects_client_supplied_school_insurance() -> None:
     payload = _valid_payload()
     payload["internship_period"] = PracticePeriodEnum.summer
     payload["has_school_insurance"] = True

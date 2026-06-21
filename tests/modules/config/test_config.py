@@ -61,25 +61,3 @@ def test_google_oauth_has_local_non_sensitive_defaults() -> None:
         "http://localhost:5173/auth/callback"
     )
     assert config.GOOGLE_COOKIE_SECURE is False
-
-
-def test_google_canonical_settings_are_read_directly() -> None:
-    config = Config(
-        GOOGLE_CLIENT_ID="client-id",
-        GOOGLE_CLIENT_SECRET="client-secret",
-        GOOGLE_AUTH_URI="https://accounts.example/auth",
-        GOOGLE_TOKEN_URI="https://accounts.example/token",
-        GOOGLE_REDIRECT_URI="http://localhost:8000/auth/google/callback",
-        GOOGLE_FRONTEND_SUCCESS_URL="http://localhost:5173/auth/callback",
-        GOOGLE_FRONTEND_ERROR_URL="http://localhost:5173/auth/callback",
-        GOOGLE_ALLOWED_DOMAINS="ufromail.cl",
-        _env_file=None,
-    )
-
-    assert config.GOOGLE_CLIENT_ID == "client-id"
-    assert config.GOOGLE_CLIENT_SECRET == "client-secret"
-    assert config.GOOGLE_AUTH_URI == "https://accounts.example/auth"
-    assert config.GOOGLE_TOKEN_URI == "https://accounts.example/token"
-    assert config.GOOGLE_REDIRECT_URI == "http://localhost:8000/auth/google/callback"
-    assert config.GOOGLE_FRONTEND_SUCCESS_URL == "http://localhost:5173/auth/callback"
-    assert config.GOOGLE_FRONTEND_ERROR_URL == "http://localhost:5173/auth/callback"

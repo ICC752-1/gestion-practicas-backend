@@ -33,10 +33,3 @@ async def test_get_db_session() -> None:
         assert row[0]
         assert row[1]
         break
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    asyncio.run(test_engine_connection())
-    asyncio.run(test_get_db_session())
