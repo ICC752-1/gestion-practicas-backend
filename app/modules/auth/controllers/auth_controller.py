@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
+    ActivationAccountInfoResponse,
     ActivateAccountRequest,
     CompleteTemporaryPasswordRequest,
     LoginRequest,
@@ -202,6 +203,7 @@ async def activate_account(
         await auth_service.activate_account(
             token=payload.token,
             new_password=payload.new_password,
+            admission_year=payload.admission_year,
         )
     except AccountActivationError as exc:
         raise HTTPException(
@@ -210,6 +212,32 @@ async def activate_account(
         ) from exc
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/activation-info", response_model=ActivationAccountInfoResponse)
+async def get_activation_info(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    token: str = Query(min_length=32, max_length=512),
+) -> ActivationAccountInfoResponse:
+    """Devuelve datos mínimos para completar una activacion por enlace."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        info = await auth_service.get_activation_account_info(token=token)
+    except AccountActivationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return ActivationAccountInfoResponse(**info)
 
 
 @router.post("/refresh", response_model=TokenResponse)

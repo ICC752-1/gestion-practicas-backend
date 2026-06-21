@@ -136,10 +136,13 @@ def _user(is_active: bool = True, must_change_password: bool = False):
     return SimpleNamespace(
         id=1,
         email="user@example.com",
+        first_name="Ana",
+        last_name="Perez",
         is_active=is_active,
         must_change_password=must_change_password,
         is_verified=not must_change_password,
         password_hash="hashed",
+        admission_year=2022,
         roles=[SimpleNamespace(role=SimpleNamespace(name="Estudiante"))],
     )
 
@@ -302,6 +305,7 @@ async def test_activate_account_sets_password_and_consumes_token() -> None:
     await service.activate_account(
         token="raw-activation-token",
         new_password="new-secure-password",
+        admission_year=2023,
     )
 
     assert activation_token_repository.requested_hash == "hashed-raw-activation-token"
@@ -310,6 +314,33 @@ async def test_activate_account_sets_password_and_consumes_token() -> None:
     assert user.password_hash == "hashed-new-secure-password"
     assert user.must_change_password is False
     assert user.is_verified is True
+    assert user.admission_year == 2023
+
+
+async def test_get_activation_account_info_returns_student_data() -> None:
+    user = _user(must_change_password=True)
+    activation_token = _activation_token(user=user)
+    activation_token_repository = FakeActivationTokenRepository(
+        activation_token=activation_token
+    )
+    service = AuthService(
+        password_service=FakePasswordService(is_valid=True),
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(user=user),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        activation_token_repository=activation_token_repository,
+    )
+
+    info = await service.get_activation_account_info(token="raw-activation-token")
+
+    assert activation_token_repository.requested_hash == "hashed-raw-activation-token"
+    assert info == {
+        "email": "user@example.com",
+        "first_name": "Ana",
+        "last_name": "Perez",
+        "roles": ["Estudiante"],
+        "admission_year": 2022,
+    }
 
 
 async def test_activate_account_rejects_missing_token() -> None:

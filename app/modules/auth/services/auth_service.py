@@ -272,13 +272,47 @@ class AuthService:
 
         logger.info("Temporary password changed", extra={"user_id": user.id})
 
+    async def get_activation_account_info(self, *, token: str) -> dict:
+        """Obtiene datos mínimos de cuenta para un enlace de activacion valido."""
+
+        activation_token = await self._get_valid_activation_token(token)
+        user = activation_token.user
+
+        return {
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "roles": self._role_names(user),
+            "admission_year": getattr(user, "admission_year", None),
+        }
+
     async def activate_account(
         self,
         *,
         token: str,
         new_password: str,
+        admission_year: int | None = None,
     ) -> None:
         """Activa una cuenta usando un token de un solo uso y define contraseña."""
+
+        activation_token = await self._get_valid_activation_token(token)
+        user = activation_token.user
+
+        user.password_hash = self.password_service.hash_password(new_password)
+        user.must_change_password = False
+        user.is_verified = True
+        if self._has_role(user, "Estudiante"):
+            user.admission_year = admission_year
+
+        await self.activation_token_repository.consume_token_for_user(
+            activation_token,
+            user,
+        )
+
+        logger.info("Account activated", extra={"user_id": user.id})
+
+    async def _get_valid_activation_token(self, token: str):
+        """Obtiene y valida un token de activacion persistido."""
 
         if self.activation_token_repository is None:
             raise AccountActivationError("Account activation is not configured")
@@ -294,18 +328,19 @@ class AuthService:
         if not self.activation_token_repository.is_token_valid(activation_token):
             raise AccountActivationError("Invalid or expired activation token")
 
-        user = activation_token.user
-
-        if user is None or not user.is_active:
+        if activation_token.user is None or not activation_token.user.is_active:
             raise AccountActivationError("Invalid or expired activation token")
 
-        user.password_hash = self.password_service.hash_password(new_password)
-        user.must_change_password = False
-        user.is_verified = True
+        return activation_token
 
-        await self.activation_token_repository.consume_token_for_user(
-            activation_token,
-            user,
-        )
+    def _role_names(self, user) -> list[str]:
+        """Retorna nombres de roles asociados al usuario."""
 
-        logger.info("Account activated", extra={"user_id": user.id})
+        return [
+            user_role.role.name
+            for user_role in getattr(user, "roles", [])
+            if getattr(user_role, "role", None) is not None
+        ]
+
+    def _has_role(self, user, role_name: str) -> bool:
+        return role_name in self._role_names(user)

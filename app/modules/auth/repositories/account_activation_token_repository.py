@@ -9,6 +9,8 @@ from sqlalchemy.orm import selectinload
 from app.modules.auth.models.account_activation_token_model import (
     AccountActivationToken,
 )
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 
 
 def _utc_now() -> datetime:
@@ -42,7 +44,11 @@ class AccountActivationTokenRepository:
         query = (
             select(AccountActivationToken)
             .where(AccountActivationToken.token_hash == token_hash)
-            .options(selectinload(AccountActivationToken.user))
+            .options(
+                selectinload(AccountActivationToken.user)
+                .selectinload(User.roles)
+                .selectinload(UserRole.role)
+            )
         )
         result = await self.db.execute(query)
 
