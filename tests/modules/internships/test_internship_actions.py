@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
     DiraeStatusEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.services.internship_service import (
     APPROVED_STATUS_TITLE,
@@ -48,6 +49,9 @@ def _make_internship(
     internship.status = _make_state(status_title) if status_title else None
     internship.completion_status = completion_status
     internship.dirae_status = dirae_status
+    internship.start_date = None
+    internship.end_date = None
+    internship.insurance_status = SchoolInsuranceStatusEnum.validated
     return internship
 
 
