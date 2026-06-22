@@ -35,6 +35,7 @@ def _make_internship(
     internship.status_id = 1
     internship.status = _make_state(status_title) if status_title else None
     internship.is_cancelled = is_cancelled
+    internship.blocks_new_registration = True
     internship.start_date = date(2026, 1, 1)
     internship.end_date = date(2026, 2, 1)
     return internship
@@ -64,6 +65,7 @@ def _make_service(internship: MagicMock | None) -> tuple[InternshipService, Asyn
         internship.is_cancelled = True
         internship.cancelled_by = kwargs["actor_id"]
         internship.cancellation_reason = kwargs["reason"]
+        internship.blocks_new_registration = False
         return internship
 
     repo.update_internship_admin_fields_with_history.side_effect = (
@@ -193,6 +195,7 @@ class TestCancelInternship:
         )
 
         assert result.is_cancelled is True
+        assert result.blocks_new_registration is False
         assert result.cancelled_by == actor.id
         assert result.cancellation_reason == "Solicitud duplicada"
         repo.cancel_internship_with_history.assert_awaited_once()

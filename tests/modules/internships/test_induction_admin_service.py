@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.main import app
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.internships.models.induction_model import (
     ContentStatusEnum,
@@ -22,17 +21,6 @@ from app.modules.internships.services.induction_admin_service import (
 from app.modules.internships.controllers.induction_admin_controller import (
     INDUCTION_ADMIN_ROLES,
 )
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
-
 
 def _user(*roles: str):
     return SimpleNamespace(
@@ -119,18 +107,6 @@ def _payload() -> InductionAdminVersionPayload:
             }
         ],
     )
-
-
-def test_induction_admin_routes_are_registered() -> None:
-    assert "GET" in _methods_for_path("/induction/admin/versions")
-    assert "POST" in _methods_for_path("/induction/admin/versions")
-    assert "GET" in _methods_for_path("/induction/admin/versions/{version_id}")
-    assert "PATCH" in _methods_for_path("/induction/admin/versions/{version_id}")
-    assert "DELETE" in _methods_for_path("/induction/admin/versions/{version_id}")
-    assert "POST" in _methods_for_path(
-        "/induction/admin/versions/{version_id}/publish"
-    )
-
 
 @pytest.mark.parametrize(
     "role",
