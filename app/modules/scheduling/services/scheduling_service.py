@@ -15,8 +15,14 @@ from app.modules.scheduling.models.presentation_model import (
     PresentationResultEnum,
     PresentationStatusEnum,
 )
+import json
 from app.modules.scheduling.repositories.scheduling_repository import (
     SchedulingRepository,
+)
+from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
+from app.modules.scheduling.models.scheduling_request_model import (
+    SchedulingRequest,
+    SchedulingRequestStatusEnum,
 )
 from app.modules.scheduling.schemas.scheduling_schema import (
     AppointmentCancelRequest,
@@ -25,6 +31,10 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     AvailabilityCreateRequest,
     AvailabilityUpdateRequest,
     SlotReserveRequest,
+    SchedulingRequestCreateRequest,
+    SchedulingRequestRespondRequest,
+    SchedulingRequestRejectRequest,
+    SchedulingConfigUpdateRequest,
 )
 
 
@@ -625,3 +635,324 @@ class SchedulingService:
         self._ensure_owned_available_slot(slot=slot, actor=actor)
 
         await self.repository.delete_slot(slot)
+
+    async def create_scheduling_request(
+        self,
+        actor: User,
+        payload: SchedulingRequestCreateRequest,
+    ) -> SchedulingRequest:
+        """Crea una solicitud de agendamiento para consulta general o presentación final."""
+
+        self._require_student(actor)
+
+        # 1. Validaciones por tipo de agendamiento
+        if payload.purpose == PresentationPurposeEnum.general_consultation:
+            # Verificar si las consultas generales están activadas por algún coordinador
+            any_enabled = await self.repository.has_any_general_consultation_enabled()
+            if not any_enabled:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Las consultas generales no están habilitadas en este momento",
+                )
+        elif payload.purpose == PresentationPurposeEnum.final_presentation:
+            if not payload.internship_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El ID de práctica es requerido para presentaciones finales",
+                )
+
+            internship = await self.repository.get_internship_by_id(payload.internship_id)
+            if not internship:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Práctica no encontrada",
+                )
+
+            if internship.user_id != actor.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No tienes permisos para esta práctica",
+                )
+
+            if internship.is_cancelled:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="No puedes solicitar agendamiento para una práctica cancelada",
+                )
+
+            if internship.completion_status == CompletionStatusEnum.finalized:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La práctica ya se encuentra finalizada",
+                )
+
+            # Requisitos previos: autoevaluación enviada
+            has_self_eval = await self.repository.has_self_evaluation(internship.id)
+            if not has_self_eval:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Debes completar y enviar tu autoevaluación primero",
+                )
+
+            # Requisitos previos: evaluación del supervisor aprobada (recomendación recomendada o con observaciones)
+            sup_rec = await self.repository.get_supervisor_evaluation_recommendation(internship.id)
+            if not sup_rec:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Falta la evaluación del supervisor",
+                )
+
+            if sup_rec not in ("recommended", "recommended_with_observations"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La evaluación del supervisor no es aprobatoria",
+                )
+
+        # 2. Evitar solicitudes duplicadas pendientes del mismo tipo
+        existing_requests = await self.repository.list_requests_for_student(actor.id)
+        for req in existing_requests:
+            if req.status == SchedulingRequestStatusEnum.pending and req.purpose == payload.purpose:
+                if payload.purpose == PresentationPurposeEnum.general_consultation:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Ya tienes una solicitud de consulta general pendiente",
+                    )
+                elif req.internship_id == payload.internship_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Ya tienes una solicitud de presentación final pendiente para esta práctica",
+                    )
+
+        # 3. Serializar fechas preferidas
+        preferred_dates_str = json.dumps([d.isoformat() for d in payload.preferred_dates])
+
+        # 4. Crear la solicitud
+        request = SchedulingRequest(
+            student_id=actor.id,
+            internship_id=payload.internship_id,
+            purpose=payload.purpose,
+            message=payload.message,
+            preferred_dates=preferred_dates_str,
+            status=SchedulingRequestStatusEnum.pending,
+        )
+
+        return await self.repository.create_scheduling_request(request)
+
+    async def respond_to_request(
+        self,
+        actor: User,
+        request_id: int,
+        payload: SchedulingRequestRespondRequest,
+    ) -> SchedulingRequest:
+        """Responde a una solicitud creando la cita y marcando la solicitud como agendada."""
+
+        self._require_admin(actor)
+
+        request = await self.repository.get_scheduling_request_by_id(request_id)
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de agendamiento no encontrada",
+            )
+
+        if request.status != SchedulingRequestStatusEnum.pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden responder solicitudes pendientes",
+            )
+
+        self._ensure_future_slot(payload.date, payload.start_time)
+
+        # Validar solapamiento del coordinador
+        has_overlap = await self.repository.has_owner_overlap(
+            owner_id=actor.id,
+            slot_date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+        )
+        if has_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya tienes una cita agendada en ese rango horario",
+            )
+
+        # Validar solapamiento del estudiante
+        has_student_overlap = await self.repository.has_student_overlap(
+            user_id=request.student_id,
+            slot_date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+        )
+        if has_student_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El estudiante ya tiene una cita agendada en ese rango horario",
+            )
+
+        # Calcular duración
+        duration = int(
+            (_combine(payload.date, payload.end_time) - _combine(payload.date, payload.start_time)).total_seconds()
+            // 60
+        )
+
+        # Crear Presentation (cita)
+        presentation = Presentation(
+            date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            duration_minutes=duration,
+            modality=payload.modality,
+            purpose=request.purpose,
+            status=PresentationStatusEnum.scheduled,
+            location=payload.location,
+            comments=payload.comments,
+            owner_id=actor.id,
+            user_id=request.student_id,
+            internship_id=request.internship_id,
+            reserved_at=_now(),
+        )
+
+        # Guardar Presentation
+        created_presentations = await self.repository.create_slots([presentation])
+        created_presentation = created_presentations[0]
+
+        # Actualizar solicitud
+        timestamp = _now()
+        request.status = SchedulingRequestStatusEnum.scheduled
+        request.coordinator_id = actor.id
+        request.coordinator_response = payload.comments
+        request.scheduled_date = payload.date
+        request.scheduled_start_time = payload.start_time
+        request.scheduled_end_time = payload.end_time
+        request.scheduled_modality = payload.modality
+        request.scheduled_location = payload.location
+        request.presentation_id = created_presentation.id
+        request.resolved_at = timestamp
+        request.updated_at = timestamp
+
+        # Cambiar estado de práctica si es entrevista inicial
+        if (
+            request.purpose == PresentationPurposeEnum.initial_interview
+            and request.internship_id is not None
+        ):
+            internship = await self.repository.get_internship_by_id(request.internship_id)
+            if internship and internship.completion_status == CompletionStatusEnum.not_started:
+                internship.completion_status = CompletionStatusEnum.in_progress
+
+        return await self.repository.save_scheduling_request(request)
+
+    async def reject_request(
+        self,
+        actor: User,
+        request_id: int,
+        payload: SchedulingRequestRejectRequest,
+    ) -> SchedulingRequest:
+        """Rechaza una solicitud de agendamiento con un motivo."""
+
+        self._require_admin(actor)
+
+        request = await self.repository.get_scheduling_request_by_id(request_id)
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de agendamiento no encontrada",
+            )
+
+        if request.status != SchedulingRequestStatusEnum.pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden rechazar solicitudes pendientes",
+            )
+
+        timestamp = _now()
+        request.status = SchedulingRequestStatusEnum.rejected
+        request.coordinator_id = actor.id
+        request.coordinator_response = payload.reason
+        request.resolved_at = timestamp
+        request.updated_at = timestamp
+
+        return await self.repository.save_scheduling_request(request)
+
+    async def cancel_request(
+        self,
+        actor: User,
+        request_id: int,
+    ) -> SchedulingRequest:
+        """Cancela una solicitud de agendamiento por parte del estudiante propietario."""
+
+        self._require_student(actor)
+
+        request = await self.repository.get_scheduling_request_by_id(request_id)
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de agendamiento no encontrada",
+            )
+
+        if request.student_id != actor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para cancelar esta solicitud",
+            )
+
+        if request.status != SchedulingRequestStatusEnum.pending:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Solo se pueden cancelar solicitudes pendientes",
+            )
+
+        timestamp = _now()
+        request.status = SchedulingRequestStatusEnum.cancelled
+        request.resolved_at = timestamp
+        request.updated_at = timestamp
+
+        return await self.repository.save_scheduling_request(request)
+
+    async def list_pending_requests(self, actor: User) -> list[SchedulingRequest]:
+        """Obtiene todas las solicitudes pendientes de agendamiento."""
+
+        self._require_admin(actor)
+        return await self.repository.list_pending_requests()
+
+    async def list_my_requests(self, actor: User) -> list[SchedulingRequest]:
+        """Obtiene todas las solicitudes de agendamiento del estudiante autenticado."""
+
+        self._require_student(actor)
+        return await self.repository.list_requests_for_student(actor.id)
+
+    async def get_scheduling_config(self, actor: User) -> dict:
+        """Obtiene la configuración de consultas generales según el rol."""
+
+        if self._is_student(actor):
+            enabled = await self.repository.has_any_general_consultation_enabled()
+            return {"general_consultations_enabled": enabled}
+
+        if self._is_admin(actor):
+            config = await self.repository.get_scheduling_config(actor.id)
+            if not config:
+                config = await self.repository.upsert_scheduling_config(actor.id, False)
+            return {
+                "id": config.id,
+                "coordinator_id": config.coordinator_id,
+                "general_consultations_enabled": config.general_consultations_enabled,
+                "updated_at": config.updated_at,
+            }
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rol no autorizado para ver configuración",
+        )
+
+    async def toggle_general_consultations(
+        self,
+        actor: User,
+        payload: SchedulingConfigUpdateRequest,
+    ) -> SchedulingConfig:
+        """Habilita o deshabilita las consultas generales para el coordinador autenticado."""
+
+        self._require_admin(actor)
+        return await self.repository.upsert_scheduling_config(
+            actor.id,
+            payload.general_consultations_enabled,
+        )
+

@@ -12,6 +12,8 @@ from app.modules.scheduling.models.presentation_model import (
     PresentationPurposeEnum,
     PresentationStatusEnum,
 )
+from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
+from app.modules.scheduling.models.scheduling_request_model import SchedulingRequest
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
 )
@@ -252,3 +254,113 @@ class SchedulingRepository:
         result = await self.db.execute(query.limit(1))
 
         return result.scalar_one_or_none() is not None
+
+    async def create_scheduling_request(self, request: SchedulingRequest) -> SchedulingRequest:
+        """Crea y persiste una nueva solicitud de agendamiento."""
+        self.db.add(request)
+        await self.db.commit()
+        await self.db.refresh(request)
+        return request
+
+    async def get_scheduling_request_by_id(self, request_id: int) -> SchedulingRequest | None:
+        """Obtiene una solicitud de agendamiento por ID con relaciones cargadas."""
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.id == request_id)
+            .options(
+                selectinload(SchedulingRequest.student),
+                selectinload(SchedulingRequest.coordinator),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def list_requests_for_student(self, student_id: int) -> list[SchedulingRequest]:
+        """Obtiene todas las solicitudes de agendamiento de un estudiante."""
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.student_id == student_id)
+            .options(
+                selectinload(SchedulingRequest.student),
+                selectinload(SchedulingRequest.coordinator),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+            )
+            .order_by(SchedulingRequest.created_at.desc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_pending_requests(self) -> list[SchedulingRequest]:
+        """Obtiene todas las solicitudes pendientes de agendamiento."""
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.status == "pending")
+            .options(
+                selectinload(SchedulingRequest.student),
+                selectinload(SchedulingRequest.coordinator),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+            )
+            .order_by(SchedulingRequest.created_at.asc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def save_scheduling_request(self, request: SchedulingRequest) -> SchedulingRequest:
+        """Guarda cambios en una solicitud de agendamiento."""
+        await self.db.commit()
+        await self.db.refresh(request)
+        return request
+
+    async def get_scheduling_config(self, coordinator_id: int) -> SchedulingConfig | None:
+        """Obtiene la configuración de agendamiento de un coordinador."""
+        query = select(SchedulingConfig).where(SchedulingConfig.coordinator_id == coordinator_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def has_any_general_consultation_enabled(self) -> bool:
+        """Indica si al menos un coordinador tiene habilitadas las consultas generales."""
+        query = select(SchedulingConfig.id).where(SchedulingConfig.general_consultations_enabled == True).limit(1)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none() is not None
+
+    async def upsert_scheduling_config(self, coordinator_id: int, enabled: bool) -> SchedulingConfig:
+        """Crea o actualiza la configuración de agendamiento de un coordinador."""
+        config = await self.get_scheduling_config(coordinator_id)
+        if config is None:
+            config = SchedulingConfig(
+                coordinator_id=coordinator_id,
+                general_consultations_enabled=enabled,
+            )
+            self.db.add(config)
+        else:
+            config.general_consultations_enabled = enabled
+        await self.db.commit()
+        await self.db.refresh(config)
+        return config
+
+    async def get_supervisor_evaluation_recommendation(self, internship_id: int) -> str | None:
+        """Obtiene la recomendación de la evaluación del supervisor para una práctica."""
+        query = select(SupervisorEvaluation.recommendation).where(
+            SupervisorEvaluation.internship_id == internship_id
+        )
+        result = await self.db.execute(query)
+        return result.scalar()
+
+    async def has_self_evaluation(self, internship_id: int) -> bool:
+        """Indica si el estudiante ya completó y envió su autoevaluación."""
+        from app.modules.self_evaluations.models.self_evaluation_model import (
+            SelfEvaluation,
+            SelfEvaluationStatusEnum,
+        )
+        query = select(SelfEvaluation.id).where(
+            SelfEvaluation.internship_id == internship_id,
+            SelfEvaluation.status == SelfEvaluationStatusEnum.submitted,
+        )
+        result = await self.db.execute(query.limit(1))
+        return result.scalar_one_or_none() is not None
+
+

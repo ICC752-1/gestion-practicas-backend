@@ -15,6 +15,7 @@ class PresentationPurposeEnum(str, enum.Enum):
 
     initial_interview = "initial_interview"
     final_presentation = "final_presentation"
+    general_consultation = "general_consultation"
 
 
 class PresentationStatusEnum(str, enum.Enum):
