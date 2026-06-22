@@ -6,6 +6,7 @@ de practicas y cambios de estado de requisitos. Cada helper construye
 el asunto, contenido y payload minimos correspondientes al tipo de evento.
 """
 
+from datetime import UTC, datetime
 from html import escape
 
 from app.modules.notifications.models.notification_model import (
@@ -30,6 +31,7 @@ def _build_email_body(
     intro: str,
     details: list[tuple[str, str | int | None]],
     action_label: str = "Ingresar a la plataforma",
+    action_url: str | None = None,
     footer_note: str | None = None,
 ) -> str:
     """Construye el HTML transaccional compartido para notificaciones."""
@@ -42,10 +44,23 @@ def _build_email_body(
     safe_title = escape(title)
     safe_intro = escape(intro)
     safe_action_label = escape(action_label)
+    safe_action_url = escape(action_url, quote=True) if action_url else None
     note = footer_note or (
         "Este es un mensaje automático del Sistema de Gestión de Prácticas FICA."
     )
     safe_note = escape(note)
+    action_html = (
+        f'<a href="{safe_action_url}" '
+        f'style="display:inline-block;background:{BRAND_PRIMARY};color:#ffffff;'
+        "text-decoration:none;padding:14px 22px;border-radius:12px;"
+        f'font-weight:700;font-size:15px;">{safe_action_label}</a>'
+        if safe_action_url
+        else (
+            f'<span style="display:inline-block;background:{BRAND_PRIMARY};'
+            "color:#ffffff;text-decoration:none;padding:14px 22px;"
+            f'border-radius:12px;font-weight:700;font-size:15px;">{safe_action_label}</span>'
+        )
+    )
 
     return f"""
 <!doctype html>
@@ -73,7 +88,7 @@ def _build_email_body(
                   </tr>
                 </table>
                 <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:{TEXT_SECONDARY};">Ingresa a la plataforma para revisar el detalle actualizado y continuar con el proceso si corresponde.</p>
-                <span style="display:inline-block;background:{BRAND_PRIMARY};color:#ffffff;text-decoration:none;padding:14px 22px;border-radius:12px;font-weight:700;font-size:15px;">{safe_action_label}</span>
+                {action_html}
               </td>
             </tr>
             <tr>
@@ -102,43 +117,62 @@ def _build_detail_row(label: str, value: str | int | None) -> str:
 """.strip()
 
 
+def _format_internship_request_type(internship_type: object | None) -> str:
+    raw_value = getattr(internship_type, "value", internship_type)
+    if raw_value is None:
+        return "práctica"
+
+    normalized = str(raw_value).strip()
+    display_by_type = {
+        "Práctica de Estudio I": "práctica I",
+        "Práctica de Estudio II": "práctica II",
+        "Práctica Controlada": "práctica controlada",
+        "Tesis": "tesis",
+    }
+    return display_by_type.get(normalized, normalized.lower())
+
+
 def build_internship_approved_notification(
     recipient_user_id: int,
     recipient_email: str | None,
     internship_id: int,
     org_name: str,
+    internship_type: object | None = None,
     status: NotificationStatusEnum = NotificationStatusEnum.simulated,
 ) -> Notification:
-    """Construye una notificacion para el evento de aprobacion de practica.
+    """Construye una notificacion para el evento de aprobacion de solicitud.
 
     Args:
         recipient_user_id: Identificador del usuario destinatario.
         recipient_email: Correo electronico del destinatario (opcional).
-        internship_id: Identificador de la practica aprobada.
+        internship_id: Identificador de la solicitud aprobada.
         org_name: Nombre de la organizacion de la practica.
+        internship_type: Tipo de solicitud de practica aprobada.
         status: Estado inicial de la notificacion (por defecto simulated).
 
     Returns:
         Entidad `Notification` lista para ser persistida.
     """
 
+    request_type = _format_internship_request_type(internship_type)
+
     return Notification(
         recipient_user_id=recipient_user_id,
         recipient_email=recipient_email,
         event_type=NotificationEventTypeEnum.internship_approved,
-        subject="Práctica aprobada",
+        subject="Solicitud de práctica aprobada",
         content=_build_email_body(
-            title="Práctica aprobada",
+            title="Solicitud de práctica aprobada",
             intro=(
-                "Su práctica ha sido aprobada por el equipo administrativo. "
+                f"Su solicitud de {request_type} ha sido aprobada por administración. "
                 "Revise el detalle del proceso en la plataforma."
             ),
             details=[
                 ("Organización", org_name),
                 ("Estado", "Aprobada"),
-                ("N° de práctica", f"#{internship_id}"),
+                ("N° de solicitud", f"#{internship_id}"),
             ],
-            action_label="Ver mi práctica",
+            action_label="Ver mi solicitud",
         ),
         status=status,
         payload={"internship_id": internship_id},
@@ -153,12 +187,12 @@ def build_internship_rejected_notification(
     reason: str | None = None,
     status: NotificationStatusEnum = NotificationStatusEnum.simulated,
 ) -> Notification:
-    """Construye una notificacion para el evento de rechazo de practica.
+    """Construye una notificacion para el evento de rechazo de solicitud.
 
     Args:
         recipient_user_id: Identificador del usuario destinatario.
         recipient_email: Correo electronico del destinatario (opcional).
-        internship_id: Identificador de la practica rechazada.
+        internship_id: Identificador de la solicitud rechazada.
         org_name: Nombre de la organizacion de la practica.
         reason: Motivo del rechazo proporcionado por el actor.
         status: Estado inicial de la notificacion (por defecto simulated).
@@ -171,9 +205,9 @@ def build_internship_rejected_notification(
         recipient_user_id=recipient_user_id,
         recipient_email=recipient_email,
         event_type=NotificationEventTypeEnum.internship_rejected,
-        subject="Práctica rechazada",
+        subject="Solicitud de práctica rechazada",
         content=_build_email_body(
-            title="Práctica rechazada",
+            title="Solicitud de práctica rechazada",
             intro=(
                 "Su solicitud de práctica fue rechazada durante la revisión "
                 "administrativa. Revise la información asociada para conocer "
@@ -182,10 +216,10 @@ def build_internship_rejected_notification(
             details=[
                 ("Organización", org_name),
                 ("Estado", "Rechazada"),
-                ("N° de práctica", f"#{internship_id}"),
+                ("N° de solicitud", f"#{internship_id}"),
                 ("Motivo", reason),
             ],
-            action_label="Revisar práctica",
+            action_label="Revisar solicitud",
         ),
         status=status,
         payload={"internship_id": internship_id, "reason": reason},
@@ -200,12 +234,12 @@ def build_internship_derived_notification(
     reason: str | None = None,
     status: NotificationStatusEnum = NotificationStatusEnum.simulated,
 ) -> Notification:
-    """Construye una notificacion para el evento de derivacion de practica a DIRAE.
+    """Construye una notificacion para el evento de derivacion de expediente DIRAE.
 
     Args:
         recipient_user_id: Identificador del usuario destinatario.
         recipient_email: Correo electronico del destinatario (opcional).
-        internship_id: Identificador de la practica derivada.
+        internship_id: Identificador de la practica asociada al expediente.
         org_name: Nombre de la organizacion de la practica.
         reason: Motivo de la derivacion proporcionado por el actor.
         status: Estado inicial de la notificacion (por defecto simulated).
@@ -218,20 +252,20 @@ def build_internship_derived_notification(
         recipient_user_id=recipient_user_id,
         recipient_email=recipient_email,
         event_type=NotificationEventTypeEnum.internship_derived,
-        subject="Práctica derivada a DIRAE",
+        subject="Expediente DIRAE de práctica derivado",
         content=_build_email_body(
-            title="Práctica derivada a DIRAE",
+            title="Expediente DIRAE de práctica derivado",
             intro=(
-                "Su práctica fue derivada a DIRAE para una revisión adicional. "
+                "El expediente DIRAE asociado a su práctica fue derivado para una revisión adicional. "
                 "Le notificaremos cuando exista una nueva actualización."
             ),
             details=[
                 ("Organización", org_name),
-                ("Estado", "Derivada a DIRAE"),
+                ("Estado DIRAE", "En revisión"),
                 ("N° de práctica", f"#{internship_id}"),
                 ("Motivo", reason),
             ],
-            action_label="Ver estado de práctica",
+            action_label="Ver expediente DIRAE",
         ),
         status=status,
         payload={"internship_id": internship_id, "reason": reason},
@@ -246,23 +280,23 @@ def build_internship_created_notification(
     student_user_id: int,
     status: NotificationStatusEnum = NotificationStatusEnum.simulated,
 ) -> Notification:
-    """Construye una notificacion para revisores tras crear una practica."""
+    """Construye una notificacion para revisores tras crear una solicitud."""
 
     return Notification(
         recipient_user_id=recipient_user_id,
         recipient_email=recipient_email,
         event_type=NotificationEventTypeEnum.custom,
-        subject="Nueva práctica registrada",
+        subject="Nueva solicitud de práctica registrada",
         content=_build_email_body(
-            title="Nueva práctica registrada",
+            title="Nueva solicitud de práctica registrada",
             intro=(
-                "Se registró una nueva práctica pendiente de revisión "
+                "Se registró una nueva solicitud de práctica pendiente de revisión "
                 "administrativa. Puede revisarla desde el panel de coordinación."
             ),
             details=[
                 ("Organización", org_name),
                 ("Estado", "Pendiente de revisión"),
-                ("N° de práctica", f"#{internship_id}"),
+                ("N° de solicitud", f"#{internship_id}"),
                 ("ID estudiante", student_user_id),
             ],
             action_label="Revisar solicitud",
@@ -362,6 +396,65 @@ def build_document_status_changed_notification(
             "new_status": new_status,
             "comment": comment,
         },
+    )
+
+
+def build_user_activation_notification(
+    recipient_user_id: int,
+    recipient_email: str,
+    activation_url: str,
+    expires_at: datetime,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion de activacion para usuarios creados por Superadmin."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Cuenta creada en Sistema de Gestión de Prácticas",
+        content=_build_email_body(
+            title="Cuenta creada",
+            intro=(
+                "Se creó una cuenta para usted en el Sistema de Gestión de "
+                "Prácticas. Use el enlace de activación para definir su "
+                "contraseña definitiva."
+            ),
+            details=[
+                ("Usuario", recipient_email),
+                ("Acción requerida", "Definir contraseña inicial"),
+                ("Vencimiento", expires_at.strftime("%Y-%m-%d %H:%M")),
+            ],
+            action_label="Activar cuenta",
+            action_url=activation_url,
+            footer_note=(
+                "Este enlace es de un solo uso. Si usted no solicitó o no esperaba "
+                "esta cuenta, contacte al equipo administrativo."
+            ),
+        ),
+        status=status,
+        payload={
+            "event": "user_account_activation_created",
+            "recipient_user_id": recipient_user_id,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+
+
+def build_user_temporary_credentials_notification(
+    recipient_user_id: int,
+    recipient_email: str,
+    temporary_password: str,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Compatibilidad: ya no debe usarse para altas nuevas por Superadmin."""
+
+    return build_user_activation_notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        activation_url="",
+        expires_at=datetime.now(UTC).replace(tzinfo=None),
+        status=status,
     )
 
 

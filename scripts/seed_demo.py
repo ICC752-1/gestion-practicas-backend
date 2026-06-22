@@ -57,6 +57,7 @@ from app.modules.internships.models.internship_model import (
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -628,6 +629,11 @@ class DemoSeeder:
                 internship_period=period,
                 internship_type=internship_type,
                 has_school_insurance=has_school_insurance,
+                insurance_status=(
+                    SchoolInsuranceStatusEnum.validated
+                    if has_school_insurance
+                    else SchoolInsuranceStatusEnum.pending
+                ),
             )
             self.session.add(internship)
             await self.session.flush()
@@ -635,6 +641,11 @@ class DemoSeeder:
         else:
             internship.status_id = status.id
             internship.has_school_insurance = has_school_insurance
+            internship.insurance_status = (
+                SchoolInsuranceStatusEnum.validated
+                if has_school_insurance
+                else SchoolInsuranceStatusEnum.pending
+            )
             self.stats["updated"] += 1
 
         if with_documents:
@@ -689,6 +700,10 @@ class DemoSeeder:
             self.stats["created"] += 1
         else:
             self.stats["reused"] += 1
+        internship.insurance_status = SchoolInsuranceStatusEnum.exception_authorized
+        internship.insurance_validated_by = actor.id
+        internship.insurance_validated_at = datetime.now(UTC).replace(tzinfo=None)
+        internship.insurance_notes = "Excepcion demo para validar flujo QA."
 
     async def _ensure_notifications(self, context: SeedContext) -> None:
         recipient = context.users["encargado.practicas@ufrontera.cl"]

@@ -120,6 +120,9 @@ class FakeInternshipRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self.updated_insurance_status = None
+        self.updated_insurance_actor_id = None
+        self.updated_insurance_notes = None
         
         # Atributos de rastreo para Excepciones Administrativas
         self.created_exception_internship_id = None
@@ -211,8 +214,23 @@ class FakeInternshipRepository:
             rule=rule,
             reason=reason,
             authorized_by=authorized_by,
-            actor=_user(authorized_by, "Encargado", "De Práctica")
+            actor=_user(authorized_by, "Ana", "Director", roles=["Director de carrera"])
         )
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = actor_id
+        internship.insurance_notes = notes
+        self.updated_insurance_status = status
+        self.updated_insurance_actor_id = actor_id
+        self.updated_insurance_notes = notes
+        return internship
 
     async def list_exceptions(self, internship_id: int):
         return self.exceptions_list
@@ -479,7 +497,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     
-    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    actor = _user(user_id=22, first_name="Ana", last_name="Director", roles=["Director de carrera"])
     repository.internship_by_id = SimpleNamespace(
         id=7,
         status_id=1,

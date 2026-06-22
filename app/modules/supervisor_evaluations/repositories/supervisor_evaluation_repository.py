@@ -7,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.internships.models import Internship
+from app.modules.self_evaluations.models.self_evaluation_model import (
+    SelfEvaluation,
+    SelfEvaluationStatusEnum,
+)
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
     SupervisorEvaluationInvitation,
@@ -98,6 +102,17 @@ class SupervisorEvaluationRepository:
         result = await self.db.execute(query)
 
         return result.scalar_one_or_none()
+
+    async def has_submitted_self_evaluation(self, internship_id: int) -> bool:
+        """Indica si el estudiante ya envio su autoevaluacion."""
+
+        query = select(SelfEvaluation.id).where(
+            SelfEvaluation.internship_id == internship_id,
+            SelfEvaluation.status == SelfEvaluationStatusEnum.submitted,
+        )
+        result = await self.db.execute(query.limit(1))
+
+        return result.scalar_one_or_none() is not None
 
     async def create_evaluation_and_mark_invitation_used(
         self,

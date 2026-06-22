@@ -16,6 +16,7 @@ from app.modules.internships.models.internship_model import (
     FinalResultEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 
 
@@ -53,7 +54,7 @@ class InternshipCreateRequest(BaseModel):
     modality: Modality
     internship_address: str = Field(min_length=1, max_length=255)
     act_description: str = Field(min_length=1, max_length=255)
-    ben_description: str = Field(min_length=1, max_length=255)
+    ben_description: str = Field(default="", max_length=255)
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
@@ -143,6 +144,34 @@ class InternshipDiraeStatusHistoryResponse(BaseModel):
     changed_at: datetime
 
 
+class InternshipLifecycleEventResponse(BaseModel):
+    """Evento normalizado del ciclo completo de una práctica."""
+
+    id: str
+    type: str
+    title: str
+    description: str | None = None
+    status: Literal["completed", "current", "pending", "blocked"]
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = {}
+
+
+class InternshipLifecycleResponse(BaseModel):
+    """Seguimiento agregado desde solicitud hasta cierre final."""
+
+    internship_id: int
+    progress_percentage: int
+    current_step: str
+    self_evaluation_submitted: bool
+    supervisor_invitation_sent: bool
+    supervisor_evaluation_submitted: bool
+    final_presentation_scheduled: bool
+    final_presentation_completed: bool
+    can_generate_supervisor_invitation: bool
+    can_close_practice: bool
+    events: list[InternshipLifecycleEventResponse]
+
+
 class InternshipDashboardStudentResponse(BaseModel):
     """Informacion basica del estudiante para el dashboard coordinador."""
 
@@ -154,6 +183,7 @@ class InternshipDashboardStudentResponse(BaseModel):
     last_name: str
     rut: str
     degree: str | None
+    cod_degree: str | None = None
 
 
 class InternshipDashboardListItem(BaseModel):
@@ -171,6 +201,7 @@ class InternshipDashboardListItem(BaseModel):
     completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
     final_result: FinalResultEnum = FinalResultEnum.pending
     dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
     student: InternshipDashboardStudentResponse | None
 
 
@@ -230,6 +261,12 @@ class InternshipResponse(BaseModel):
         completion_status: Estado de ejecucion/cierre de la practica.
         final_result: Resultado final consolidado de la practica.
         dirae_status: Estado local del expediente documental DIRAE.
+        insurance_status: Estado de validacion del seguro escolar para esta
+            solicitud concreta.
+        insurance_validated_by: Identificador del actor que valido o regularizo
+            el seguro escolar.
+        insurance_validated_at: Fecha y hora de la validacion o regularizacion.
+        insurance_notes: Observacion administrativa asociada.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -270,6 +307,10 @@ class InternshipResponse(BaseModel):
     completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
     final_result: FinalResultEnum = FinalResultEnum.pending
     dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
+    insurance_validated_by: int | None = None
+    insurance_validated_at: datetime | None = None
+    insurance_notes: str | None = None
 
     exceptions: list["InternshipExceptionResponse"] = []
 
@@ -355,7 +396,7 @@ class StudentInternshipUpdateRequest(BaseModel):
     modality: Modality | None = None
     internship_address: str | None = Field(default=None, min_length=1, max_length=255)
     act_description: str | None = Field(default=None, min_length=1, max_length=255)
-    ben_description: str | None = Field(default=None, min_length=1, max_length=255)
+    ben_description: str | None = Field(default=None, max_length=255)
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum | None = None
     internship_type: PracticeTypeEnum | None = None
@@ -596,6 +637,7 @@ class RegistrationEligibilityResponse(BaseModel):
     """
 
     has_school_insurance: bool
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
     has_induction: bool
     has_school_insurance_exception: bool = False
     has_approved_practice_1: bool = False

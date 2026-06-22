@@ -32,6 +32,7 @@ from app.modules.internships.models.internship_model import (
     DiraeStatusEnum,
     Internship,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -39,6 +40,12 @@ from app.modules.internships.models.internship_status_history_model import (
 from app.modules.internships.models.student_internship_requirement_model import (
     StudentInternshipRequirement,
     StudentRegistrationRequirement,
+)
+from app.modules.scheduling.models.presentation_model import Presentation
+from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
+from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+    SupervisorEvaluation,
+    SupervisorEvaluationInvitation,
 )
 
 REJECTED_STATUS_TITLE = "Rechazada"
@@ -309,6 +316,64 @@ class InternshipRepository:
 
         return list(result.scalars().all())
 
+    async def get_self_evaluation_by_internship(
+        self,
+        internship_id: int,
+    ) -> SelfEvaluation | None:
+        """Obtiene la autoevaluacion asociada a una practica."""
+
+        result = await self.db.execute(
+            select(SelfEvaluation).where(SelfEvaluation.internship_id == internship_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_supervisor_evaluation_by_internship(
+        self,
+        internship_id: int,
+    ) -> SupervisorEvaluation | None:
+        """Obtiene la evaluacion del supervisor asociada a una practica."""
+
+        result = await self.db.execute(
+            select(SupervisorEvaluation).where(
+                SupervisorEvaluation.internship_id == internship_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_supervisor_invitations_by_internship(
+        self,
+        internship_id: int,
+    ) -> list[SupervisorEvaluationInvitation]:
+        """Lista invitaciones de evaluacion de supervisor de una practica."""
+
+        result = await self.db.execute(
+            select(SupervisorEvaluationInvitation)
+            .where(SupervisorEvaluationInvitation.internship_id == internship_id)
+            .order_by(
+                SupervisorEvaluationInvitation.sent_at.desc().nullslast(),
+                SupervisorEvaluationInvitation.created_at.desc(),
+                SupervisorEvaluationInvitation.id.desc(),
+            )
+        )
+        return list(result.scalars().all())
+
+    async def list_presentations_by_internship(
+        self,
+        internship_id: int,
+    ) -> list[Presentation]:
+        """Lista entrevistas y presentaciones asociadas a una practica."""
+
+        result = await self.db.execute(
+            select(Presentation)
+            .where(Presentation.internship_id == internship_id)
+            .order_by(
+                Presentation.date.asc(),
+                Presentation.start_time.asc(),
+                Presentation.id.asc(),
+            )
+        )
+        return list(result.scalars().all())
+
     async def update_internship_dirae_status_with_history(
         self,
         internship: Internship,
@@ -329,6 +394,43 @@ class InternshipRepository:
                 reason=reason,
             )
         )
+        await self.db.commit()
+        await self.db.refresh(internship)
+
+        loaded_internship = await self.get_internship_by_id(internship.id)
+        if loaded_internship is None:
+            return internship
+
+        return loaded_internship
+
+    async def update_school_insurance_validation(
+        self,
+        internship: Internship,
+        status: SchoolInsuranceStatusEnum,
+        actor_id: int | None,
+        notes: str | None = None,
+    ) -> Internship:
+        """Actualiza la validacion de seguro escolar de una solicitud concreta."""
+
+        internship.insurance_status = status
+        internship.insurance_notes = notes
+
+        if status in (
+            SchoolInsuranceStatusEnum.validated,
+            SchoolInsuranceStatusEnum.exception_authorized,
+            SchoolInsuranceStatusEnum.not_applicable,
+        ):
+            internship.insurance_validated_by = actor_id
+            internship.insurance_validated_at = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            internship.insurance_validated_by = None
+            internship.insurance_validated_at = None
+
+        if status == SchoolInsuranceStatusEnum.validated:
+            internship.has_school_insurance = True
+        elif status == SchoolInsuranceStatusEnum.requires_exception:
+            internship.has_school_insurance = False
+
         await self.db.commit()
         await self.db.refresh(internship)
 

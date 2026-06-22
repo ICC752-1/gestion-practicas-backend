@@ -5,14 +5,24 @@ consulta y actualizacion de usuarios.
 """
 
 import logging
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import config
 from app.core.database.database import get_db
 from app.modules.auth.dependencies.role_dependency import require_roles
+from app.modules.auth.models.account_activation_token_model import (
+    AccountActivationToken,
+)
 from app.modules.auth.models.user_model import User
+from app.modules.auth.repositories.account_activation_token_repository import (
+    AccountActivationTokenRepository,
+)
 from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
@@ -27,8 +37,16 @@ from app.modules.auth.schemas.user_schema import (
 )
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.role_service import RoleService
+from app.modules.auth.services.token_service import TokenService
 from app.modules.auth.services.user_service import UserService
 from app.modules.auth.utils.roles import SUPERADMIN_ROLE, USER_ADMIN_ROLES
+from app.modules.notifications.repositories.notification_repository import (
+    NotificationRepository,
+)
+from app.modules.notifications.services.notification_service import NotificationService
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_user_activation_notification,
+)
 
 router = APIRouter(prefix="/users", tags=["Users"])
 logger = logging.getLogger(__name__)
@@ -45,6 +63,12 @@ def _build_role_service(db: AsyncSession) -> RoleService:
     return RoleService(
         role_repository=RoleRepository(db),
         user_role_repository=UserRoleRepository(db),
+    )
+
+
+def _build_notification_service(db: AsyncSession) -> NotificationService:
+    return NotificationService(
+        notification_repository=NotificationRepository(db),
     )
 
 
@@ -84,6 +108,70 @@ async def _ensure_can_remove_superadmin_access(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot remove the last active Superadmin",
             )
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _build_activation_url(raw_token: str) -> str:
+    frontend_base_url = config.FRONTEND_BASE_URL.rstrip("/")
+
+    return f"{frontend_base_url}/activar-cuenta?token={quote(raw_token, safe='')}"
+
+
+async def _create_account_activation_link(
+    *,
+    activation_token_repository: AccountActivationTokenRepository,
+    user: User,
+    actor: User,
+    token_service: TokenService,
+) -> tuple[str, datetime]:
+    """Genera un enlace de activacion de un solo uso para el usuario creado."""
+
+    await activation_token_repository.revoke_active_tokens_for_user(user.id)
+
+    raw_token = secrets.token_urlsafe(32)
+    expires_at = _utc_now() + timedelta(
+        hours=config.USER_ACTIVATION_TOKEN_EXPIRE_HOURS
+    )
+    await activation_token_repository.create_token(
+        AccountActivationToken(
+            user_id=user.id,
+            token_hash=token_service.hash_token(raw_token),
+            expires_at=expires_at,
+            created_by_id=actor.id,
+        )
+    )
+
+    return _build_activation_url(raw_token), expires_at
+
+
+async def _dispatch_account_activation_notification(
+    *,
+    notification_service: NotificationService,
+    user: User,
+    activation_url: str,
+    expires_at: datetime,
+) -> None:
+    """Notifica al usuario creado su enlace de activacion sin bloquear el alta."""
+
+    notification = build_user_activation_notification(
+        recipient_user_id=user.id,
+        recipient_email=user.email,
+        activation_url=activation_url,
+        expires_at=expires_at,
+    )
+
+    try:
+        await notification_service.create_and_dispatch(notification)
+    except Exception:
+        logger.warning(
+            "Fallo al despachar enlace de activacion para usuario creado. "
+            "El alta continua normalmente.",
+            extra={"user_id": user.id},
+            exc_info=True,
+        )
 
 
 @router.post("", response_model=UserAdminResponse, status_code=status.HTTP_201_CREATED)
@@ -155,6 +243,20 @@ async def create_user(
         refreshed_user = await user_repository.get_user_by_id(user.id)
         if refreshed_user:
             user = refreshed_user
+
+    activation_url, activation_expires_at = await _create_account_activation_link(
+        activation_token_repository=AccountActivationTokenRepository(db),
+        user=user,
+        actor=current_user,
+        token_service=TokenService(),
+    )
+
+    await _dispatch_account_activation_notification(
+        notification_service=_build_notification_service(db),
+        user=user,
+        activation_url=activation_url,
+        expires_at=activation_expires_at,
+    )
 
     logger.info(
         "User created",

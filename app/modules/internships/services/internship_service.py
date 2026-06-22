@@ -6,7 +6,7 @@ del modulo `internships` y delegar operaciones de persistencia al repositorio.
 import logging
 from types import SimpleNamespace
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
@@ -22,6 +22,7 @@ from app.modules.internships.models.internship_model import (
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.models.internship_status_history_model import (
     InternshipStatusHistory,
@@ -40,6 +41,8 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipDashboardStatsResponse,
     InternshipDashboardStudentResponse,
     InternshipDiraeStatusHistoryResponse,
+    InternshipLifecycleEventResponse,
+    InternshipLifecycleResponse,
     RegistrationEligibilityResponse,
     DuplicateInternshipTypeDetail,
     StudentInternshipActionAvailabilityResponse,
@@ -47,6 +50,13 @@ from app.modules.internships.schemas.internship_schema import (
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_exception_model import InternshipException
+from app.modules.scheduling.models.presentation_model import (
+    PresentationPurposeEnum,
+    PresentationStatusEnum,
+)
+from app.modules.self_evaluations.models.self_evaluation_model import (
+    SelfEvaluationStatusEnum,
+)
 
 from app.modules.notifications.services.notification_service import (
     NotificationService,
@@ -218,7 +228,25 @@ class InternshipService:
             user_id=user_id,
             requirement="school_insurance",
         )
-        data["has_school_insurance"] = insurance_req.is_completed if insurance_req else False
+        has_school_insurance = insurance_req.is_completed if insurance_req else False
+        initial_insurance_status = self._initial_school_insurance_status(
+            start_date=internship_data.start_date,
+            end_date=internship_data.end_date,
+            internship_period=internship_data.internship_period,
+            has_school_insurance=has_school_insurance,
+        )
+        data["has_school_insurance"] = (
+            has_school_insurance
+            or initial_insurance_status == SchoolInsuranceStatusEnum.validated
+        )
+        data["insurance_status"] = initial_insurance_status
+        if (
+            initial_insurance_status == SchoolInsuranceStatusEnum.validated
+            and not has_school_insurance
+        ):
+            data["insurance_notes"] = (
+                "Validación automática por periodo académico regular."
+            )
 
         blocking_internship = (
             await self.internship_repository.get_blocking_internship_for_registration(
@@ -318,6 +346,44 @@ class InternshipService:
             internship_id=internship_id,
         )
 
+    async def get_lifecycle_tracking(
+        self,
+        internship_id: int,
+    ) -> InternshipLifecycleResponse:
+        """Construye el seguimiento completo desde solicitud hasta cierre."""
+
+        internship = await self._get_or_404(internship_id)
+        history = await self.internship_repository.list_internship_status_history(
+            internship_id=internship_id,
+        )
+        self_evaluation = (
+            await self.internship_repository.get_self_evaluation_by_internship(
+                internship_id,
+            )
+        )
+        supervisor_evaluation = (
+            await self.internship_repository.get_supervisor_evaluation_by_internship(
+                internship_id,
+            )
+        )
+        supervisor_invitations = (
+            await self.internship_repository.list_supervisor_invitations_by_internship(
+                internship_id,
+            )
+        )
+        presentations = await self.internship_repository.list_presentations_by_internship(
+            internship_id,
+        )
+
+        return self._build_lifecycle_response(
+            internship=internship,
+            history=history,
+            self_evaluation=self_evaluation,
+            supervisor_evaluation=supervisor_evaluation,
+            supervisor_invitations=supervisor_invitations,
+            presentations=presentations,
+        )
+
     async def transition_internship_status(
         self,
         internship_id: int,
@@ -373,6 +439,31 @@ class InternshipService:
             metadata=metadata,
         )
 
+    async def start_review(
+        self,
+        internship_id: int,
+        actor: User,
+    ) -> Internship:
+        """Marca una solicitud pendiente como en revisión de forma idempotente."""
+
+        self._require_action(actor, "approve")
+        internship = await self._get_or_404(internship_id)
+
+        if internship.is_cancelled:
+            return internship
+
+        current_title = self._status_title_or_default(internship.status)
+        if current_title != PENDING_STATUS_TITLE:
+            return internship
+
+        return await self._do_transition(
+            internship=internship,
+            new_status_title=IN_REVIEW_STATUS_TITLE,
+            actor_id=actor.id,
+            reason="Revisión iniciada al abrir el detalle de la solicitud.",
+            metadata={"action": "start_review"},
+        )
+
     async def list_dashboard_internships(
         self,
         status_filter: DashboardInternshipStatus | None = None,
@@ -423,6 +514,338 @@ class InternshipService:
             rejected=counters["rejected"],
         )
 
+    def _build_lifecycle_response(
+        self,
+        *,
+        internship: Internship,
+        history: list[InternshipStatusHistory],
+        self_evaluation,
+        supervisor_evaluation,
+        supervisor_invitations,
+        presentations,
+    ) -> InternshipLifecycleResponse:
+        current_status = self._status_title_or_default(internship.status)
+        is_approved = current_status == APPROVED_STATUS_TITLE
+        is_cancelled = bool(getattr(internship, "is_cancelled", False))
+        raw_completion_status = getattr(
+            internship,
+            "completion_status",
+            CompletionStatusEnum.not_started,
+        )
+        completion_status = getattr(
+            raw_completion_status,
+            "value",
+            raw_completion_status,
+        )
+        raw_final_result = getattr(
+            internship,
+            "final_result",
+            FinalResultEnum.pending,
+        )
+        final_result = getattr(raw_final_result, "value", raw_final_result)
+        start_date = getattr(internship, "start_date", None)
+
+        self_evaluation_status = getattr(self_evaluation, "status", None)
+        self_evaluation_status = getattr(
+            self_evaluation_status,
+            "value",
+            self_evaluation_status,
+        )
+        self_submitted = (
+            self_evaluation is not None
+            and self_evaluation_status == SelfEvaluationStatusEnum.submitted.value
+        )
+        supervisor_submitted = supervisor_evaluation is not None
+        active_invitation = next(
+            (
+                invitation
+                for invitation in supervisor_invitations
+                if getattr(invitation, "revoked_at", None) is None
+            ),
+            None,
+        )
+        invitation_sent = active_invitation is not None
+
+        final_presentations = [
+            item
+            for item in presentations
+            if item.purpose == PresentationPurposeEnum.final_presentation
+        ]
+        final_scheduled = any(
+            item.status in {
+                PresentationStatusEnum.scheduled,
+                PresentationStatusEnum.completed,
+            }
+            for item in final_presentations
+        )
+        final_completed = any(
+            item.status == PresentationStatusEnum.completed
+            for item in final_presentations
+        )
+
+        status_dates = self._status_dates_by_title(history)
+        request_created_at = (
+            history[0].changed_at
+            if history
+            else getattr(internship, "upload_date", None)
+        )
+        practice_start_at = (
+            datetime.combine(start_date, time.min)
+            if start_date is not None
+            else None
+        )
+        now_date = datetime.now(UTC).date()
+        practice_started = (
+            completion_status in {
+                CompletionStatusEnum.in_progress.value,
+                CompletionStatusEnum.pending_evaluations.value,
+                CompletionStatusEnum.pending_presentation.value,
+                CompletionStatusEnum.finalized.value,
+            }
+            or (is_approved and start_date is not None and start_date <= now_date)
+        )
+
+        events = [
+            self._lifecycle_event(
+                "request_created",
+                "Solicitud registrada",
+                "La solicitud de práctica fue enviada por el estudiante.",
+                "completed",
+                request_created_at,
+            ),
+            self._lifecycle_event(
+                "request_in_review",
+                "Solicitud en revisión",
+                "Coordinación o dirección inició la revisión administrativa.",
+                self._event_status(
+                    completed=current_status
+                    in {
+                        IN_REVIEW_STATUS_TITLE,
+                        IN_REVIEW_DIRAE_STATUS_TITLE,
+                        APPROVED_STATUS_TITLE,
+                        REJECTED_STATUS_TITLE,
+                    },
+                    blocked=is_cancelled,
+                    current=current_status == PENDING_STATUS_TITLE,
+                ),
+                status_dates.get(IN_REVIEW_STATUS_TITLE),
+            ),
+            self._lifecycle_event(
+                "request_approved",
+                "Solicitud de práctica aprobada",
+                "La solicitud administrativa fue aprobada.",
+                self._event_status(
+                    completed=is_approved or completion_status != CompletionStatusEnum.not_started.value,
+                    blocked=is_cancelled or current_status == REJECTED_STATUS_TITLE,
+                    current=current_status in {PENDING_STATUS_TITLE, IN_REVIEW_STATUS_TITLE},
+                ),
+                status_dates.get(APPROVED_STATUS_TITLE),
+            ),
+            self._lifecycle_event(
+                "practice_in_progress",
+                "Práctica en ejecución",
+                "El estudiante se encuentra realizando la práctica aprobada.",
+                self._event_status(
+                    completed=practice_started,
+                    blocked=not is_approved or is_cancelled,
+                    current=is_approved and not practice_started,
+                ),
+                practice_start_at if practice_started else None,
+            ),
+            self._lifecycle_event(
+                "self_evaluation_submitted",
+                "Autoevaluación enviada",
+                "El estudiante completó su autoevaluación.",
+                self._event_status(
+                    completed=self_submitted,
+                    blocked=not is_approved or is_cancelled,
+                    current=practice_started and not self_submitted,
+                ),
+                self_evaluation.submitted_at if self_submitted else None,
+            ),
+            self._lifecycle_event(
+                "supervisor_invitation_sent",
+                "Evaluación enviada al supervisor",
+                "El sistema envió el enlace temporal de evaluación al supervisor.",
+                self._event_status(
+                    completed=invitation_sent,
+                    blocked=not self_submitted or is_cancelled,
+                    current=self_submitted and not invitation_sent,
+                ),
+                active_invitation.sent_at if active_invitation is not None else None,
+            ),
+            self._lifecycle_event(
+                "supervisor_evaluation_submitted",
+                "Evaluación del supervisor completada",
+                "El supervisor completó la evaluación del estudiante.",
+                self._event_status(
+                    completed=supervisor_submitted,
+                    blocked=not invitation_sent or is_cancelled,
+                    current=invitation_sent and not supervisor_submitted,
+                ),
+                supervisor_evaluation.submitted_at if supervisor_submitted else None,
+            ),
+            self._lifecycle_event(
+                "final_presentation_scheduled",
+                "Presentación final agendada",
+                "El estudiante reservó una presentación o entrevista final.",
+                self._event_status(
+                    completed=final_scheduled,
+                    blocked=not supervisor_submitted or is_cancelled,
+                    current=supervisor_submitted and not final_scheduled,
+                ),
+                self._first_presentation_datetime(final_presentations),
+            ),
+            self._lifecycle_event(
+                "final_presentation_completed",
+                "Presentación final completada",
+                "La presentación final fue registrada por administración.",
+                self._event_status(
+                    completed=final_completed,
+                    blocked=not final_scheduled or is_cancelled,
+                    current=final_scheduled and not final_completed,
+                ),
+                self._first_presentation_datetime(
+                    [
+                        item
+                        for item in final_presentations
+                        if item.status == PresentationStatusEnum.completed
+                    ],
+                ),
+            ),
+            self._lifecycle_event(
+                "practice_finalized",
+                "Práctica finalizada",
+                (
+                    "La práctica quedó cerrada con resultado "
+                    f"{final_result or 'pendiente'}."
+                ),
+                self._event_status(
+                    completed=completion_status == CompletionStatusEnum.finalized.value,
+                    blocked=not final_completed or is_cancelled,
+                    current=final_completed
+                    and completion_status != CompletionStatusEnum.finalized.value,
+                ),
+                self._first_presentation_datetime(
+                    [
+                        item
+                        for item in final_presentations
+                        if item.status == PresentationStatusEnum.completed
+                    ],
+                )
+                if completion_status == CompletionStatusEnum.finalized.value
+                else None,
+            ),
+        ]
+
+        progress_map = {
+            "request_created": 10,
+            "request_in_review": 20,
+            "request_approved": 35,
+            "practice_in_progress": 50,
+            "self_evaluation_submitted": 65,
+            "supervisor_invitation_sent": 70,
+            "supervisor_evaluation_submitted": 80,
+            "final_presentation_scheduled": 90,
+            "final_presentation_completed": 95,
+            "practice_finalized": 100,
+        }
+        completed_types = {
+            event.type
+            for event in events
+            if event.status == "completed"
+        }
+        progress_percentage = max(
+            [progress_map[event_type] for event_type in completed_types]
+            or [0]
+        )
+        current_step = next(
+            (
+                event.title
+                for event in events
+                if event.status == "current"
+            ),
+            events[-1].title if progress_percentage == 100 else "Solicitud registrada",
+        )
+
+        return InternshipLifecycleResponse(
+            internship_id=internship.id,
+            progress_percentage=progress_percentage,
+            current_step=current_step,
+            self_evaluation_submitted=self_submitted,
+            supervisor_invitation_sent=invitation_sent,
+            supervisor_evaluation_submitted=supervisor_submitted,
+            final_presentation_scheduled=final_scheduled,
+            final_presentation_completed=final_completed,
+            can_generate_supervisor_invitation=(
+                is_approved
+                and self_submitted
+                and not supervisor_submitted
+                and not is_cancelled
+            ),
+            can_close_practice=(
+                is_approved
+                and self_submitted
+                and supervisor_submitted
+                and final_completed
+                and completion_status != CompletionStatusEnum.finalized.value
+                and not is_cancelled
+            ),
+            events=events,
+        )
+
+    @staticmethod
+    def _event_status(
+        *,
+        completed: bool,
+        blocked: bool,
+        current: bool,
+    ) -> str:
+        if completed:
+            return "completed"
+        if blocked:
+            return "blocked"
+        if current:
+            return "current"
+        return "pending"
+
+    @staticmethod
+    def _lifecycle_event(
+        event_type: str,
+        title: str,
+        description: str,
+        status: str,
+        occurred_at: datetime | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> InternshipLifecycleEventResponse:
+        return InternshipLifecycleEventResponse(
+            id=event_type,
+            type=event_type,
+            title=title,
+            description=description,
+            status=status,
+            occurred_at=occurred_at,
+            metadata=metadata or {},
+        )
+
+    @staticmethod
+    def _status_dates_by_title(
+        history: list[InternshipStatusHistory],
+    ) -> dict[str, datetime]:
+        dates: dict[str, datetime] = {}
+        for entry in history:
+            title = entry.new_status.title if entry.new_status is not None else None
+            if title is not None and title not in dates:
+                dates[title] = entry.changed_at
+        return dates
+
+    @staticmethod
+    def _first_presentation_datetime(presentations) -> datetime | None:
+        if not presentations:
+            return None
+        presentation = presentations[0]
+        return datetime.combine(presentation.date, presentation.start_time)
+
     def _build_dashboard_item(
         self,
         internship: Internship,
@@ -461,7 +884,58 @@ class InternshipService:
                 "dirae_status",
                 DiraeStatusEnum.not_started,
             ),
+            insurance_status=getattr(
+                internship,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            ),
             student=student,
+        )
+
+    def _initial_school_insurance_status(
+        self,
+        internship_period: PracticePeriodEnum | None,
+        has_school_insurance: bool,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> SchoolInsuranceStatusEnum:
+        """Define el estado inicial de seguro para una solicitud concreta."""
+
+        if (
+            start_date is not None
+            and end_date is not None
+            and self._is_regular_academic_period(start_date, end_date)
+        ):
+            return SchoolInsuranceStatusEnum.validated
+
+        if internship_period is not None and internship_period.value in SEASONAL_PERIODS:
+            return (
+                SchoolInsuranceStatusEnum.pending
+                if has_school_insurance
+                else SchoolInsuranceStatusEnum.requires_exception
+            )
+
+        return (
+            SchoolInsuranceStatusEnum.validated
+            if has_school_insurance
+            else SchoolInsuranceStatusEnum.pending
+        )
+
+    @staticmethod
+    def _is_regular_academic_period(start_date: date, end_date: date) -> bool:
+        """Indica si la práctica queda completamente dentro de un periodo regular."""
+
+        if end_date < start_date:
+            return False
+
+        first_semester_start = date(start_date.year, 3, 1)
+        first_semester_end = date(start_date.year, 6, 30)
+        second_semester_start = date(start_date.year, 8, 1)
+        second_semester_end = date(start_date.year, 11, 30)
+
+        return (
+            first_semester_start <= start_date <= end_date <= first_semester_end
+            or second_semester_start <= start_date <= end_date <= second_semester_end
         )
 
     def _normalize_dashboard_status(
@@ -726,6 +1200,7 @@ class InternshipService:
                 recipient_email=result.student.email if result.student else None,
                 internship_id=result.id,
                 org_name=result.org_name,
+                internship_type=result.internship_type,
             ),
         )
 
@@ -1462,6 +1937,13 @@ class InternshipService:
                 status_code=400,
                 detail=f"La regla '{rule}' no admite excepción administrativa.",
             )
+        if rule == "school_insurance" and "Director de carrera" not in {
+            user_role.role.name for user_role in actor.roles
+        }:
+            raise HTTPException(
+                status_code=403,
+                detail="Solo Dirección de carrera puede autorizar excepciones de seguro escolar.",
+            )
 
         internship = await self._get_or_404(internship_id)
         current_title = self._status_title_or_default(internship.status)
@@ -1487,6 +1969,13 @@ class InternshipService:
             reason=reason,
             authorized_by=actor.id,
         )
+        if rule == "school_insurance":
+            await self.internship_repository.update_school_insurance_validation(
+                internship=internship,
+                status=SchoolInsuranceStatusEnum.exception_authorized,
+                actor_id=actor.id,
+                notes=reason,
+            )
         logger.info("Excepción '%s' creada con éxito para práctica ID: %s", rule, internship_id)
         return result
     
@@ -1496,20 +1985,55 @@ class InternshipService:
     ) -> None:
         """Verifica que la practica cumpla la regla de seguro escolar o tenga excepcion vigente.
 
-        Para practicas en periodo estival (``Verano`` o ``Invierno``), consulta
-        el prerrequisito institucional vigente del estudiante. Si no esta
-        completado, la aprobacion solo se permite si existe una excepcion
+        Para practicas fuera del periodo regular (marzo-junio o
+        agosto-noviembre), exige validacion explicita o excepcion
         administrativa para la regla ``"school_insurance"``.
 
         Args:
             internship: Practica a verificar.
 
         Raises:
-            HTTPException 409: Si la practica es estival, no tiene seguro
-                y tampoco tiene excepcion administrativa registrada.
+            HTTPException 409: Si la practica no cae en periodo regular y no
+                tiene validacion ni excepcion administrativa registrada.
         """
-        is_seasonal = internship.internship_period.value in SEASONAL_PERIODS
-        if not is_seasonal:
+        start_date = getattr(internship, "start_date", None)
+        end_date = getattr(internship, "end_date", None)
+        if start_date is not None and end_date is not None:
+            is_regular_period = self._is_regular_academic_period(start_date, end_date)
+        else:
+            period = getattr(internship, "internship_period", None)
+            period_value = getattr(period, "value", period)
+            is_regular_period = period_value not in SEASONAL_PERIODS
+        if is_regular_period:
+            insurance_status = getattr(
+                internship,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            )
+            if isinstance(insurance_status, str):
+                insurance_status = SchoolInsuranceStatusEnum(insurance_status)
+            if insurance_status != SchoolInsuranceStatusEnum.validated:
+                await self.internship_repository.update_school_insurance_validation(
+                    internship=internship,
+                    status=SchoolInsuranceStatusEnum.validated,
+                    actor_id=None,
+                    notes="Validación automática por periodo académico regular.",
+                )
+            return
+
+        insurance_status = getattr(
+            internship,
+            "insurance_status",
+            SchoolInsuranceStatusEnum.pending,
+        )
+        if isinstance(insurance_status, str):
+            insurance_status = SchoolInsuranceStatusEnum(insurance_status)
+
+        if insurance_status in (
+            SchoolInsuranceStatusEnum.validated,
+            SchoolInsuranceStatusEnum.exception_authorized,
+            SchoolInsuranceStatusEnum.not_applicable,
+        ):
             return
 
         insurance_requirement = (
@@ -1524,28 +2048,52 @@ class InternshipService:
         )
         internship.has_school_insurance = has_current_insurance
 
-        if has_current_insurance:
-            return
-
-        logger.info("Evaluando seguro escolar estival requerido para práctica ID: %s en periodo: %s", 
-                    internship.id, internship.internship_period)
+        logger.info("Evaluando seguro escolar requerido para práctica ID: %s fuera de periodo regular", 
+                    internship.id)
         existing = await self.internship_repository.get_exception_by_rule(
             internship_id=internship.id,
             rule="school_insurance",
         )
-        if existing is None:
-            logger.warning("Bloqueo por matriz de riesgo: Práctica estival ID: %s no cuenta con seguro ni excepción registrada", internship.id)
+        if existing is not None:
+            await self.internship_repository.update_school_insurance_validation(
+                internship=internship,
+                status=SchoolInsuranceStatusEnum.exception_authorized,
+                actor_id=getattr(existing, "authorized_by", None),
+                notes=getattr(existing, "reason", None),
+            )
+            logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
+            return
+
+        if has_current_insurance:
             raise HTTPException(
                 status_code=409,
                 detail={
                     "rule": "school_insurance",
+                    "insurance_status": insurance_status.value,
                     "message": (
-                        "La práctica es estival y no cuenta con seguro escolar. "
-                        "Se requiere una excepción administrativa registrada para continuar (D.S. 313)."
+                        "La práctica se realiza fuera del periodo académico regular "
+                        "y requiere validación explícita del seguro escolar por "
+                        "Dirección de carrera antes de aprobar la solicitud."
                     ),
                 },
             )
-        logger.info("Validación exitosa: Práctica estival ID: %s cuenta con una excepción administrativa vigente", internship.id)
+
+        if insurance_status != SchoolInsuranceStatusEnum.requires_exception:
+            internship.insurance_status = SchoolInsuranceStatusEnum.requires_exception
+
+        logger.warning("Bloqueo por matriz de riesgo: Práctica ID: %s fuera de periodo regular no cuenta con seguro ni excepción registrada", internship.id)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "rule": "school_insurance",
+                "insurance_status": SchoolInsuranceStatusEnum.requires_exception.value,
+                "message": (
+                    "La práctica se realiza fuera del periodo académico regular "
+                    "y no cuenta con seguro escolar validado. Se requiere una "
+                    "excepción administrativa registrada para continuar (D.S. 313)."
+                ),
+            },
+        )
 
     async def _check_sequentiality_or_exception(
         self,
@@ -1927,6 +2475,18 @@ class InternshipService:
             and internship_period.value in SEASONAL_PERIODS
             and not has_insurance
         )
+        insurance_status = (
+            self._initial_school_insurance_status(
+                internship_period=internship_period,
+                has_school_insurance=has_insurance,
+            )
+            if internship_period is not None
+            else (
+                SchoolInsuranceStatusEnum.validated
+                if has_insurance
+                else SchoolInsuranceStatusEnum.pending
+            )
+        )
         induction_blocked = not has_induction
         blocked = has_blocking_internship or insurance_blocked or induction_blocked
         next_step = (
@@ -1951,6 +2511,7 @@ class InternshipService:
 
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
+            insurance_status=insurance_status,
             has_induction=has_induction,
             has_school_insurance_exception=has_school_insurance_exception,
             has_approved_practice_1=has_approved_practice_1,

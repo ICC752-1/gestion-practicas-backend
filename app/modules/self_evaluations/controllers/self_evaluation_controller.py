@@ -26,6 +26,12 @@ from app.modules.self_evaluations.schemas.self_evaluation_schema import (
 from app.modules.self_evaluations.services.self_evaluation_service import (
     SelfEvaluationService,
 )
+from app.modules.supervisor_evaluations.repositories.supervisor_evaluation_repository import (
+    SupervisorEvaluationRepository,
+)
+from app.modules.supervisor_evaluations.services.supervisor_evaluation_service import (
+    SupervisorEvaluationService,
+)
 
 router = APIRouter(prefix="/self-evaluations", tags=["Self evaluations"])
 
@@ -38,6 +44,11 @@ def _build_service(db: AsyncSession) -> SelfEvaluationService:
     return SelfEvaluationService(
         repository=SelfEvaluationRepository(db),
         notification_service=notification_service,
+        supervisor_evaluation_service=SupervisorEvaluationService(
+            repository=SupervisorEvaluationRepository(db),
+            notification_service=notification_service,
+            app_config=config,
+        ),
     )
 
 

@@ -27,6 +27,7 @@ CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'f
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
 CREATE TYPE "content_status_enum" AS ENUM ('draft', 'published');
 CREATE TYPE "enumDiraeStatus" AS ENUM ('not_started', 'in_review', 'observed', 'ready', 'exported');
+CREATE TYPE "enumSchoolInsuranceStatus" AS ENUM ('pending', 'validated', 'requires_exception', 'exception_authorized', 'not_applicable');
 
 -- 2. Creación de Tablas
 
@@ -44,11 +45,11 @@ CREATE TABLE CurrentState (
 );
 
 INSERT INTO CurrentState (title, description) VALUES
-    ('Pendiente', 'La práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.'),
-    ('En revisión DIRAE', 'La práctica presenta observaciones en sus plazos y fue derivada a la Dirección de Registro Académico y Estudiantil.'),
-    ('En revisión', 'La práctica fue registrada y se encuentra en revisión administrativa.'),
-    ('Aprobada', 'La práctica fue aprobada durante la revisión administrativa.'),
-    ('Rechazada', 'La práctica fue rechazada durante la revisión administrativa.');
+    ('Pendiente', 'La solicitud de práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.'),
+    ('En revisión DIRAE', 'La solicitud de práctica presenta observaciones en sus plazos y fue derivada a la Dirección de Registro Académico y Estudiantil.'),
+    ('En revisión', 'La solicitud de práctica fue registrada y se encuentra en revisión administrativa.'),
+    ('Aprobada', 'La solicitud de práctica fue aprobada durante la revisión administrativa.'),
+    ('Rechazada', 'La solicitud de práctica fue rechazada durante la revisión administrativa.');
 
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
@@ -59,6 +60,7 @@ CREATE TABLE Users (
     rut VARCHAR(100) UNIQUE NOT NULL,
     degree VARCHAR(255),
     cod_degree VARCHAR(100),
+    admission_year INTEGER,
     sexo "enumGender",
     phone VARCHAR(100),
     profession VARCHAR(100),
@@ -84,6 +86,20 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX ix_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX ix_refresh_tokens_jti ON refresh_tokens(jti);
+
+CREATE TABLE account_activation_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES Users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    revoked_at TIMESTAMP,
+    created_by_id INTEGER REFERENCES Users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_account_activation_tokens_user_id ON account_activation_tokens(user_id);
+CREATE INDEX ix_account_activation_tokens_token_hash ON account_activation_tokens(token_hash);
 
 CREATE TABLE user_roles (
     id SERIAL PRIMARY KEY,
@@ -139,6 +155,10 @@ CREATE TABLE Internship (
     completion_status "enumCompletionStatus" NOT NULL DEFAULT 'not_started',
     final_result "enumFinalResult" NOT NULL DEFAULT 'pending',
     dirae_status "enumDiraeStatus" NOT NULL DEFAULT 'not_started',
+    insurance_status "enumSchoolInsuranceStatus" NOT NULL DEFAULT 'pending',
+    insurance_validated_by INTEGER REFERENCES Users(id),
+    insurance_validated_at TIMESTAMP,
+    insurance_notes TEXT,
 
     upload_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     status_id INTEGER REFERENCES CurrentState(id),

@@ -18,6 +18,7 @@ from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
     NotificationStatusEnum,
 )
+from app.modules.internships.models.internship_model import PracticeTypeEnum
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -248,12 +249,13 @@ class TestEventHelpers:
             recipient_email="s@test.com",
             internship_id=5,
             org_name="Acme Corp",
+            internship_type=PracticeTypeEnum.practice_1,
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_approved
-        assert notification.subject == "Práctica aprobada"
+        assert notification.subject == "Solicitud de práctica aprobada"
         assert "Acme Corp" in notification.content
-        assert "aprobada" in notification.content
+        assert "Su solicitud de práctica I ha sido aprobada por administración" in notification.content
         assert notification.recipient_user_id == 10
         assert notification.recipient_email == "s@test.com"
 
@@ -267,8 +269,8 @@ class TestEventHelpers:
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_rejected
-        assert notification.subject == "Práctica rechazada"
-        assert "rechazada" in notification.content
+        assert notification.subject == "Solicitud de práctica rechazada"
+        assert "Su solicitud de práctica fue rechazada" in notification.content
         assert "Falta de documentos" in notification.content
         assert notification.recipient_email is None
 
@@ -292,8 +294,8 @@ class TestEventHelpers:
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_derived
-        assert notification.subject == "Práctica derivada a DIRAE"
-        assert "DIRAE" in notification.content
+        assert notification.subject == "Expediente DIRAE de práctica derivado"
+        assert "El expediente DIRAE asociado a su práctica fue derivado" in notification.content
         assert "Revision DIRAE" in notification.content
 
     def test_requirement_status_changed_notification(self):

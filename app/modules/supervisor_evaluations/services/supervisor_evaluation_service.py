@@ -90,6 +90,19 @@ class SupervisorEvaluationService:
     ) -> SupervisorEvaluationInvitationResponse:
         """Genera o reenvia una invitacion de evaluacion para una practica."""
 
+        return await self.generate_invitation_for_internship(
+            internship_id=internship_id,
+            created_by_user_id=actor.id,
+        )
+
+    async def generate_invitation_for_internship(
+        self,
+        *,
+        internship_id: int,
+        created_by_user_id: int | None = None,
+    ) -> SupervisorEvaluationInvitationResponse:
+        """Genera una invitacion cuando la autoevaluacion ya fue enviada."""
+
         internship = await self.repository.get_internship(internship_id)
         if internship is None:
             raise SupervisorEvaluationError(404, "Internship not found")
@@ -97,6 +110,11 @@ class SupervisorEvaluationService:
             raise SupervisorEvaluationError(409, "Internship is cancelled")
         if not _is_approved_internship(internship):
             raise SupervisorEvaluationError(409, "Internship is not approved")
+        if not await self.repository.has_submitted_self_evaluation(internship_id):
+            raise SupervisorEvaluationError(
+                409,
+                "La autoevaluación del estudiante aún no ha sido enviada",
+            )
 
         existing_evaluation = await self.repository.get_evaluation_by_internship(
             internship_id
@@ -113,7 +131,7 @@ class SupervisorEvaluationService:
             token_hash=_hash_token(token),
             expires_at=_utc_now() + timedelta(days=INVITATION_TTL_DAYS),
             sent_at=_utc_now(),
-            created_by=actor.id,
+            created_by=created_by_user_id,
         )
         invitation = await self.repository.create_invitation(invitation)
 
