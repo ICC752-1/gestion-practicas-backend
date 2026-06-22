@@ -16,6 +16,14 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     AvailabilityCreateRequest,
     AvailabilityUpdateRequest,
     SlotReserveRequest,
+    SchedulingRequestCreateRequest,
+    SchedulingRequestRespondRequest,
+    SchedulingRequestRejectRequest,
+    SchedulingConfigUpdateRequest,
+)
+from app.modules.scheduling.models.scheduling_request_model import (
+    SchedulingRequest,
+    SchedulingRequestStatusEnum,
 )
 from app.modules.scheduling.services.scheduling_service import SchedulingService
 
@@ -89,9 +97,19 @@ class FakeSchedulingRepository:
         self.saved_slots = []
         self.deleted_slot = None
         self.has_supervisor_evaluation_result = False
+        self.scheduling_requests = {}
+        self.scheduling_config = {}
+        self.any_general_consultation_enabled = False
+        self.supervisor_recommendation = None
+        self.has_self_eval = False
+        self.created_requests = []
+        self.saved_requests = []
 
     async def create_slots(self, slots):
         self.created_slots = slots
+        for i, s in enumerate(slots):
+            if not getattr(s, "id", None):
+                s.id = 100 + i
         return slots
 
     async def save_slot(self, slot):
@@ -115,7 +133,7 @@ class FakeSchedulingRepository:
         return None
 
     async def get_internship_by_id(self, internship_id: int):
-        return self.internship if self.internship.id == internship_id else None
+        return self.internship if self.internship and self.internship.id == internship_id else None
 
     async def has_owner_overlap(
         self,
@@ -146,6 +164,52 @@ class FakeSchedulingRepository:
 
     async def has_supervisor_evaluation(self, internship_id: int) -> bool:
         return self.has_supervisor_evaluation_result
+
+    async def create_scheduling_request(self, request):
+        request.id = len(self.scheduling_requests) + 1
+        self.scheduling_requests[request.id] = request
+        self.created_requests.append(request)
+        return request
+
+    async def get_scheduling_request_by_id(self, request_id: int):
+        return self.scheduling_requests.get(request_id)
+
+    async def list_requests_for_student(self, student_id: int):
+        return [r for r in self.scheduling_requests.values() if r.student_id == student_id]
+
+    async def list_pending_requests(self):
+        return [r for r in self.scheduling_requests.values() if r.status == "pending"]
+
+    async def save_scheduling_request(self, request):
+        self.scheduling_requests[request.id] = request
+        self.saved_requests.append(request)
+        return request
+
+    async def get_scheduling_config(self, coordinator_id: int):
+        return self.scheduling_config.get(coordinator_id)
+
+    async def has_any_general_consultation_enabled(self) -> bool:
+        return self.any_general_consultation_enabled or any(c.general_consultations_enabled for c in self.scheduling_config.values())
+
+    async def upsert_scheduling_config(self, coordinator_id: int, enabled: bool):
+        from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
+        config = self.scheduling_config.get(coordinator_id)
+        if not config:
+            config = SchedulingConfig(
+                id=len(self.scheduling_config) + 1,
+                coordinator_id=coordinator_id,
+                general_consultations_enabled=enabled,
+            )
+            self.scheduling_config[coordinator_id] = config
+        else:
+            config.general_consultations_enabled = enabled
+        return config
+
+    async def get_supervisor_evaluation_recommendation(self, internship_id: int) -> str | None:
+        return self.supervisor_recommendation
+
+    async def has_self_evaluation(self, internship_id: int) -> bool:
+        return self.has_self_eval
 
 
 def _availability_payload() -> AvailabilityCreateRequest:
@@ -438,3 +502,348 @@ async def test_register_final_presentation_outcome_finalizes_failed_internship()
     assert repository.internship.completion_status == "finalized"
     assert repository.internship.final_result == "failed"
     assert repository.internship.blocks_new_registration is False
+
+
+# --- NUEVAS PRUEBAS PARA EL MODELO SOLICITUD-RESPUESTA ---
+
+async def test_create_scheduling_request_general_consultation_disabled() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = False
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.general_consultation,
+        preferred_dates=[date(2099, 1, 15)],
+        message="Duda sobre el informe",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "no están habilitadas" in exc_info.value.detail
+
+
+async def test_create_scheduling_request_general_consultation_enabled() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.general_consultation,
+        preferred_dates=[date(2099, 1, 15)],
+        message="Duda sobre el informe",
+    )
+
+    req = await service.create_scheduling_request(
+        actor=_user(1, ["Estudiante"]),
+        payload=payload,
+    )
+
+    assert req.student_id == 1
+    assert req.purpose == PresentationPurposeEnum.general_consultation
+    assert req.status == SchedulingRequestStatusEnum.pending
+    assert "2099-01-15" in req.preferred_dates
+
+
+async def test_create_scheduling_request_final_presentation_requires_internship() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as exc_info:
+        SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.final_presentation,
+            preferred_dates=[date(2099, 1, 15)],
+        )
+
+    assert "internship_id es requerido para presentaciones finales" in str(exc_info.value)
+
+
+async def test_create_scheduling_request_final_presentation_missing_evaluations() -> None:
+    repository = FakeSchedulingRepository()
+    repository.internship = _internship(internship_id=7, user_id=1)
+    repository.has_self_eval = False
+    repository.supervisor_recommendation = None
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.final_presentation,
+        preferred_dates=[date(2099, 1, 15)],
+        internship_id=7,
+    )
+
+    # 1. Falta autoevaluación
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+    assert exc_info.value.status_code == 400
+    assert "autoevaluación" in exc_info.value.detail
+
+    # 2. Tiene autoevaluación, falta supervisor
+    repository.has_self_eval = True
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+    assert exc_info.value.status_code == 400
+    assert "supervisor" in exc_info.value.detail
+
+    # 3. Tiene supervisor pero no aprobada (e.g. not_recommended)
+    repository.supervisor_recommendation = "not_recommended"
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+    assert exc_info.value.status_code == 400
+    assert "no es aprobatoria" in exc_info.value.detail
+
+
+async def test_create_scheduling_request_final_presentation_success() -> None:
+    repository = FakeSchedulingRepository()
+    repository.internship = _internship(internship_id=7, user_id=1)
+    repository.has_self_eval = True
+    repository.supervisor_recommendation = "recommended"
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.final_presentation,
+        preferred_dates=[date(2099, 1, 15)],
+        internship_id=7,
+    )
+
+    req = await service.create_scheduling_request(
+        actor=_user(1, ["Estudiante"]),
+        payload=payload,
+    )
+
+    assert req.student_id == 1
+    assert req.internship_id == 7
+    assert req.purpose == PresentationPurposeEnum.final_presentation
+    assert req.status == SchedulingRequestStatusEnum.pending
+
+
+async def test_create_scheduling_request_duplicate_prevention() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.general_consultation,
+        preferred_dates=[date(2099, 1, 15)],
+    )
+
+    # Crear la primera
+    await service.create_scheduling_request(
+        actor=_user(1, ["Estudiante"]),
+        payload=payload,
+    )
+
+    # Intentar duplicar
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "Ya tienes una solicitud de consulta general pendiente" in exc_info.value.detail
+
+
+async def test_respond_to_request_requires_admin() -> None:
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestRespondRequest(
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+        location="Oficina 101",
+        comments="Hora asignada",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.respond_to_request(
+            actor=_user(1, ["Estudiante"]),
+            request_id=1,
+            payload=payload,
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+async def test_respond_to_request_success() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    # 1. Crear la solicitud de consulta general como estudiante
+    student = _user(1, ["Estudiante"])
+    req = await service.create_scheduling_request(
+        actor=student,
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 1, 15)],
+        )
+    )
+
+    # 2. Responder como coordinador
+    admin = _user(2, ["Encargado de practica"])
+    payload = SchedulingRequestRespondRequest(
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+        location="Oficina 101",
+        comments="Hora asignada",
+    )
+
+    updated_req = await service.respond_to_request(
+        actor=admin,
+        request_id=req.id,
+        payload=payload,
+    )
+
+    assert updated_req.status == SchedulingRequestStatusEnum.scheduled
+    assert updated_req.coordinator_id == 2
+    assert updated_req.scheduled_date == date(2099, 1, 20)
+    assert updated_req.scheduled_start_time == time(10, 0)
+    assert updated_req.scheduled_modality == "Presencial"
+    assert updated_req.scheduled_location == "Oficina 101"
+    assert updated_req.presentation_id is not None
+
+    # Verificar que se creó la cita (Presentation)
+    assert len(repository.created_slots) == 1
+    slot = repository.created_slots[0]
+    assert slot.date == date(2099, 1, 20)
+    assert slot.start_time == time(10, 0)
+    assert slot.end_time == time(10, 30)
+    assert slot.owner_id == 2
+    assert slot.user_id == 1
+    assert slot.status == PresentationStatusEnum.scheduled
+
+
+async def test_respond_to_request_overlap_validations() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    student = _user(1, ["Estudiante"])
+    req = await service.create_scheduling_request(
+        actor=student,
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 1, 15)],
+        )
+    )
+
+    admin = _user(2, ["Encargado de practica"])
+    payload = SchedulingRequestRespondRequest(
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+    )
+
+    # 1. Solapamiento de coordinador
+    repository.owner_overlap = True
+    with pytest.raises(HTTPException) as exc_info:
+        await service.respond_to_request(actor=admin, request_id=req.id, payload=payload)
+    assert exc_info.value.status_code == 409
+    assert "coordinador" in exc_info.value.detail or "rango horario" in exc_info.value.detail
+    repository.owner_overlap = False
+
+    # 2. Solapamiento de estudiante
+    repository.student_overlap = True
+    with pytest.raises(HTTPException) as exc_info:
+        await service.respond_to_request(actor=admin, request_id=req.id, payload=payload)
+    assert exc_info.value.status_code == 409
+    assert "estudiante ya tiene" in exc_info.value.detail
+
+
+async def test_reject_request() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    student = _user(1, ["Estudiante"])
+    req = await service.create_scheduling_request(
+        actor=student,
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 1, 15)],
+        )
+    )
+
+    admin = _user(2, ["Encargado de practica"])
+    rejected = await service.reject_request(
+        actor=admin,
+        request_id=req.id,
+        payload=SchedulingRequestRejectRequest(reason="No hay cupos"),
+    )
+
+    assert rejected.status == SchedulingRequestStatusEnum.rejected
+    assert rejected.coordinator_id == 2
+    assert rejected.coordinator_response == "No hay cupos"
+
+
+async def test_cancel_request() -> None:
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    service = SchedulingService(repository=repository)
+
+    student1 = _user(1, ["Estudiante"])
+    student2 = _user(3, ["Estudiante"])
+
+    req = await service.create_scheduling_request(
+        actor=student1,
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 1, 15)],
+        )
+    )
+
+    # 1. Intentar cancelar por otro estudiante
+    with pytest.raises(HTTPException) as exc_info:
+        await service.cancel_request(actor=student2, request_id=req.id)
+    assert exc_info.value.status_code == 403
+
+    # 2. Cancelar con éxito
+    cancelled = await service.cancel_request(actor=student1, request_id=req.id)
+    assert cancelled.status == SchedulingRequestStatusEnum.cancelled
+
+
+async def test_get_and_toggle_general_consultations_config() -> None:
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    admin = _user(2, ["Encargado de practica"])
+    student = _user(1, ["Estudiante"])
+
+    # 1. Coordinador consulta config (debe inicializarse en False por defecto)
+    config = await service.get_scheduling_config(actor=admin)
+    assert config["general_consultations_enabled"] is False
+
+    # 2. Estudiante consulta config global (debe ser False porque ningún coordinador activó)
+    student_config = await service.get_scheduling_config(actor=student)
+    assert student_config["general_consultations_enabled"] is False
+
+    # 3. Coordinador activa consultas
+    await service.toggle_general_consultations(
+        actor=admin,
+        payload=SchedulingConfigUpdateRequest(general_consultations_enabled=True),
+    )
+
+    # 4. Coordinador vuelve a consultar
+    config = await service.get_scheduling_config(actor=admin)
+    assert config["general_consultations_enabled"] is True
+
+    # 5. Estudiante vuelve a consultar config global (ahora debe ser True)
+    student_config = await service.get_scheduling_config(actor=student)
+    assert student_config["general_consultations_enabled"] is True
