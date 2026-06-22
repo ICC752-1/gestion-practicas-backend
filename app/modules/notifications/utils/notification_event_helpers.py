@@ -586,3 +586,55 @@ def build_requirement_status_changed_notification(
             "previous_status": previous_status,
         },
     )
+
+
+def build_presentation_approved_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    internship_id: int,
+    internship_type: object | None = None,
+    evaluator_role: str | None = None,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para el evento de aprobacion de presentacion final.
+
+    Args:
+        recipient_user_id: Identificador del estudiante destinatario.
+        recipient_email: Correo electronico del estudiante (opcional).
+        internship_id: Identificador de la practica.
+        internship_type: Tipo de practica.
+        evaluator_role: Rol de quien aprobo (Coordinador o Director).
+        status: Estado inicial de la notificacion.
+
+    Returns:
+        Entidad `Notification` lista para ser persistida.
+    """
+
+    request_type = _format_internship_request_type(internship_type)
+    role_label = evaluator_role or "Coordinación"
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.presentation_approved,
+        subject="Presentación final aprobada",
+        content=_build_email_body(
+            title="Presentación final aprobada",
+            intro=(
+                f"Felicidades, tu presentación final de {request_type} ha sido aprobada "
+                f"por el/la {role_label.lower()} de prácticas. Tu proceso se encuentra en etapa de finalización."
+            ),
+            details=[
+                ("Tipo de Práctica", request_type.capitalize()),
+                ("Resultado de Presentación", "Aprobada"),
+                ("Calificado por", role_label),
+            ],
+            action_label="Ver seguimiento",
+        ),
+        status=status,
+        payload={
+            "internship_id": internship_id,
+            "evaluator_role": evaluator_role,
+        },
+    )
+

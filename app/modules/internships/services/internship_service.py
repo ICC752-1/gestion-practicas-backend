@@ -676,6 +676,15 @@ class InternshipService:
             and completion_status != CompletionStatusEnum.finalized.value,
         )
 
+        dirae_status_val = getattr(internship, "dirae_status", None)
+        dirae_status_val = getattr(dirae_status_val, "value", dirae_status_val)
+        dirae_completed = dirae_status_val == "exported"
+        dirae_event_status = self._event_status(
+            completed=dirae_completed,
+            blocked=is_cancelled,
+            current=completion_status == CompletionStatusEnum.finalized.value and not dirae_completed,
+        )
+
         events = [
             self._lifecycle_event(
                 "request_created",
@@ -799,6 +808,17 @@ class InternshipService:
                 if completion_status == CompletionStatusEnum.finalized.value
                 else None,
             ),
+            self._lifecycle_event(
+                "dirae_exported",
+                "Documentación exportada a DIRAE"
+                if dirae_completed
+                else "Documentación por exportar a DIRAE",
+                "La documentación final de la práctica fue exportada exitosamente a DIRAE."
+                if dirae_completed
+                else "La documentación del proceso de práctica se encuentra pendiente de exportación a DIRAE.",
+                dirae_event_status,
+                getattr(internship, "updated_at", None) if dirae_completed else None,
+            ),
         ]
 
         progress_map = {
@@ -819,7 +839,7 @@ class InternshipService:
             if event.status == "completed"
         }
         progress_percentage = max(
-            [progress_map[event_type] for event_type in completed_types]
+            [progress_map[event_type] for event_type in completed_types if event_type in progress_map]
             or [0]
         )
         current_step = next(

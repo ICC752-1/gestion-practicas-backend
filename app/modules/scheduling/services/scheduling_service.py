@@ -15,6 +15,7 @@ from app.modules.notifications.services.notification_service import (
 )
 from app.modules.notifications.utils.notification_event_helpers import (
     build_appointment_scheduled_notification,
+    build_presentation_approved_notification,
 )
 from app.modules.scheduling.models.presentation_model import (
     Presentation,
@@ -614,6 +615,26 @@ class SchedulingService:
                     internship.blocks_new_registration = (
                         internship.final_result != FinalResultEnum.failed
                     )
+
+                    if slot.status == PresentationStatusEnum.completed and payload.result == PresentationResultEnum.approved:
+                        if self.notification_service is not None:
+                            student_email = None
+                            try:
+                                student = getattr(internship, "student", None)
+                                if student is not None:
+                                    student_email = getattr(student, "email", None)
+                            except Exception:
+                                student_email = None
+
+                            await self._dispatch_notification(
+                                build_presentation_approved_notification(
+                                    recipient_user_id=internship.user_id,
+                                    recipient_email=student_email,
+                                    internship_id=internship.id,
+                                    internship_type=getattr(internship, "internship_type", None),
+                                    evaluator_role=_display_role_for(actor),
+                                )
+                            )
 
         return await self.repository.save_slot(slot)
 

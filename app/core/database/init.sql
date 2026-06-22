@@ -22,7 +22,7 @@ CREATE TYPE "enumSelfEvaluationStatus" AS ENUM ('draft', 'submitted', 'reopened'
 CREATE TYPE "enumDataPortabilityStatus" AS ENUM ('processing', 'completed', 'failed');
 CREATE TYPE "enumSchedulingRequestStatus" AS ENUM ('pending', 'scheduled', 'rejected', 'cancelled');
 
-CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom', 'appointment_scheduled');
+CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom', 'appointment_scheduled', 'presentation_approved');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
 
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');

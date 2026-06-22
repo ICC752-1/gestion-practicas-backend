@@ -1171,3 +1171,35 @@ async def test_schedule_direct_appointment_fails_if_finalized() -> None:
     assert exc_info.value.status_code == 409
     assert "ya se encuentra finalizada" in exc_info.value.detail
 
+
+async def test_register_final_presentation_outcome_sends_notification_on_approval() -> None:
+    """Verifica que se despacha una notificación al estudiante cuando se aprueba su presentación final."""
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.purpose = PresentationPurposeEnum.final_presentation
+    repository.slot.internship_id = 7
+    repository.internship = _internship(internship_id=7, user_id=1)
+    repository.internship.end_date = date(2026, 1, 9)
+    repository.has_supervisor_evaluation_result = True
+    
+    notification_service = FakeNotificationService()
+    service = SchedulingService(repository=repository, notification_service=notification_service)
+
+    slot = await service.register_appointment_outcome(
+        appointment_id=20,
+        actor=_user(2, ["Encargado de practica"]),
+        payload=AppointmentOutcomeRequest(
+            attendance_status="completed",
+            result=PresentationResultEnum.approved,
+            comments="Excelente desempeño.",
+        ),
+    )
+
+    assert slot.status == PresentationStatusEnum.completed
+    assert repository.internship.completion_status == "finalized"
+    assert repository.internship.final_result == "passed"
+    assert len(notification_service.dispatched) == 1
+    assert notification_service.dispatched[0].event_type == "presentation_approved"
+    assert notification_service.dispatched[0].recipient_user_id == 1
+
+
