@@ -116,7 +116,6 @@ def test_internship_create_request_allows_optional_fields_to_be_omitted() -> Non
         "days",
         "internship_address",
         "act_description",
-        "ben_description",
     ],
 )
 def test_internship_create_request_rejects_blank_required_text(
@@ -127,6 +126,13 @@ def test_internship_create_request_rejects_blank_required_text(
 
     with pytest.raises(ValidationError):
         InternshipCreateRequest(**payload)
+
+
+def test_internship_create_request_accepts_blank_ben_description() -> None:
+    payload = _valid_payload()
+    payload["ben_description"] = ""
+    internship = InternshipCreateRequest(**payload)
+    assert internship.ben_description == ""
 
 
 def test_internship_create_request_rejects_invalid_supervisor_email() -> None:

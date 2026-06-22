@@ -54,7 +54,7 @@ class InternshipCreateRequest(BaseModel):
     modality: Modality
     internship_address: str = Field(min_length=1, max_length=255)
     act_description: str = Field(min_length=1, max_length=255)
-    ben_description: str = Field(min_length=1, max_length=255)
+    ben_description: str = Field(default="", max_length=255)
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
@@ -396,7 +396,7 @@ class StudentInternshipUpdateRequest(BaseModel):
     modality: Modality | None = None
     internship_address: str | None = Field(default=None, min_length=1, max_length=255)
     act_description: str | None = Field(default=None, min_length=1, max_length=255)
-    ben_description: str | None = Field(default=None, min_length=1, max_length=255)
+    ben_description: str | None = Field(default=None, max_length=255)
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum | None = None
     internship_type: PracticeTypeEnum | None = None
