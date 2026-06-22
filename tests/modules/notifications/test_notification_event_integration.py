@@ -18,6 +18,7 @@ from app.modules.internships.models.internship_model import (
     DiraeStatusEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
 from app.modules.internships.services.internship_service import InternshipService
@@ -131,6 +132,16 @@ class FakeInternshipRepository:
 
     async def get_student_requirement(self, user_id: int, requirement: str):
         return SimpleNamespace(is_completed=True)
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        return internship
 
     async def get_blocking_internship_for_registration(self, **kwargs):
         return None
