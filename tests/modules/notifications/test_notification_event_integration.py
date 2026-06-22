@@ -18,7 +18,6 @@ from app.modules.internships.models.internship_model import (
     DiraeStatusEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
-    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.schemas.internship_schema import InternshipCreateRequest
 from app.modules.internships.services.internship_service import InternshipService
