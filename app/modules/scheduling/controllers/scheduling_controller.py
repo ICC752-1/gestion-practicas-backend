@@ -7,8 +7,15 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import get_db
+from app.core.config import config
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.models.user_model import User
+from app.modules.notifications.repositories.notification_repository import (
+    NotificationRepository,
+)
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
 from app.modules.scheduling.models.presentation_model import PresentationPurposeEnum
 from app.modules.scheduling.repositories.scheduling_repository import (
     SchedulingRepository,
@@ -27,6 +34,7 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     SchedulingRequestResponse,
     SchedulingConfigResponse,
     SchedulingConfigUpdateRequest,
+    DirectSchedulingRequest,
 )
 from app.modules.scheduling.services.scheduling_service import SchedulingService
 
@@ -35,7 +43,15 @@ router = APIRouter(prefix="/scheduling", tags=["Scheduling"])
 
 
 def _build_service(db: AsyncSession) -> SchedulingService:
-    return SchedulingService(repository=SchedulingRepository(db))
+    notification_service = NotificationService(
+        notification_repository=NotificationRepository(db),
+        app_config=config,
+    )
+
+    return SchedulingService(
+        repository=SchedulingRepository(db),
+        notification_service=notification_service,
+    )
 
 
 @router.post(
@@ -191,6 +207,28 @@ async def register_appointment_outcome(
     )
 
     return PresentationSlotResponse.model_validate(slot)
+
+
+@router.post(
+    "/appointments/direct",
+    response_model=PresentationSlotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def schedule_direct_appointment(
+    payload: DirectSchedulingRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationSlotResponse:
+    """Agenda una presentación final directamente para la práctica de un estudiante, sin solicitud previa."""
+
+    service = _build_service(db)
+    appointment = await service.schedule_direct_appointment(
+        actor=current_user,
+        payload=payload,
+    )
+
+    return PresentationSlotResponse.model_validate(appointment)
+
 
 
 @router.post(

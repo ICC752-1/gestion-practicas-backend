@@ -179,6 +179,83 @@ def build_internship_approved_notification(
     )
 
 
+def build_appointment_scheduled_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    scheduling_request_id: int | None,
+    presentation_id: int | None,
+    scheduled_date: str | None,
+    scheduled_time: str | None,
+    modality: str | None = None,
+    location: str | None = None,
+    resolved_by_role: str | None = None,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para el evento de cita agendada.
+
+    Args:
+        recipient_user_id: Identificador del estudiante destinatario.
+        recipient_email: Correo electronico del estudiante (opcional).
+        scheduling_request_id: Identificador de la solicitud respondida (opcional).
+        presentation_id: Identificador de la cita (Presentation) creada.
+        scheduled_date: Fecha asignada (isoformat) de la cita.
+        scheduled_time: Rango horario asignado (texto legible).
+        modality: Modalidad de la cita (Presencial/Remoto/Híbrido).
+        location: Ubicación o enlace de la reunión.
+        resolved_by_role: Rol de visualización de quien agendó
+            (Director/Coordinador).
+        status: Estado inicial de la notificacion (por defecto simulated).
+
+    Returns:
+        Entidad `Notification` lista para ser persistida.
+    """
+
+    agendador_label = resolved_by_role or "Coordinación"
+
+    details = [
+        ("Fecha", scheduled_date),
+        ("Hora", scheduled_time),
+        ("Modalidad", modality),
+        ("Ubicación", location),
+        ("Agendado por", agendador_label),
+    ]
+
+    if scheduling_request_id is not None:
+        details.append(("N° de solicitud", f"#{scheduling_request_id}"))
+
+    intro_text = (
+        "Tienes una cita confirmada para la presentación final de tu práctica. "
+        "Revisa el detalle en la plataforma para asistir a tiempo."
+        if scheduling_request_id is None
+        else (
+            "Tu solicitud de agendamiento fue respondida y tienes una cita "
+            "confirmada. Revisa el detalle en la plataforma para asistir a "
+            "tiempo."
+        )
+    )
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.appointment_scheduled,
+        subject="Cita agendada",
+        content=_build_email_body(
+            title="Cita agendada",
+            intro=intro_text,
+            details=details,
+            action_label="Ver mis citas",
+        ),
+        status=status,
+        payload={
+            "scheduling_request_id": scheduling_request_id,
+            "presentation_id": presentation_id,
+            "scheduled_date": scheduled_date,
+            "scheduled_time": scheduled_time,
+            "resolved_by_role": resolved_by_role,
+        },
+    )
+
+
 def build_internship_rejected_notification(
     recipient_user_id: int,
     recipient_email: str | None,

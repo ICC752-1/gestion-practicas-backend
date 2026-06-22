@@ -1,5 +1,6 @@
 """Servicio de negocio para publicacion y reserva de agenda."""
 
+import logging
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException, status
@@ -8,6 +9,12 @@ from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
     FinalResultEnum,
+)
+from app.modules.notifications.services.notification_service import (
+    NotificationService,
+)
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_appointment_scheduled_notification,
 )
 from app.modules.scheduling.models.presentation_model import (
     Presentation,
@@ -35,14 +42,23 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     SchedulingRequestRespondRequest,
     SchedulingRequestRejectRequest,
     SchedulingConfigUpdateRequest,
+    DirectSchedulingRequest,
 )
 
+
+logger = logging.getLogger(__name__)
 
 ADMIN_ROLES = {
     "Encargado de practica",
     "Director de carrera",
 }
 STUDENT_ROLE = "Estudiante"
+DIRECTOR_ROLE = "Director de carrera"
+
+ROLE_DISPLAY_MAPPING = {
+    "Director de carrera": "Director",
+    "Encargado de practica": "Coordinador",
+}
 
 
 def _now() -> datetime:
@@ -51,6 +67,16 @@ def _now() -> datetime:
 
 def _role_names(user: User) -> set[str]:
     return {user_role.role.name for user_role in user.roles}
+
+
+def _display_role_for(user: User) -> str | None:
+    """Traduce el rol administrativo del actor a su etiqueta de display."""
+
+    roles = _role_names(user)
+    for role_name, display in ROLE_DISPLAY_MAPPING.items():
+        if role_name in roles:
+            return display
+    return None
 
 
 def _combine(slot_date: date, slot_time: time) -> datetime:
@@ -64,8 +90,33 @@ def _today() -> date:
 class SchedulingService:
     """Aplica reglas de disponibilidad, reservas y cancelaciones."""
 
-    def __init__(self, repository: SchedulingRepository) -> None:
+    def __init__(
+        self,
+        repository: SchedulingRepository,
+        notification_service: NotificationService | None = None,
+    ) -> None:
         self.repository = repository
+        self.notification_service = notification_service
+
+    async def _dispatch_notification(self, notification) -> None:
+        """Despacha una notificacion a traves del servicio de notificaciones.
+
+        Si el servicio no esta configurado, la operacion se ignora. Los errores
+        de notificacion no interrumpen el flujo principal de negocio.
+        """
+
+        if self.notification_service is None:
+            return
+
+        try:
+            await self.notification_service.create_and_dispatch(notification)
+        except Exception:
+            logger.warning(
+                "Fallo al despachar notificacion (event=%s). "
+                "El flujo de negocio continua normalmente.",
+                notification.event_type,
+                exc_info=True,
+            )
 
     def _require_admin(self, user: User) -> None:
         if not (_role_names(user) & ADMIN_ROLES):
@@ -654,6 +705,26 @@ class SchedulingService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Las consultas generales no están habilitadas en este momento",
                 )
+
+            # Validar que el coordinador destino esté habilitado para consultas
+            if payload.target_coordinator_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Debes seleccionar un coordinador para la consulta general",
+                )
+
+            active_coordinators = (
+                await self.repository.list_active_coordinators_for_consultations()
+            )
+            active_ids = {coord.id for coord in active_coordinators}
+            if payload.target_coordinator_id not in active_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "El coordinador seleccionado no tiene las consultas "
+                        "generales habilitadas"
+                    ),
+                )
         elif payload.purpose == PresentationPurposeEnum.final_presentation:
             if not payload.internship_id:
                 raise HTTPException(
@@ -734,6 +805,11 @@ class SchedulingService:
             message=payload.message,
             preferred_dates=preferred_dates_str,
             status=SchedulingRequestStatusEnum.pending,
+            target_coordinator_id=(
+                payload.target_coordinator_id
+                if payload.purpose == PresentationPurposeEnum.general_consultation
+                else None
+            ),
         )
 
         return await self.repository.create_scheduling_request(request)
@@ -827,6 +903,7 @@ class SchedulingService:
         request.scheduled_modality = payload.modality
         request.scheduled_location = payload.location
         request.presentation_id = created_presentation.id
+        request.resolved_by_role = _display_role_for(actor)
         request.resolved_at = timestamp
         request.updated_at = timestamp
 
@@ -839,7 +916,161 @@ class SchedulingService:
             if internship and internship.completion_status == CompletionStatusEnum.not_started:
                 internship.completion_status = CompletionStatusEnum.in_progress
 
-        return await self.repository.save_scheduling_request(request)
+        saved_request = await self.repository.save_scheduling_request(request)
+
+        # Despachar notificación de cita agendada al estudiante
+        if self.notification_service is not None and request.student_id is not None:
+            student_email = None
+            try:
+                student = getattr(request, "student", None)
+                if student is not None:
+                    student_email = getattr(student, "email", None)
+            except Exception:
+                student_email = None
+
+            scheduled_time_label = (
+                f"{payload.start_time.strftime('%H:%M')} - "
+                f"{payload.end_time.strftime('%H:%M')}"
+            )
+            await self._dispatch_notification(
+                build_appointment_scheduled_notification(
+                    recipient_user_id=request.student_id,
+                    recipient_email=student_email,
+                    scheduling_request_id=request.id,
+                    presentation_id=created_presentation.id,
+                    scheduled_date=payload.date.isoformat(),
+                    scheduled_time=scheduled_time_label,
+                    modality=payload.modality,
+                    location=payload.location,
+                    resolved_by_role=request.resolved_by_role,
+                )
+            )
+
+        return saved_request
+
+    async def schedule_direct_appointment(
+        self,
+        actor: User,
+        payload: DirectSchedulingRequest,
+    ) -> Presentation:
+        """Agenda una presentación final directamente para la práctica de un estudiante, sin solicitud previa."""
+        self._require_admin(actor)
+
+        # 1. Validar que la práctica exista, no esté cancelada ni finalizada
+        internship = await self.repository.get_internship_by_id(payload.internship_id)
+        if internship is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Práctica no encontrada",
+            )
+
+        if internship.is_cancelled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No puedes agendar citas para una práctica cancelada",
+            )
+
+        if internship.completion_status == CompletionStatusEnum.finalized:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La práctica ya se encuentra finalizada",
+            )
+
+        # 2. Validar que no tenga otra presentación final agendada o completada
+        has_duplicate = await self.repository.has_active_appointment_for_internship(
+            internship_id=internship.id,
+            purpose=PresentationPurposeEnum.final_presentation,
+        )
+        if has_duplicate:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La práctica ya tiene una presentación final agendada o completada",
+            )
+
+        # 3. Validar rango de fecha futuro
+        self._ensure_future_slot(payload.date, payload.start_time)
+
+        # 4. Validar solapamiento del coordinador (owner_id = actor.id)
+        has_owner_overlap = await self.repository.has_owner_overlap(
+            owner_id=actor.id,
+            slot_date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+        )
+        if has_owner_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya tienes una cita agendada en ese rango horario",
+            )
+
+        # 5. Validar solapamiento del estudiante (user_id = internship.user_id)
+        has_student_overlap = await self.repository.has_student_overlap(
+            user_id=internship.user_id,
+            slot_date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+        )
+        if has_student_overlap:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El estudiante ya tiene una cita agendada en ese rango horario",
+            )
+
+        # 6. Calcular duración
+        duration = int(
+            (_combine(payload.date, payload.end_time) - _combine(payload.date, payload.start_time)).total_seconds()
+            // 60
+        )
+
+        # 7. Crear la cita (Presentation)
+        presentation = Presentation(
+            date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            duration_minutes=duration,
+            modality=payload.modality,
+            purpose=PresentationPurposeEnum.final_presentation,
+            status=PresentationStatusEnum.scheduled,
+            location=payload.location,
+            comments=payload.comments,
+            owner_id=actor.id,
+            user_id=internship.user_id,
+            internship_id=internship.id,
+            reserved_at=_now(),
+        )
+
+        created_presentations = await self.repository.create_slots([presentation])
+        created_presentation = created_presentations[0]
+
+        # 8. Despachar notificación al estudiante (bandeja + email)
+        if self.notification_service is not None:
+            student_email = None
+            try:
+                student = getattr(internship, "student", None)
+                if student is not None:
+                    student_email = getattr(student, "email", None)
+            except Exception:
+                student_email = None
+
+            scheduled_time_label = (
+                f"{payload.start_time.strftime('%H:%M')} - "
+                f"{payload.end_time.strftime('%H:%M')}"
+            )
+            await self._dispatch_notification(
+                build_appointment_scheduled_notification(
+                    recipient_user_id=internship.user_id,
+                    recipient_email=student_email,
+                    scheduling_request_id=None,
+                    presentation_id=created_presentation.id,
+                    scheduled_date=payload.date.isoformat(),
+                    scheduled_time=scheduled_time_label,
+                    modality=payload.modality,
+                    location=payload.location,
+                    resolved_by_role=_display_role_for(actor),
+                )
+            )
+
+        return created_presentation
 
     async def reject_request(
         self,
@@ -868,6 +1099,7 @@ class SchedulingService:
         request.status = SchedulingRequestStatusEnum.rejected
         request.coordinator_id = actor.id
         request.coordinator_response = payload.reason
+        request.resolved_by_role = _display_role_for(actor)
         request.resolved_at = timestamp
         request.updated_at = timestamp
 
@@ -909,10 +1141,14 @@ class SchedulingService:
         return await self.repository.save_scheduling_request(request)
 
     async def list_pending_requests(self, actor: User) -> list[SchedulingRequest]:
-        """Obtiene todas las solicitudes pendientes de agendamiento."""
+        """Obtiene las solicitudes pendientes dirigidas al coordinador autenticado.
+
+        Incluye las solicitudes dirigidas explícitamente al actor y las solicitudes
+        legacy sin destinatario (``target_coordinator_id`` nulo).
+        """
 
         self._require_admin(actor)
-        return await self.repository.list_pending_requests()
+        return await self.repository.list_pending_requests(actor_id=actor.id)
 
     async def list_my_requests(self, actor: User) -> list[SchedulingRequest]:
         """Obtiene todas las solicitudes de agendamiento del estudiante autenticado."""
@@ -921,20 +1157,42 @@ class SchedulingService:
         return await self.repository.list_requests_for_student(actor.id)
 
     async def get_scheduling_config(self, actor: User) -> dict:
-        """Obtiene la configuración de consultas generales según el rol."""
+        """Obtiene la configuración de agendamiento según el rol.
+
+        - Estudiante: indicador global de consultas habilitadas y la lista de
+          coordinadores activos para consultas generales.
+        - Admin: configuración propia del coordinador, incluyendo el flag global
+          de inscripción de prácticas desactivada.
+        """
 
         if self._is_student(actor):
             enabled = await self.repository.has_any_general_consultation_enabled()
-            return {"general_consultations_enabled": enabled}
+            active_coordinators = (
+                await self.repository.list_active_coordinators_for_consultations()
+            )
+            return {
+                "general_consultations_enabled": enabled,
+                "active_coordinators": [
+                    {
+                        "id": coord.id,
+                        "first_name": coord.first_name,
+                        "last_name": coord.last_name,
+                        "email": coord.email,
+                        "role_name": _display_role_for(coord),
+                    }
+                    for coord in active_coordinators
+                ],
+            }
 
         if self._is_admin(actor):
             config = await self.repository.get_scheduling_config(actor.id)
             if not config:
-                config = await self.repository.upsert_scheduling_config(actor.id, False)
+                config = await self.repository.upsert_scheduling_config(actor.id)
             return {
                 "id": config.id,
                 "coordinator_id": config.coordinator_id,
                 "general_consultations_enabled": config.general_consultations_enabled,
+                "internship_applications_disabled": config.internship_applications_disabled,
                 "updated_at": config.updated_at,
             }
 
@@ -948,11 +1206,40 @@ class SchedulingService:
         actor: User,
         payload: SchedulingConfigUpdateRequest,
     ) -> SchedulingConfig:
-        """Habilita o deshabilita las consultas generales para el coordinador autenticado."""
+        """Actualiza la configuración de agendamiento según el rol del actor.
+
+        - ``Encargado de practica``: sólo puede modificar
+          ``general_consultations_enabled``.
+        - ``Director de carrera``: puede modificar ambos flags
+          (``general_consultations_enabled`` e
+          ``internship_applications_disabled``).
+
+        Sólo se persisten los campos provistos en el payload.
+        """
 
         self._require_admin(actor)
+
+        is_director = DIRECTOR_ROLE in _role_names(actor)
+
+        if (
+            payload.internship_applications_disabled is not None
+            and not is_director
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Sólo el Director de carrera puede desactivar la inscripción "
+                    "de prácticas"
+                ),
+            )
+
         return await self.repository.upsert_scheduling_config(
             actor.id,
-            payload.general_consultations_enabled,
+            general_consultations_enabled=payload.general_consultations_enabled,
+            internship_applications_disabled=(
+                payload.internship_applications_disabled
+                if is_director
+                else None
+            ),
         )
 

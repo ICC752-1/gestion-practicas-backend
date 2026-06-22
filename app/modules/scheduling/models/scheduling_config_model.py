@@ -24,6 +24,11 @@ class SchedulingConfig(Base):
         default=False,
         nullable=False,
     )
+    internship_applications_disabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(UTC).replace(tzinfo=None),

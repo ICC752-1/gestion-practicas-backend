@@ -20,9 +20,9 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     SchedulingRequestRespondRequest,
     SchedulingRequestRejectRequest,
     SchedulingConfigUpdateRequest,
+    DirectSchedulingRequest,
 )
 from app.modules.scheduling.models.scheduling_request_model import (
-    SchedulingRequest,
     SchedulingRequestStatusEnum,
 )
 from app.modules.scheduling.services.scheduling_service import SchedulingService
@@ -36,6 +36,43 @@ def _user(user_id: int, roles: list[str]) -> SimpleNamespace:
             for role_name in roles
         ],
     )
+
+
+def _coordinator(coord_id: int, roles: list[str]) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=coord_id,
+        first_name="Coord",
+        last_name="Test",
+        email=f"coord{coord_id}@test.cl",
+        roles=[
+            SimpleNamespace(role=SimpleNamespace(name=role_name))
+            for role_name in roles
+        ],
+    )
+
+
+def _general_consultation_payload(target_coordinator_id: int = 2) -> SchedulingRequestCreateRequest:
+    return SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.general_consultation,
+        preferred_dates=[date(2099, 1, 15)],
+        target_coordinator_id=target_coordinator_id,
+    )
+
+
+def _enable_active_coordinator(repository, coord_id: int = 2, roles=None) -> None:
+    repository.any_general_consultation_enabled = True
+    repository.active_coordinators = [_coordinator(coord_id, roles or ["Encargado de practica"])]
+
+
+class FakeNotificationService:
+    """Fake del servicio de notificaciones para verificar despachos."""
+
+    def __init__(self) -> None:
+        self.dispatched: list = []
+
+    async def create_and_dispatch(self, notification):
+        self.dispatched.append(notification)
+        return notification
 
 
 def _slot(
@@ -104,6 +141,8 @@ class FakeSchedulingRepository:
         self.has_self_eval = False
         self.created_requests = []
         self.saved_requests = []
+        self.active_coordinators = []
+        self.internship_applications_disabled = False
 
     async def create_slots(self, slots):
         self.created_slots = slots
@@ -177,8 +216,15 @@ class FakeSchedulingRepository:
     async def list_requests_for_student(self, student_id: int):
         return [r for r in self.scheduling_requests.values() if r.student_id == student_id]
 
-    async def list_pending_requests(self):
-        return [r for r in self.scheduling_requests.values() if r.status == "pending"]
+    async def list_pending_requests(self, actor_id=None):
+        pending = [r for r in self.scheduling_requests.values() if r.status == "pending"]
+        if actor_id is None:
+            return pending
+        return [
+            r for r in pending
+            if getattr(r, "target_coordinator_id", None) == actor_id
+            or getattr(r, "target_coordinator_id", None) is None
+        ]
 
     async def save_scheduling_request(self, request):
         self.scheduling_requests[request.id] = request
@@ -191,18 +237,41 @@ class FakeSchedulingRepository:
     async def has_any_general_consultation_enabled(self) -> bool:
         return self.any_general_consultation_enabled or any(c.general_consultations_enabled for c in self.scheduling_config.values())
 
-    async def upsert_scheduling_config(self, coordinator_id: int, enabled: bool):
+    async def is_internship_applications_disabled(self) -> bool:
+        return self.internship_applications_disabled
+
+    async def list_active_coordinators_for_consultations(self):
+        return list(self.active_coordinators)
+
+    async def upsert_scheduling_config(
+        self,
+        coordinator_id: int,
+        general_consultations_enabled=None,
+        internship_applications_disabled=None,
+    ):
         from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
         config = self.scheduling_config.get(coordinator_id)
         if not config:
             config = SchedulingConfig(
                 id=len(self.scheduling_config) + 1,
                 coordinator_id=coordinator_id,
-                general_consultations_enabled=enabled,
+                general_consultations_enabled=(
+                    general_consultations_enabled
+                    if general_consultations_enabled is not None
+                    else False
+                ),
+                internship_applications_disabled=(
+                    internship_applications_disabled
+                    if internship_applications_disabled is not None
+                    else False
+                ),
             )
             self.scheduling_config[coordinator_id] = config
         else:
-            config.general_consultations_enabled = enabled
+            if general_consultations_enabled is not None:
+                config.general_consultations_enabled = general_consultations_enabled
+            if internship_applications_disabled is not None:
+                config.internship_applications_disabled = internship_applications_disabled
         return config
 
     async def get_supervisor_evaluation_recommendation(self, internship_id: int) -> str | None:
@@ -515,6 +584,7 @@ async def test_create_scheduling_request_general_consultation_disabled() -> None
         purpose=PresentationPurposeEnum.general_consultation,
         preferred_dates=[date(2099, 1, 15)],
         message="Duda sobre el informe",
+        target_coordinator_id=2,
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -529,13 +599,14 @@ async def test_create_scheduling_request_general_consultation_disabled() -> None
 
 async def test_create_scheduling_request_general_consultation_enabled() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
+    _enable_active_coordinator(repository, coord_id=2)
     service = SchedulingService(repository=repository)
 
     payload = SchedulingRequestCreateRequest(
         purpose=PresentationPurposeEnum.general_consultation,
         preferred_dates=[date(2099, 1, 15)],
         message="Duda sobre el informe",
+        target_coordinator_id=2,
     )
 
     req = await service.create_scheduling_request(
@@ -546,6 +617,7 @@ async def test_create_scheduling_request_general_consultation_enabled() -> None:
     assert req.student_id == 1
     assert req.purpose == PresentationPurposeEnum.general_consultation
     assert req.status == SchedulingRequestStatusEnum.pending
+    assert req.target_coordinator_id == 2
     assert "2099-01-15" in req.preferred_dates
 
 
@@ -630,13 +702,10 @@ async def test_create_scheduling_request_final_presentation_success() -> None:
 
 async def test_create_scheduling_request_duplicate_prevention() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
+    _enable_active_coordinator(repository, coord_id=2)
     service = SchedulingService(repository=repository)
 
-    payload = SchedulingRequestCreateRequest(
-        purpose=PresentationPurposeEnum.general_consultation,
-        preferred_dates=[date(2099, 1, 15)],
-    )
+    payload = _general_consultation_payload(target_coordinator_id=2)
 
     # Crear la primera
     await service.create_scheduling_request(
@@ -680,17 +749,15 @@ async def test_respond_to_request_requires_admin() -> None:
 
 async def test_respond_to_request_success() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
-    service = SchedulingService(repository=repository)
+    _enable_active_coordinator(repository, coord_id=2)
+    fake_notifications = FakeNotificationService()
+    service = SchedulingService(repository=repository, notification_service=fake_notifications)
 
     # 1. Crear la solicitud de consulta general como estudiante
     student = _user(1, ["Estudiante"])
     req = await service.create_scheduling_request(
         actor=student,
-        payload=SchedulingRequestCreateRequest(
-            purpose=PresentationPurposeEnum.general_consultation,
-            preferred_dates=[date(2099, 1, 15)],
-        )
+        payload=_general_consultation_payload(target_coordinator_id=2),
     )
 
     # 2. Responder como coordinador
@@ -717,6 +784,7 @@ async def test_respond_to_request_success() -> None:
     assert updated_req.scheduled_modality == "Presencial"
     assert updated_req.scheduled_location == "Oficina 101"
     assert updated_req.presentation_id is not None
+    assert updated_req.resolved_by_role == "Coordinador"
 
     # Verificar que se creó la cita (Presentation)
     assert len(repository.created_slots) == 1
@@ -728,19 +796,22 @@ async def test_respond_to_request_success() -> None:
     assert slot.user_id == 1
     assert slot.status == PresentationStatusEnum.scheduled
 
+    # Verificar que se despachó la notificación appointment_scheduled
+    assert len(fake_notifications.dispatched) == 1
+    notification = fake_notifications.dispatched[0]
+    assert notification.event_type == "appointment_scheduled"
+    assert notification.recipient_user_id == 1
+
 
 async def test_respond_to_request_overlap_validations() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
+    _enable_active_coordinator(repository, coord_id=2)
     service = SchedulingService(repository=repository)
 
     student = _user(1, ["Estudiante"])
     req = await service.create_scheduling_request(
         actor=student,
-        payload=SchedulingRequestCreateRequest(
-            purpose=PresentationPurposeEnum.general_consultation,
-            preferred_dates=[date(2099, 1, 15)],
-        )
+        payload=_general_consultation_payload(target_coordinator_id=2),
     )
 
     admin = _user(2, ["Encargado de practica"])
@@ -769,16 +840,13 @@ async def test_respond_to_request_overlap_validations() -> None:
 
 async def test_reject_request() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
+    _enable_active_coordinator(repository, coord_id=2)
     service = SchedulingService(repository=repository)
 
     student = _user(1, ["Estudiante"])
     req = await service.create_scheduling_request(
         actor=student,
-        payload=SchedulingRequestCreateRequest(
-            purpose=PresentationPurposeEnum.general_consultation,
-            preferred_dates=[date(2099, 1, 15)],
-        )
+        payload=_general_consultation_payload(target_coordinator_id=2),
     )
 
     admin = _user(2, ["Encargado de practica"])
@@ -791,11 +859,12 @@ async def test_reject_request() -> None:
     assert rejected.status == SchedulingRequestStatusEnum.rejected
     assert rejected.coordinator_id == 2
     assert rejected.coordinator_response == "No hay cupos"
+    assert rejected.resolved_by_role == "Coordinador"
 
 
 async def test_cancel_request() -> None:
     repository = FakeSchedulingRepository()
-    repository.any_general_consultation_enabled = True
+    _enable_active_coordinator(repository, coord_id=2)
     service = SchedulingService(repository=repository)
 
     student1 = _user(1, ["Estudiante"])
@@ -803,10 +872,7 @@ async def test_cancel_request() -> None:
 
     req = await service.create_scheduling_request(
         actor=student1,
-        payload=SchedulingRequestCreateRequest(
-            purpose=PresentationPurposeEnum.general_consultation,
-            preferred_dates=[date(2099, 1, 15)],
-        )
+        payload=_general_consultation_payload(target_coordinator_id=2),
     )
 
     # 1. Intentar cancelar por otro estudiante
@@ -847,3 +913,261 @@ async def test_get_and_toggle_general_consultations_config() -> None:
     # 5. Estudiante vuelve a consultar config global (ahora debe ser True)
     student_config = await service.get_scheduling_config(actor=student)
     assert student_config["general_consultations_enabled"] is True
+
+
+async def test_notification_not_dispatched_when_service_is_none() -> None:
+    """M1: no se despacha notificación cuando notification_service es None."""
+    repository = FakeSchedulingRepository()
+    _enable_active_coordinator(repository, coord_id=2)
+    service = SchedulingService(repository=repository, notification_service=None)
+
+    student = _user(1, ["Estudiante"])
+    req = await service.create_scheduling_request(
+        actor=student,
+        payload=_general_consultation_payload(target_coordinator_id=2),
+    )
+
+    admin = _user(2, ["Encargado de practica"])
+    await service.respond_to_request(
+        actor=admin,
+        request_id=req.id,
+        payload=SchedulingRequestRespondRequest(
+            date=date(2099, 1, 20),
+            start_time=time(10, 0),
+            end_time=time(10, 30),
+            modality="Presencial",
+        ),
+    )
+    # No hay assertion de excepción: el hecho de llegar aquí sin error
+    # prueba que el despacho nulo no rompe el flujo.
+
+
+async def test_create_scheduling_request_requires_valid_target_coordinator() -> None:
+    """El target_coordinator_id debe estar en la lista de coordinadores activos."""
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    repository.active_coordinators = [_coordinator(2, ["Encargado de practica"])]
+    service = SchedulingService(repository=repository)
+
+    payload = SchedulingRequestCreateRequest(
+        purpose=PresentationPurposeEnum.general_consultation,
+        preferred_dates=[date(2099, 1, 15)],
+        target_coordinator_id=999,  # no está en active_coordinators
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.create_scheduling_request(
+            actor=_user(1, ["Estudiante"]),
+            payload=payload,
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "no tiene las consultas generales habilitadas" in exc_info.value.detail
+
+
+async def test_only_director_can_toggle_internship_applications_disabled() -> None:
+    """Sólo el Director de carrera puede modificar internship_applications_disabled."""
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    encargado = _user(2, ["Encargado de practica"])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.toggle_general_consultations(
+            actor=encargado,
+            payload=SchedulingConfigUpdateRequest(internship_applications_disabled=True),
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+async def test_director_can_toggle_internship_applications_disabled() -> None:
+    """El Director de carrera puede modificar internship_applications_disabled."""
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    director = _user(3, ["Director de carrera"])
+
+    config = await service.toggle_general_consultations(
+        actor=director,
+        payload=SchedulingConfigUpdateRequest(internship_applications_disabled=True),
+    )
+
+    assert config.internship_applications_disabled is True
+
+
+async def test_list_pending_requests_filters_by_target_coordinator() -> None:
+    """I2: list_pending_requests filtra por target_coordinator_id del actor."""
+    repository = FakeSchedulingRepository()
+    _enable_active_coordinator(repository, coord_id=2, roles=["Encargado de practica"])
+    _enable_active_coordinator(repository, coord_id=3, roles=["Director de carrera"])
+    # Re-set both coordinators as active
+    repository.active_coordinators = [
+        _coordinator(2, ["Encargado de practica"]),
+        _coordinator(3, ["Director de carrera"]),
+    ]
+
+    service = SchedulingService(repository=repository)
+
+    # Crear solicitudes dirigidas a coordinadores distintos
+    req_for_2 = await service.create_scheduling_request(
+        actor=_user(1, ["Estudiante"]),
+        payload=_general_consultation_payload(target_coordinator_id=2),
+    )
+    req_for_3 = await service.create_scheduling_request(
+        actor=_user(10, ["Estudiante"]),
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 2, 1)],
+            target_coordinator_id=3,
+        ),
+    )
+
+    # Coordinador 2 sólo ve su solicitud dirigida
+    pending_for_2 = await service.list_pending_requests(actor=_user(2, ["Encargado de practica"]))
+    pending_ids_2 = [r.id for r in pending_for_2]
+    assert req_for_2.id in pending_ids_2
+    assert req_for_3.id not in pending_ids_2
+
+    # Coordinador 3 sólo ve su solicitud dirigida
+    pending_for_3 = await service.list_pending_requests(actor=_user(3, ["Director de carrera"]))
+    pending_ids_3 = [r.id for r in pending_for_3]
+    assert req_for_3.id in pending_ids_3
+    assert req_for_2.id not in pending_ids_3
+
+
+async def test_respond_as_director_sets_resolved_by_role_director() -> None:
+    """R3: el rol del actor que responde se persiste como resolved_by_role."""
+    repository = FakeSchedulingRepository()
+    _enable_active_coordinator(repository, coord_id=3, roles=["Director de carrera"])
+    service = SchedulingService(repository=repository)
+
+    student = _user(1, ["Estudiante"])
+    req = await service.create_scheduling_request(
+        actor=student,
+        payload=SchedulingRequestCreateRequest(
+            purpose=PresentationPurposeEnum.general_consultation,
+            preferred_dates=[date(2099, 1, 15)],
+            target_coordinator_id=3,
+        ),
+    )
+
+    director = _user(3, ["Director de carrera"])
+    updated = await service.respond_to_request(
+        actor=director,
+        request_id=req.id,
+        payload=SchedulingRequestRespondRequest(
+            date=date(2099, 1, 20),
+            start_time=time(10, 0),
+            end_time=time(10, 30),
+            modality="Presencial",
+        ),
+    )
+
+    assert updated.resolved_by_role == "Director"
+
+
+async def test_student_config_includes_active_coordinators() -> None:
+    """I3: la config del estudiante incluye la lista de coordinadores activos."""
+    repository = FakeSchedulingRepository()
+    repository.any_general_consultation_enabled = True
+    repository.active_coordinators = [_coordinator(2, ["Encargado de practica"])]
+    service = SchedulingService(repository=repository)
+
+    student = _user(1, ["Estudiante"])
+    config = await service.get_scheduling_config(actor=student)
+
+    assert config["general_consultations_enabled"] is True
+    assert isinstance(config["active_coordinators"], list)
+    assert len(config["active_coordinators"]) == 1
+    assert config["active_coordinators"][0]["id"] == 2
+    assert config["active_coordinators"][0]["role_name"] == "Coordinador"
+
+
+async def test_admin_config_includes_internship_applications_disabled() -> None:
+    """La config del admin incluye el flag internship_applications_disabled."""
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    admin = _user(2, ["Encargado de practica"])
+    config = await service.get_scheduling_config(actor=admin)
+
+    assert "internship_applications_disabled" in config
+    assert config["internship_applications_disabled"] is False
+
+
+async def test_schedule_direct_appointment_success() -> None:
+    """Verifica el agendamiento directo exitoso por parte de un coordinador."""
+    repository = FakeSchedulingRepository()
+    # Práctica activa y aprobada
+    repository.internship = _internship(internship_id=7, user_id=1)
+    repository.internship.completion_status = "pending_presentation"
+    repository.internship.status_id = 4  # Aprobada
+
+    notification_service = FakeNotificationService()
+    service = SchedulingService(repository=repository, notification_service=notification_service)
+
+    admin = _user(2, ["Encargado de practica"])
+    payload = DirectSchedulingRequest(
+        internship_id=7,
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+        location="Oficina 302",
+        comments="Cita directa de prueba",
+    )
+
+    presentation = await service.schedule_direct_appointment(actor=admin, payload=payload)
+
+    assert presentation.status == PresentationStatusEnum.scheduled
+    assert presentation.purpose == PresentationPurposeEnum.final_presentation
+    assert presentation.internship_id == 7
+    assert presentation.user_id == 1
+    assert presentation.owner_id == 2
+    assert len(notification_service.dispatched) == 1
+    assert notification_service.dispatched[0].recipient_user_id == 1
+    assert notification_service.dispatched[0].payload["scheduling_request_id"] is None
+
+
+async def test_schedule_direct_appointment_forbidden_for_student() -> None:
+    """Verifica que un estudiante no puede agendar citas directamente."""
+    repository = FakeSchedulingRepository()
+    service = SchedulingService(repository=repository)
+
+    student = _user(1, ["Estudiante"])
+    payload = DirectSchedulingRequest(
+        internship_id=7,
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.schedule_direct_appointment(actor=student, payload=payload)
+    assert exc_info.value.status_code == 403
+    assert "No tienes permisos" in exc_info.value.detail
+
+
+async def test_schedule_direct_appointment_fails_if_finalized() -> None:
+    """Verifica que el agendamiento falla si la práctica ya fue finalizada."""
+    repository = FakeSchedulingRepository()
+    repository.internship = _internship(internship_id=7, user_id=1)
+    repository.internship.completion_status = "finalized"
+
+    service = SchedulingService(repository=repository)
+    admin = _user(2, ["Encargado de practica"])
+    payload = DirectSchedulingRequest(
+        internship_id=7,
+        date=date(2099, 1, 20),
+        start_time=time(10, 0),
+        end_time=time(10, 30),
+        modality="Presencial",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.schedule_direct_appointment(actor=admin, payload=payload)
+    assert exc_info.value.status_code == 409
+    assert "ya se encuentra finalizada" in exc_info.value.detail
+

@@ -22,7 +22,7 @@ CREATE TYPE "enumSelfEvaluationStatus" AS ENUM ('draft', 'submitted', 'reopened'
 CREATE TYPE "enumDataPortabilityStatus" AS ENUM ('processing', 'completed', 'failed');
 CREATE TYPE "enumSchedulingRequestStatus" AS ENUM ('pending', 'scheduled', 'rejected', 'cancelled');
 
-CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom');
+CREATE TYPE "enumNotificationEventType" AS ENUM ('internship_approved', 'internship_rejected', 'internship_derived', 'requirement_status_changed', 'custom', 'appointment_scheduled');
 CREATE TYPE "enumNotificationStatus" AS ENUM ('simulated', 'pending', 'sent', 'failed');
 
 CREATE TYPE "registration_requirement_enum" AS ENUM ('school_insurance', 'induction');
@@ -268,6 +268,7 @@ CREATE TABLE scheduling_config (
     id SERIAL PRIMARY KEY,
     coordinator_id INTEGER NOT NULL UNIQUE REFERENCES Users(id) ON DELETE CASCADE,
     general_consultations_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    internship_applications_disabled BOOLEAN NOT NULL DEFAULT FALSE,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -290,6 +291,8 @@ CREATE TABLE scheduling_request (
     scheduled_modality "enumModality",
     scheduled_location TEXT,
     presentation_id INTEGER REFERENCES Presentation(id) ON DELETE SET NULL, -- cita creada al responder
+    target_coordinator_id INTEGER REFERENCES Users(id) ON DELETE SET NULL, -- coordinador destinatario de la solicitud
+    resolved_by_role VARCHAR(50),                                          -- rol del actor que resolvió (Director/Coordinador)
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP
@@ -298,6 +301,7 @@ CREATE TABLE scheduling_request (
 CREATE INDEX ix_scheduling_request_student ON scheduling_request(student_id);
 CREATE INDEX ix_scheduling_request_status ON scheduling_request(status);
 CREATE INDEX ix_scheduling_request_presentation ON scheduling_request(presentation_id);
+CREATE INDEX ix_scheduling_request_target_coordinator ON scheduling_request(target_coordinator_id);
 
 CREATE TABLE presentation_letter_template (
     id SERIAL PRIMARY KEY,
@@ -715,3 +719,12 @@ CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Present
 CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_self_evaluations AFTER INSERT OR UPDATE OR DELETE ON self_evaluations FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_data_portability_requests AFTER INSERT OR UPDATE OR DELETE ON data_portability_requests FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+
+-- 5. Migraciones idempotentes para refinamiento del sistema de agendamiento.
+-- Re-ejecutables sobre entornos ya desplegados; no afectan instalaciones nuevas
+-- que ya incluyen estos cambios en las definiciones de tipos y tablas.
+ALTER TYPE "enumNotificationEventType" ADD VALUE IF NOT EXISTS 'appointment_scheduled';
+ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS internship_applications_disabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS target_coordinator_id INTEGER REFERENCES Users(id) ON DELETE SET NULL;
+ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS resolved_by_role VARCHAR(50);
+CREATE INDEX IF NOT EXISTS ix_scheduling_request_target_coordinator ON scheduling_request(target_coordinator_id);

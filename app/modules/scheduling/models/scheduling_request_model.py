@@ -84,6 +84,15 @@ class SchedulingRequest(Base):
         ForeignKey("presentation.id", ondelete="SET NULL"),
         nullable=True,
     )
+    target_coordinator_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    resolved_by_role: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(UTC).replace(tzinfo=None),
@@ -100,4 +109,5 @@ class SchedulingRequest(Base):
     student = relationship("User", foreign_keys=[student_id])
     internship = relationship("Internship")
     coordinator = relationship("User", foreign_keys=[coordinator_id])
+    target_coordinator = relationship("User", foreign_keys=[target_coordinator_id])
     presentation = relationship("Presentation")

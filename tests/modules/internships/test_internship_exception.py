@@ -238,6 +238,9 @@ class FakeInternshipRepository:
     async def get_student_requirement(self, user_id: int, requirement: str):
         return self._student_requirements.get((user_id, requirement))
 
+    async def is_internship_applications_disabled(self) -> bool:
+        return False
+
     async def get_passed_induction_attempt(self, user_id: int):
         return self._passed_induction_for_user.get(user_id)
 
