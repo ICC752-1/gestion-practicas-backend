@@ -118,6 +118,23 @@ class TestApprove:
 
         # El flujo por defecto para el Encargado es mover a "En revisión"
         assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_encargado_no_notifica_aprobacion_al_pasar_a_en_revision(self):
+        """Pendiente -> En revisión no debe informar aprobación al estudiante."""
+        state_map = {
+            IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2),
+            APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3),
+        }
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        service._dispatch_notification = AsyncMock()
+        actor = _make_user("Encargado de practica")
+
+        result = await service.approve(internship.id, actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+        service._dispatch_notification.assert_not_awaited()
         
     @pytest.mark.asyncio
     async def test_director_aprueba_desde_pendiente_directo_a_aprobada(self):

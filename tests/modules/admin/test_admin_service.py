@@ -22,6 +22,8 @@ class FakeStudent:
         last_name: str,
         rut: str,
         is_active: bool,
+        degree: str | None = "Ingenieria Civil Informatica",
+        cod_degree: str | None = "ICI",
     ) -> None:
         self.id = student_id
         self.email = email
@@ -29,6 +31,8 @@ class FakeStudent:
         self.last_name = last_name
         self.rut = rut
         self.is_active = is_active
+        self.degree = degree
+        self.cod_degree = cod_degree
         self.roles = [
             SimpleNamespace(role=SimpleNamespace(name="Estudiante")),
         ]
@@ -295,6 +299,8 @@ async def test_get_students_maps_students() -> None:
     assert students[0].last_name == "Lopez"
     assert students[0].rut == "12.345.678-9"
     assert students[0].is_active is True
+    assert students[0].degree == "Ingenieria Civil Informatica"
+    assert students[0].cod_degree == "ICI"
 
 
 async def test_update_requirement_status_uses_naive_timestamp() -> None:
@@ -360,6 +366,8 @@ async def test_get_internships_maps_related_data() -> None:
     assert internships[0].id == 10
     assert internships[0].student is not None
     assert internships[0].student.email == "student@example.com"
+    assert internships[0].student.degree == "Ingenieria Civil Informatica"
+    assert internships[0].student.cod_degree == "ICI"
     assert internships[0].status is not None
     assert internships[0].status.title == "En revision"
     assert internships[0].is_cancelled is False

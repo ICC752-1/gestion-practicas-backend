@@ -98,11 +98,12 @@ DEMO_ACADEMIC_REQUIREMENTS = {
     },
 }
 UNSUPPORTED_DEMO_SCENARIOS = (
-    "agenda de entrevistas",
-    "invitaciones de supervisor",
-    "autoevaluacion",
-    "carta emitida",
-    "dirae_status separado",
+    "agenda con entrevista, presentacion final y conflicto horario",
+    "invitaciones de supervisor revocadas y expiradas",
+    "solicitud de carta pendiente y carta emitida",
+    "version de induccion en borrador",
+    "eventos de auditoria transversales",
+    "paquete DIRAE no exportable y expediente observado",
 )
 
 DEMO_USERS = [

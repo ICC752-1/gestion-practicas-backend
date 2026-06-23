@@ -11,6 +11,7 @@ Cubre los siguientes escenarios:
 """
 
 import pytest
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,7 +19,10 @@ from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
     NotificationStatusEnum,
 )
-from app.modules.internships.models.internship_model import PracticeTypeEnum
+from app.modules.internships.models.internship_model import (
+    PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
+)
 from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
@@ -331,6 +335,9 @@ class TestNotificationFromExternalService:
         internship.id = 1
         internship.user_id = 10
         internship.org_name = "Acme"
+        internship.start_date = date(2026, 3, 10)
+        internship.end_date = date(2026, 6, 20)
+        internship.insurance_status = SchoolInsuranceStatusEnum.validated
         internship.student = MagicMock()
         internship.student.email = "s@test.com"
 
@@ -368,7 +375,7 @@ class TestNotificationFromExternalService:
         actor = MagicMock()
         actor.id = 99
         actor.roles = [
-            SimpleNamespace(role=SimpleNamespace(name="Encargado de practica"))
+            SimpleNamespace(role=SimpleNamespace(name="Director de carrera"))
         ]
 
         await service.approve(1, actor, comment=None)
@@ -388,6 +395,9 @@ class TestNotificationFromExternalService:
         internship.id = 1
         internship.user_id = 10
         internship.org_name = "Acme"
+        internship.start_date = date(2026, 3, 10)
+        internship.end_date = date(2026, 6, 20)
+        internship.insurance_status = SchoolInsuranceStatusEnum.validated
         internship.student = MagicMock()
         internship.student.email = "s@test.com"
 
@@ -418,7 +428,7 @@ class TestNotificationFromExternalService:
         actor = MagicMock()
         actor.id = 99
         actor.roles = [
-            SimpleNamespace(role=SimpleNamespace(name="Encargado de practica"))
+            SimpleNamespace(role=SimpleNamespace(name="Director de carrera"))
         ]
 
         result = await service.approve(1, actor, comment=None)

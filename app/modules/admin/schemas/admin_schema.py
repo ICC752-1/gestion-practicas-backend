@@ -55,6 +55,8 @@ class AdminStudentListItem(BaseModel):
         first_name : Nombre del estudiante.
         last_name  : Apellido del estudiante.
         rut        : RUT del estudiante.
+        degree     : Carrera o grado academico del estudiante.
+        cod_degree : Codigo interno de la carrera.
         is_active  : Indica si la cuenta esta activa.
     """
 
@@ -95,6 +97,8 @@ class AdminInternshipStudentInfo(BaseModel):
         first_name : Nombre del estudiante.
         last_name  : Apellido del estudiante.
         rut        : RUT del estudiante.
+        degree     : Carrera o grado academico del estudiante.
+        cod_degree : Codigo interno de la carrera.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -104,6 +108,8 @@ class AdminInternshipStudentInfo(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    degree: str | None = None
+    cod_degree: str | None = None
 
 
 class AdminInternshipListItem(BaseModel):
