@@ -1276,16 +1276,26 @@ class InternshipService:
         if next_title == APPROVED_STATUS_TITLE:
             await self._sync_academic_requirement_on_approval(result, actor)
 
-        logger.info("Práctica ID: %s transicionada con éxito a '%s'. Despachando notificación...", result.id, next_title)
-        await self._dispatch_notification(
-            build_internship_approved_notification(
-                recipient_user_id=result.user_id,
-                recipient_email=result.student.email if result.student else None,
-                internship_id=result.id,
-                org_name=result.org_name,
-                internship_type=result.internship_type,
-            ),
-        )
+        if next_title == APPROVED_STATUS_TITLE:
+            logger.info(
+                "Práctica ID: %s aprobada administrativamente. Despachando notificación...",
+                result.id,
+            )
+            await self._dispatch_notification(
+                build_internship_approved_notification(
+                    recipient_user_id=result.user_id,
+                    recipient_email=result.student.email if result.student else None,
+                    internship_id=result.id,
+                    org_name=result.org_name,
+                    internship_type=result.internship_type,
+                ),
+            )
+        else:
+            logger.info(
+                "Práctica ID: %s transicionada con éxito a '%s' sin notificación de aprobación.",
+                result.id,
+                next_title,
+            )
 
         return result
     
@@ -1296,17 +1306,6 @@ class InternshipService:
         comment: str | None,
     ) -> Internship:
         """Rechaza de forma definitiva una solicitud de practica.
-
-        await self._dispatch_notification(
-            build_internship_approved_notification(
-                recipient_user_id=result.user_id,
-                recipient_email=result.student.email if result.student else None,
-                internship_id=result.id,
-                org_name=result.org_name,
-            ),
-        )
-
-        return result
 
         Valida que el actor posea los permisos de rechazo y exige un motivo
         obligatorio. No permite modificar practicas en estados terminales.

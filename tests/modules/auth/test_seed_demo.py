@@ -82,6 +82,11 @@ def test_seed_demo_sets_coherent_academic_requirements() -> None:
     }
 
 
-def test_seed_demo_declares_uncovered_scenarios() -> None:
-    assert "agenda de entrevistas" in UNSUPPORTED_DEMO_SCENARIOS
-    assert "dirae_status separado" in UNSUPPORTED_DEMO_SCENARIOS
+def test_seed_demo_declares_only_current_uncovered_edges() -> None:
+    unsupported = set(UNSUPPORTED_DEMO_SCENARIOS)
+
+    assert "agenda con entrevista, presentacion final y conflicto horario" in unsupported
+    assert "solicitud de carta pendiente y carta emitida" in unsupported
+    assert "autoevaluacion" not in unsupported
+    assert "invitaciones de supervisor" not in unsupported
+    assert "dirae_status separado" not in unsupported

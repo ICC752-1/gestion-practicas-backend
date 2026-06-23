@@ -512,6 +512,8 @@ class AdminService:
                 last_name=student.last_name,
                 rut=student.rut,
                 is_active=student.is_active,
+                degree=getattr(student, "degree", None),
+                cod_degree=getattr(student, "cod_degree", None),
             )
             student_items.append(student_item)
 
