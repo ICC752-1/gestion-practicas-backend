@@ -197,21 +197,31 @@ class FakeDocumentService:
     async def export_dirae_document_packages(self, actor, internship_ids=None):
         self.export_ids = internship_ids
         return SimpleNamespace(
-            filename="dirae_document_packages_20260601_120000.csv",
+            filename="dirae_lote_20260601_120000_abcd1234.csv",
             content=(
-                "internship_id,student_id,student_rut,student_enrollment,"
-                "student_first_name,student_last_name,student_email,"
-                "degree,cod_degree,internship_type,internship_period,"
-                "organization,city,start_date,end_date,"
-                "approved_document_ids,required_document_type_ids,"
-                "exported_at\n"
+                "id_lote_exportacion,fecha_exportacion,exportado_por,id_practica,"
+                "estado_practica,estado_ejecucion,estado_dirae,exportable,"
+                "razones_no_exportable,id_estudiante,rut,matricula,nombres,"
+                "apellidos,correo_institucional,carrera,codigo_carrera,"
+                "tipo_practica,periodo_practica,empresa,ciudad,fecha_inicio,"
+                "fecha_termino,fecha_aprobacion,estado_seguro_escolar,"
+                "documentos_requeridos_aprobados,documentos_requeridos_faltantes,"
+                "documentos_observados_pendientes,documentos_opcionales_aprobados\n"
+            ),
+            detail_filename="dirae_lote_20260601_120000_abcd1234_detalle.csv",
+            detail_content=(
+                "id_lote_exportacion,id_practica,rut_estudiante,nombres_estudiante,"
+                "apellidos_estudiante,carrera,tipo_practica,empresa,id_documento,"
+                "tipo_documental,categoria_documental,nombre_archivo,extension,"
+                "tamano_bytes,estado_documento,fecha_carga,fecha_revision,"
+                "revisado_por,comentario_revision\n"
             ),
             audit_event=SimpleNamespace(
                 name="dirae_export_generated",
                 actor_id=99,
                 internship_ids=[7],
                 approved_document_ids=[55],
-                filename="dirae_document_packages_20260601_120000.csv",
+                filename="dirae_lote_20260601_120000_abcd1234.csv",
                 result="generated",
             ),
         )
@@ -453,7 +463,7 @@ async def test_export_dirae_document_packages_returns_csv(monkeypatch):
 
     assert response.media_type == "text/csv; charset=utf-8"
     assert service.export_ids == [7]
-    assert b"internship_id,student_id" in response.body
+    assert b"id_lote_exportacion,fecha_exportacion" in response.body
     assert response.headers["Content-Disposition"].endswith(".csv\"")
 
 

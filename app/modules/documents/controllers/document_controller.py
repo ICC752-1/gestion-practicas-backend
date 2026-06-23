@@ -218,6 +218,40 @@ async def export_dirae_document_packages(
     )
 
 
+@router.get("/dirae/document-packages/export/detail")
+async def export_dirae_document_packages_detail(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DOCUMENT_ADMIN_ROLES))],
+    internship_ids: Annotated[list[int] | None, Query()] = None,
+) -> Response:
+    """Exporta CSV de detalle documental por documento para DIRAE.
+
+    Args:
+        db: Sesion asincrona de base de datos.
+        current_user: Usuario documental autenticado.
+        internship_ids: Practicas especificas a exportar, si aplica.
+
+    Returns:
+        CSV con una fila por documento aprobado, incluyendo revisor y comentario.
+    """
+
+    service = _build_service(db)
+    export = await service.export_dirae_document_packages(
+        actor=current_user,
+        internship_ids=internship_ids,
+    )
+
+    return Response(
+        content=export.detail_content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{export.detail_filename}"'
+            )
+        },
+    )
+
+
 @router.get("/documents/{document_id}/download")
 async def download_document(
     document_id: int,
