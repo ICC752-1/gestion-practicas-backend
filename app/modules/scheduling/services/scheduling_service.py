@@ -1,7 +1,8 @@
 """Servicio de negocio para publicacion y reserva de agenda."""
 
 import logging
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 
@@ -62,8 +63,16 @@ ROLE_DISPLAY_MAPPING = {
 }
 
 
+_LOCAL_TZ = ZoneInfo("America/Santiago")
+
+
 def _now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    """Retorna la hora actual en zona horaria local (America/Santiago) sin tzinfo.
+
+    Las horas guardadas en la BD son naive pero representan hora local de Chile,
+    por lo que la comparacion debe hacerse en la misma zona horaria.
+    """
+    return datetime.now(_LOCAL_TZ).replace(tzinfo=None)
 
 
 def _role_names(user: User) -> set[str]:
@@ -831,6 +840,7 @@ class SchedulingService:
                 if payload.purpose == PresentationPurposeEnum.general_consultation
                 else None
             ),
+            document_id=payload.document_id,
         )
 
         return await self.repository.create_scheduling_request(request)
@@ -907,6 +917,7 @@ class SchedulingService:
             user_id=request.student_id,
             internship_id=request.internship_id,
             reserved_at=_now(),
+            document_id=request.document_id,
         )
 
         # Guardar Presentation
@@ -1058,6 +1069,7 @@ class SchedulingService:
             user_id=internship.user_id,
             internship_id=internship.id,
             reserved_at=_now(),
+            document_id=payload.document_id,
         )
 
         created_presentations = await self.repository.create_slots([presentation])
@@ -1263,4 +1275,68 @@ class SchedulingService:
                 else None
             ),
         )
+
+    async def confirm_appointment(
+        self,
+        appointment_id: int,
+        actor: User,
+    ) -> Presentation:
+        """Confirma la asistencia a una cita agendada por parte del estudiante."""
+        self._require_student(actor)
+
+        slot = await self.repository.get_slot_by_id(appointment_id)
+        if not slot:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cita no encontrada",
+            )
+
+        if slot.user_id != actor.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para confirmar esta cita",
+            )
+
+        if slot.status != PresentationStatusEnum.scheduled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solo se pueden confirmar citas programadas",
+            )
+
+        slot.is_confirmed = True
+        slot.confirmed_at = _now()
+
+        return await self.repository.save_slot(slot)
+
+    async def update_appointment_document(
+        self,
+        appointment_id: int,
+        document_id: int,
+        actor: User,
+    ) -> Presentation:
+        """Asocia un documento (diapositivas) a una cita existente."""
+        slot = await self.repository.get_slot_by_id(appointment_id)
+        if not slot:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cita no encontrada",
+            )
+
+        # Validar permisos: actor debe ser el estudiante asignado o un administrador
+        is_admin = self._is_admin(actor)
+        if slot.user_id != actor.id and not is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para modificar esta cita",
+            )
+
+        slot.document_id = document_id
+
+        # También actualizamos la solicitud correspondiente si existe
+        req = await self.repository.get_scheduling_request_by_presentation_id(slot.id)
+        if req:
+            req.document_id = document_id
+            await self.repository.save_scheduling_request(req)
+
+        return await self.repository.save_slot(slot)
 

@@ -3,6 +3,7 @@
 from csv import DictWriter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from zoneinfo import ZoneInfo
 from io import StringIO
 import logging
 from pathlib import Path
@@ -20,6 +21,9 @@ from app.modules.documents.models.document_model import (
 )
 from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
+)
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
 )
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
@@ -56,24 +60,56 @@ PACKAGE_DOCUMENT_APPROVED = "approved"
 PACKAGE_DOCUMENT_MISSING = "missing"
 DIRAE_EXPORTED_REASON = "dirae_document_package_exported"
 DIRAE_CSV_HEADER = [
-    "internship_id",
-    "student_id",
-    "student_rut",
-    "student_enrollment",
-    "student_first_name",
-    "student_last_name",
-    "student_email",
-    "degree",
-    "cod_degree",
-    "internship_type",
-    "internship_period",
-    "organization",
-    "city",
-    "start_date",
-    "end_date",
-    "approved_document_ids",
-    "required_document_type_ids",
-    "exported_at",
+    "id_lote_exportacion",
+    "fecha_exportacion",
+    "exportado_por",
+    "id_practica",
+    "estado_practica",
+    "estado_ejecucion",
+    "estado_dirae",
+    "exportable",
+    "razones_no_exportable",
+    "id_estudiante",
+    "rut",
+    "matricula",
+    "nombres",
+    "apellidos",
+    "correo_institucional",
+    "carrera",
+    "codigo_carrera",
+    "tipo_practica",
+    "periodo_practica",
+    "empresa",
+    "ciudad",
+    "fecha_inicio",
+    "fecha_termino",
+    "fecha_aprobacion",
+    "estado_seguro_escolar",
+    "documentos_requeridos_aprobados",
+    "documentos_requeridos_faltantes",
+    "documentos_observados_pendientes",
+    "documentos_opcionales_aprobados",
+]
+DIRAE_CSV_DETAIL_HEADER = [
+    "id_lote_exportacion",
+    "id_practica",
+    "rut_estudiante",
+    "nombres_estudiante",
+    "apellidos_estudiante",
+    "carrera",
+    "tipo_practica",
+    "empresa",
+    "id_documento",
+    "tipo_documental",
+    "categoria_documental",
+    "nombre_archivo",
+    "extension",
+    "tamano_bytes",
+    "estado_documento",
+    "fecha_carga",
+    "fecha_revision",
+    "revisado_por",
+    "comentario_revision",
 ]
 
 
@@ -109,6 +145,9 @@ class DocumentPackageInternship:
     city: str | None
     start_date: date | None
     end_date: date | None
+    completion_status: str | None
+    insurance_status: str | None
+    approval_date: datetime | None
 
 
 @dataclass(frozen=True)
@@ -155,6 +194,8 @@ class DiraeDocumentPackageExport:
 
     filename: str
     content: str
+    detail_filename: str
+    detail_content: str
     audit_event: DiraeExportAuditEvent
 
 
@@ -260,6 +301,7 @@ class DocumentService:
             raise
 
         await self._dispatch_document_uploaded_notifications(created_document)
+        await self._auto_transition_dirae_status(internship_id, actor.id)
 
         return created_document
 
@@ -347,6 +389,7 @@ class DocumentService:
         )
 
         await self._dispatch_document_status_notification(updated_document)
+        await self._auto_transition_dirae_status(document.internship_id, actor.id)
 
         return updated_document
 
@@ -369,7 +412,9 @@ class DocumentService:
         self._require_not_deleted(document)
 
         if self._has_any_role(actor, DOCUMENT_ADMIN_ROLES):
-            return await self.repository.soft_delete_document(document, actor.id)
+            deleted = await self.repository.soft_delete_document(document, actor.id)
+            await self._auto_transition_dirae_status(document.internship_id, actor.id)
+            return deleted
 
         self._require_owner(actor, document.internship)
         if document.status == DocumentStatusEnum.approved:
@@ -378,7 +423,9 @@ class DocumentService:
                 detail="Approved documents cannot be deleted by the student",
             )
 
-        return await self.repository.soft_delete_document(document, actor.id)
+        deleted = await self.repository.soft_delete_document(document, actor.id)
+        await self._auto_transition_dirae_status(document.internship_id, actor.id)
+        return deleted
 
     async def get_document_package(
         self,
@@ -397,6 +444,10 @@ class DocumentService:
 
         internship = await self._get_internship_or_404(internship_id)
         self._require_read_access(actor, internship)
+
+        await self._auto_transition_dirae_status(internship_id, actor.id)
+        # Reload the internship to obtain the updated dirae_status after any automatic transition
+        internship = await self._get_internship_or_404(internship_id)
 
         return await self._build_document_package(internship, actor=actor)
 
@@ -433,6 +484,8 @@ class DocumentService:
         packages = []
         not_exportable_packages = []
         for internship in internships:
+            await self._auto_transition_dirae_status(internship.id, actor.id)
+            internship = await self._get_internship_or_404(internship.id)
             package = await self._build_document_package(
                 internship,
                 required_types=required_types,
@@ -458,12 +511,26 @@ class DocumentService:
                 },
             )
 
-        exported_at = datetime.now(UTC).replace(microsecond=0)
+        _LOCAL_TZ = ZoneInfo("America/Santiago")
+        exported_at_local = datetime.now(_LOCAL_TZ).replace(microsecond=0)
+        exported_at = exported_at_local.astimezone(UTC).replace(tzinfo=None)
+        lote_id = str(uuid4())
         filename = (
-            "dirae_document_packages_"
-            f"{exported_at:%Y%m%d_%H%M%S}.csv"
+            f"dirae_lote_{exported_at_local:%Y%m%d_%H%M%S}_{lote_id[:8]}.csv"
         )
-        content = self._build_dirae_csv(packages, exported_at)
+        detail_filename = (
+            f"dirae_lote_{exported_at_local:%Y%m%d_%H%M%S}_{lote_id[:8]}_detalle.csv"
+        )
+        content = self._build_dirae_csv(
+            packages,
+            exported_at,
+            lote_id=lote_id,
+            actor=actor,
+        )
+        detail_content = self._build_dirae_detail_csv(
+            packages,
+            lote_id=lote_id,
+        )
         audit_event = self._build_dirae_export_audit_event(
             packages=packages,
             actor=actor,
@@ -487,6 +554,8 @@ class DocumentService:
         return DiraeDocumentPackageExport(
             filename=filename,
             content=content,
+            detail_filename=detail_filename,
+            detail_content=detail_content,
             audit_event=audit_event,
         )
 
@@ -588,7 +657,7 @@ class DocumentService:
             exportable=len(reasons) == 0,
             reasons=reasons,
             student=self._build_student_summary(internship),
-            internship=self._build_internship_summary(internship),
+            internship=await self._build_internship_summary(internship),
             required_documents=required_documents,
             optional_documents=optional_documents,
         )
@@ -639,7 +708,10 @@ class DocumentService:
         if getattr(internship, "completion_status", None) != CompletionStatusEnum.finalized:
             reasons.append(REASON_PRACTICE_NOT_FINALIZED)
 
-        if getattr(internship, "dirae_status", DiraeStatusEnum.not_started) != DiraeStatusEnum.ready:
+        if getattr(internship, "dirae_status", DiraeStatusEnum.not_started) not in {
+            DiraeStatusEnum.ready,
+            DiraeStatusEnum.exported,
+        }:
             reasons.append(REASON_DIRAE_NOT_READY)
 
         if missing_required:
@@ -737,10 +809,26 @@ class DocumentService:
             cod_degree=getattr(student, "cod_degree", None),
         )
 
-    def _build_internship_summary(
+    async def _build_internship_summary(
         self,
         internship: Internship,
     ) -> DocumentPackageInternship:
+        completion_status = getattr(internship, "completion_status", None)
+        if completion_status is not None:
+            completion_status = (
+                completion_status.value
+                if hasattr(completion_status, "value")
+                else str(completion_status)
+            )
+        insurance_status = getattr(internship, "insurance_status", None)
+        if insurance_status is not None:
+            insurance_status = (
+                insurance_status.value
+                if hasattr(insurance_status, "value")
+                else str(insurance_status)
+            )
+        approval_date = await self._get_internship_approval_date(internship.id)
+
         return DocumentPackageInternship(
             type=self._string_value(internship.internship_type),
             period=self._string_value(internship.internship_period),
@@ -748,6 +836,9 @@ class DocumentService:
             city=internship.city,
             start_date=internship.start_date,
             end_date=internship.end_date,
+            completion_status=completion_status,
+            insurance_status=insurance_status,
+            approval_date=approval_date,
         )
 
     def _validate_requested_internships_exist(
@@ -776,6 +867,8 @@ class DocumentService:
         self,
         packages: list[DocumentPackage],
         exported_at: datetime,
+        lote_id: str,
+        actor: User,
     ) -> str:
         output = StringIO()
         writer = DictWriter(
@@ -787,53 +880,183 @@ class DocumentService:
         exported_at_value = exported_at.isoformat().replace("+00:00", "Z")
 
         for package in packages:
-            approved_documents = [
-                item.document
-                for item in package.required_documents
-                if item.document is not None
-            ]
+            approved_summary = self._build_approved_documents_summary(
+                package.required_documents,
+            )
+            missing_summary = self._build_missing_documents_summary(
+                package.required_documents,
+            )
+            observed_summary = self._build_observed_documents_summary(
+                package.required_documents,
+            )
+            optional_summary = self._build_optional_documents_summary(
+                package.optional_documents,
+            )
+
             writer.writerow(
                 {
-                    "internship_id": package.internship_id,
-                    "student_id": self._csv_value(package.student.id),
-                    "student_rut": self._csv_value(package.student.rut),
-                    "student_enrollment": self._csv_value(
-                        package.student.enrollment,
+                    "id_lote_exportacion": lote_id,
+                    "fecha_exportacion": exported_at_value,
+                    "exportado_por": self._csv_value(
+                        getattr(actor, "email", None)
                     ),
-                    "student_first_name": self._csv_value(
-                        package.student.first_name,
+                    "id_practica": package.internship_id,
+                    "estado_practica": self._csv_value(package.status),
+                    "estado_ejecucion": self._csv_value(
+                        package.internship.completion_status,
                     ),
-                    "student_last_name": self._csv_value(
-                        package.student.last_name,
+                    "estado_dirae": self._csv_value(package.dirae_status),
+                    "exportable": "Sí" if package.exportable else "No",
+                    "razones_no_exportable": "; ".join(package.reasons)
+                    if package.reasons
+                    else "",
+                    "id_estudiante": self._csv_value(package.student.id),
+                    "rut": self._csv_value(package.student.rut),
+                    "matricula": self._csv_value(package.student.enrollment),
+                    "nombres": self._csv_value(package.student.first_name),
+                    "apellidos": self._csv_value(package.student.last_name),
+                    "correo_institucional": self._csv_value(
+                        package.student.email,
                     ),
-                    "student_email": self._csv_value(package.student.email),
-                    "degree": self._csv_value(package.student.degree),
-                    "cod_degree": self._csv_value(package.student.cod_degree),
-                    "internship_type": self._csv_value(package.internship.type),
-                    "internship_period": self._csv_value(
+                    "carrera": self._csv_value(package.student.degree),
+                    "codigo_carrera": self._csv_value(package.student.cod_degree),
+                    "tipo_practica": self._csv_value(package.internship.type),
+                    "periodo_practica": self._csv_value(
                         package.internship.period,
                     ),
-                    "organization": self._csv_value(
-                        package.internship.organization,
-                    ),
-                    "city": self._csv_value(package.internship.city),
-                    "start_date": self._csv_value(
+                    "empresa": self._csv_value(package.internship.organization),
+                    "ciudad": self._csv_value(package.internship.city),
+                    "fecha_inicio": self._csv_value(
                         package.internship.start_date,
                     ),
-                    "end_date": self._csv_value(package.internship.end_date),
-                    "approved_document_ids": ";".join(
-                        str(document.id)
-                        for document in approved_documents
+                    "fecha_termino": self._csv_value(
+                        package.internship.end_date,
                     ),
-                    "required_document_type_ids": ";".join(
-                        str(item.type_id)
-                        for item in package.required_documents
+                    "fecha_aprobacion": self._csv_value(
+                        package.internship.approval_date,
                     ),
-                    "exported_at": exported_at_value,
+                    "estado_seguro_escolar": self._csv_value(
+                        package.internship.insurance_status,
+                    ),
+                    "documentos_requeridos_aprobados": approved_summary,
+                    "documentos_requeridos_faltantes": missing_summary,
+                    "documentos_observados_pendientes": observed_summary,
+                    "documentos_opcionales_aprobados": optional_summary,
                 }
             )
 
         return output.getvalue()
+
+    def _build_dirae_detail_csv(
+        self,
+        packages: list[DocumentPackage],
+        lote_id: str,
+    ) -> str:
+        output = StringIO()
+        writer = DictWriter(
+            output,
+            fieldnames=DIRAE_CSV_DETAIL_HEADER,
+            lineterminator="\n",
+        )
+        writer.writeheader()
+
+        for package in packages:
+            student = package.student
+            internship = package.internship
+            all_items = package.required_documents + package.optional_documents
+
+            for item in all_items:
+                if item.document is None:
+                    continue
+
+                document = item.document
+                document_type = document.document_type
+                reviewer = getattr(document, "reviewer", None)
+                reviewer_email = None
+                if reviewer is not None:
+                    reviewer_email = getattr(reviewer, "email", None)
+
+                writer.writerow(
+                    {
+                        "id_lote_exportacion": lote_id,
+                        "id_practica": package.internship_id,
+                        "rut_estudiante": self._csv_value(student.rut),
+                        "nombres_estudiante": self._csv_value(student.first_name),
+                        "apellidos_estudiante": self._csv_value(student.last_name),
+                        "carrera": self._csv_value(student.degree),
+                        "tipo_practica": self._csv_value(internship.type),
+                        "empresa": self._csv_value(internship.organization),
+                        "id_documento": document.id,
+                        "tipo_documental": self._csv_value(item.type_name),
+                        "categoria_documental": self._csv_value(
+                            getattr(document_type, "category", None)
+                        ),
+                        "nombre_archivo": self._csv_value(document.file_name),
+                        "extension": self._csv_value(document.extension),
+                        "tamano_bytes": document.size_bytes,
+                        "estado_documento": self._csv_value(document.status),
+                        "fecha_carga": self._csv_value(document.upload_date),
+                        "fecha_revision": self._csv_value(document.reviewed_at),
+                        "revisado_por": self._csv_value(reviewer_email),
+                        "comentario_revision": self._csv_value(
+                            document.review_comment,
+                        ),
+                    }
+                )
+
+        return output.getvalue()
+
+    def _build_approved_documents_summary(
+        self,
+        required_documents: list[DocumentPackageItem],
+    ) -> str:
+        parts = []
+        for item in required_documents:
+            if item.document is not None:
+                doc = item.document
+                review_date = doc.reviewed_at or doc.update_date
+                date_str = review_date.isoformat() if review_date else ""
+                parts.append(
+                    f"{item.type_name} ({doc.file_name}, {date_str})"
+                )
+        return "; ".join(parts)
+
+    def _build_missing_documents_summary(
+        self,
+        required_documents: list[DocumentPackageItem],
+    ) -> str:
+        missing = [
+            item.type_name
+            for item in required_documents
+            if item.document is None
+        ]
+        return "; ".join(missing)
+
+    def _build_observed_documents_summary(
+        self,
+        required_documents: list[DocumentPackageItem],
+    ) -> str:
+        observed = []
+        for item in required_documents:
+            if item.document is not None and item.status == "observed":
+                comment = item.document.review_comment or ""
+                observed.append(f"{item.type_name} ({comment})")
+        return "; ".join(observed)
+
+    def _build_optional_documents_summary(
+        self,
+        optional_documents: list[DocumentPackageItem],
+    ) -> str:
+        parts = []
+        for item in optional_documents:
+            if item.document is not None:
+                doc = item.document
+                review_date = doc.reviewed_at or doc.update_date
+                date_str = review_date.isoformat() if review_date else ""
+                parts.append(
+                    f"{item.type_name} ({doc.file_name}, {date_str})"
+                )
+        return "; ".join(parts)
 
     def _build_student_enrollment(self, student: object | None) -> str | None:
         if student is None:
@@ -870,6 +1093,35 @@ class DocumentService:
                 return value
 
         return None
+
+    async def _get_internship_approval_date(self, internship_id: int) -> datetime | None:
+        if not hasattr(self.repository, "db"):
+            return None
+
+        from app.modules.internships.models.current_state_model import (
+            CurrentState,
+        )
+        from app.modules.internships.models.internship_status_history_model import (
+            InternshipStatusHistory,
+        )
+        from sqlalchemy import select
+
+        result = await self.repository.db.execute(
+            select(InternshipStatusHistory.changed_at)
+            .join(
+                CurrentState,
+                InternshipStatusHistory.new_status_id == CurrentState.id,
+            )
+            .where(
+                InternshipStatusHistory.internship_id == internship_id,
+                CurrentState.title == "Aprobada",
+            )
+            .order_by(InternshipStatusHistory.changed_at.asc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+
+        return row
 
     def _build_dirae_export_audit_event(
         self,
@@ -966,9 +1218,12 @@ class DocumentService:
 
         if (
             status_title == APPROVED_INTERNSHIP_STATE
-            and await self._has_observed_document_for_type(
-                internship.id,
-                document_type.id,
+            and (
+                document_type.name == "Diapositivas de Presentación"
+                or await self._has_observed_document_for_type(
+                    internship.id,
+                    document_type.id,
+                )
             )
         ):
             return
@@ -1250,3 +1505,76 @@ class DocumentService:
             user_role.role.name in role_names
             for user_role in actor.roles
         )
+
+    async def _auto_transition_dirae_status(
+        self,
+        internship_id: int,
+        actor_id: int | None = None,
+    ) -> None:
+        """Determina y actualiza automáticamente el estado DIRAE de la práctica.
+
+        Solo se realiza la transición automática si la práctica está finalizada
+        y el estado actual es not_started, in_review, observed o ready.
+        """
+        if not hasattr(self.repository, "db"):
+            return
+
+        internship = await self.repository.get_internship_by_id(internship_id)
+        if internship is None:
+            return
+
+        if getattr(internship, "completion_status", None) != CompletionStatusEnum.finalized:
+            return
+
+        current_status = getattr(internship, "dirae_status", DiraeStatusEnum.not_started)
+        if current_status not in {
+            DiraeStatusEnum.not_started,
+            DiraeStatusEnum.in_review,
+            DiraeStatusEnum.observed,
+            DiraeStatusEnum.ready,
+            DiraeStatusEnum.exported,
+        }:
+            return
+
+        required_types = await self.repository.list_required_document_types()
+        documents = await self.repository.list_package_documents_by_internship(internship_id)
+
+        approved_type_ids = {
+            doc.type_id
+            for doc in documents
+            if doc.status == DocumentStatusEnum.approved and doc.deleted_at is None
+        }
+
+        missing_required = any(
+            req_type.id not in approved_type_ids for req_type in required_types
+        )
+        observed_pending = any(
+            doc.status == DocumentStatusEnum.observed and doc.deleted_at is None
+            for doc in documents
+        )
+        uploaded_pending = any(
+            doc.status == DocumentStatusEnum.uploaded and doc.deleted_at is None
+            for doc in documents
+        )
+
+        if missing_required or observed_pending:
+            if observed_pending:
+                target_status = DiraeStatusEnum.observed
+            else:
+                target_status = DiraeStatusEnum.in_review
+        elif uploaded_pending:
+            target_status = DiraeStatusEnum.in_review
+        else:
+            target_status = DiraeStatusEnum.ready
+
+        if current_status != target_status:
+            internship.dirae_status = target_status
+            history_entry = InternshipDiraeStatusHistory(
+                internship_id=internship_id,
+                previous_status=current_status,
+                new_status=target_status,
+                actor_id=actor_id,
+                reason="Transición automática por cambio en estado de documentos.",
+            )
+            self.repository.db.add(history_entry)
+            await self.repository.db.commit()

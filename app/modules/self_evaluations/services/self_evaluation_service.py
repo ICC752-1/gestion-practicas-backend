@@ -76,7 +76,7 @@ class SelfEvaluationService:
         internship_id: int,
         actor: User,
     ) -> SelfEvaluationFormResponse:
-        internship = await self._get_owned_internship(internship_id, actor)
+        internship = await self._get_owned_internship(internship_id, actor, allow_admin=True)
         evaluation = await self.repository.get_by_internship(internship.id)
         enabled, reason = self._is_enabled(internship)
 
@@ -212,11 +212,15 @@ class SelfEvaluationService:
             )
         return await self.repository.list_by_student(actor.id)
 
-    async def _get_owned_internship(self, internship_id: int, actor: User) -> Internship:
-        if STUDENT_ROLE not in _role_names(actor):
+    async def _get_owned_internship(self, internship_id: int, actor: User, allow_admin: bool = False) -> Internship:
+        role_names = _role_names(actor)
+        is_student = STUDENT_ROLE in role_names
+        is_admin = bool(role_names & {"Encargado de practica", "Director de carrera", "Secretaria de Carrera"})
+
+        if not is_student and not (allow_admin and is_admin):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Solo estudiantes pueden completar autoevaluaciones",
+                detail="Solo estudiantes pueden acceder a esta sección",
             )
 
         internship = await self.repository.get_internship(internship_id)
@@ -225,7 +229,7 @@ class SelfEvaluationService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Práctica no encontrada",
             )
-        if internship.user_id != actor.id:
+        if not is_admin and internship.user_id != actor.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No puedes acceder a la autoevaluación de otra práctica",

@@ -3,7 +3,7 @@
 from datetime import UTC, date, datetime, time
 import enum
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, Time
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -126,7 +126,15 @@ class Presentation(Base):
         ForeignKey("users.id"),
         nullable=False,
     )
+    is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    document_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("document.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     internship = relationship("Internship")
     student = relationship("User", foreign_keys=[user_id])
     owner = relationship("User", foreign_keys=[owner_id])
+    document = relationship("Document")

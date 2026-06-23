@@ -126,7 +126,7 @@ def _config(tmp_path, max_bytes: int = 10) -> SimpleNamespace:
     return SimpleNamespace(
         DOCUMENT_STORAGE_DIR=str(tmp_path),
         DOCUMENT_MAX_BYTES=max_bytes,
-        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip",
+        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip,ppt,pptx,doc",
     )
 
 
@@ -425,6 +425,34 @@ async def test_student_cannot_upload_new_document_after_approval_without_observa
         )
 
     assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_student_can_upload_presentation_slides_after_approval(tmp_path):
+    repository = FakeDocumentRepository()
+    slides_type = _document_type(
+        3,
+        name="Diapositivas de Presentación",
+        category=DocumentCategoryEnum.academic,
+    )
+    repository.document_types[3] = slides_type
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.upload_document(
+        internship_id=7,
+        document_type_id=3,
+        file_name="presentacion.pptx",
+        content=b"data",
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert document is repository.created_document
+    assert document.user_id == 10
+    assert document.type_id == 3
 
 
 @pytest.mark.asyncio
@@ -1206,13 +1234,15 @@ async def test_export_dirae_csv_authorized(tmp_path):
     )
     rows = list(DictReader(StringIO(export.content)))
 
-    assert export.filename.startswith("dirae_document_packages_")
+    assert export.filename.startswith("dirae_lote_")
     assert export.filename.endswith(".csv")
-    assert rows[0]["internship_id"] == "7"
-    assert rows[0]["student_rut"] == "12.345.678-9"
-    assert rows[0]["student_enrollment"] == "12345678923"
-    assert rows[0]["approved_document_ids"] == "55"
-    assert rows[0]["required_document_type_ids"] == "1"
+    assert export.detail_filename.startswith("dirae_lote_")
+    assert export.detail_filename.endswith("_detalle.csv")
+    rows = list(DictReader(StringIO(export.content)))
+    assert rows[0]["id_practica"] == "7"
+    assert rows[0]["rut"] == "12.345.678-9"
+    assert rows[0]["matricula"] == "12345678923"
+    assert rows[0]["documentos_requeridos_aprobados"] != ""
     assert export.audit_event.name == "dirae_export_generated"
     assert export.audit_event.actor_id == 99
     assert export.audit_event.internship_ids == [7]
@@ -1326,23 +1356,34 @@ async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
     )
 
     assert export.content.strip().split(",") == [
-        "internship_id",
-        "student_id",
-        "student_rut",
-        "student_enrollment",
-        "student_first_name",
-        "student_last_name",
-        "student_email",
-        "degree",
-        "cod_degree",
-        "internship_type",
-        "internship_period",
-        "organization",
-        "city",
-        "start_date",
-        "end_date",
-        "approved_document_ids",
-        "required_document_type_ids",
-        "exported_at",
+        "id_lote_exportacion",
+        "fecha_exportacion",
+        "exportado_por",
+        "id_practica",
+        "estado_practica",
+        "estado_ejecucion",
+        "estado_dirae",
+        "exportable",
+        "razones_no_exportable",
+        "id_estudiante",
+        "rut",
+        "matricula",
+        "nombres",
+        "apellidos",
+        "correo_institucional",
+        "carrera",
+        "codigo_carrera",
+        "tipo_practica",
+        "periodo_practica",
+        "empresa",
+        "ciudad",
+        "fecha_inicio",
+        "fecha_termino",
+        "fecha_aprobacion",
+        "estado_seguro_escolar",
+        "documentos_requeridos_aprobados",
+        "documentos_requeridos_faltantes",
+        "documentos_observados_pendientes",
+        "documentos_opcionales_aprobados",
     ]
     assert repository.exported_internships == []

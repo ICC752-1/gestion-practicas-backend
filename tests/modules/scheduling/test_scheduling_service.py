@@ -171,6 +171,9 @@ class FakeSchedulingRepository:
 
         return None
 
+    async def get_slot_by_id(self, slot_id: int):
+        return await self.get_slot_by_id_for_update(slot_id)
+
     async def get_internship_by_id(self, internship_id: int):
         return self.internship if self.internship and self.internship.id == internship_id else None
 
@@ -212,6 +215,12 @@ class FakeSchedulingRepository:
 
     async def get_scheduling_request_by_id(self, request_id: int):
         return self.scheduling_requests.get(request_id)
+
+    async def get_scheduling_request_by_presentation_id(self, presentation_id: int):
+        for req in self.scheduling_requests.values():
+            if getattr(req, "presentation_id", None) == presentation_id:
+                return req
+        return None
 
     async def list_requests_for_student(self, student_id: int):
         return [r for r in self.scheduling_requests.values() if r.student_id == student_id]
@@ -1202,4 +1211,51 @@ async def test_register_final_presentation_outcome_sends_notification_on_approva
     assert notification_service.dispatched[0].event_type == "presentation_approved"
     assert notification_service.dispatched[0].recipient_user_id == 1
 
+async def test_confirm_appointment_success() -> None:
+    """Verifica que un estudiante puede confirmar su asistencia a una cita programada."""
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.user_id = 1
+    repository.slot.is_confirmed = False
 
+    service = SchedulingService(repository=repository)
+    student = _user(1, ["Estudiante"])
+
+    updated = await service.confirm_appointment(appointment_id=repository.slot.id, actor=student)
+
+    assert updated.is_confirmed is True
+    assert updated.confirmed_at is not None
+
+
+async def test_confirm_appointment_fails_for_other_student() -> None:
+    """Verifica que un estudiante no puede confirmar la cita de otro estudiante."""
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.user_id = 1
+
+    service = SchedulingService(repository=repository)
+    other_student = _user(99, ["Estudiante"])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.confirm_appointment(appointment_id=repository.slot.id, actor=other_student)
+
+    assert exc_info.value.status_code == 403
+
+
+async def test_update_appointment_document_success() -> None:
+    """Verifica que un estudiante puede asociar diapositivas a su cita."""
+    repository = FakeSchedulingRepository()
+    repository.slot = _slot(status=PresentationStatusEnum.scheduled)
+    repository.slot.user_id = 1
+    repository.slot.document_id = None
+
+    service = SchedulingService(repository=repository)
+    student = _user(1, ["Estudiante"])
+
+    updated = await service.update_appointment_document(
+        appointment_id=repository.slot.id,
+        document_id=45,
+        actor=student,
+    )
+
+    assert updated.document_id == 45
