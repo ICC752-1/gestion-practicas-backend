@@ -230,7 +230,7 @@ async def test_submit_evaluation_marks_token_used_and_prevents_reuse() -> None:
     assert exc_info.value.status_code == 409
 
 
-@pytest.mark.parametrize("role", ["Secretaria de Carrera", "FICA"])
+@pytest.mark.parametrize("role", ["FICA"])
 async def test_non_admin_role_cannot_read_supervisor_evaluation(role: str) -> None:
     repository = FakeRepository()
     repository.evaluation = SimpleNamespace(id=1, internship_id=10)
@@ -243,6 +243,18 @@ async def test_non_admin_role_cannot_read_supervisor_evaluation(role: str) -> No
         )
 
     assert exc_info.value.status_code == 403
+
+
+async def test_secretary_can_read_supervisor_evaluation() -> None:
+    repository = FakeRepository()
+    repository.evaluation = SimpleNamespace(id=1, internship_id=10)
+    service = _service(repository=repository)
+
+    result = await service.get_evaluation_for_user(
+        internship_id=10,
+        actor=_user(roles=["Secretaria de Carrera"]),
+    )
+    assert result.id == 1
 
 
 async def test_supervisor_assignments_match_authenticated_email() -> None:

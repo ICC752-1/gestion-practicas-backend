@@ -446,6 +446,8 @@ class DocumentService:
         packages = []
         not_exportable_packages = []
         for internship in internships:
+            await self._auto_transition_dirae_status(internship.id, actor.id)
+            internship = await self._get_internship_or_404(internship.id)
             package = await self._build_document_package(
                 internship,
                 required_types=required_types,
