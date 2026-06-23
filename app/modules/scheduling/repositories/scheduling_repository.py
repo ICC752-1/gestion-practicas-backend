@@ -271,7 +271,8 @@ class SchedulingRepository:
         self.db.add(request)
         await self.db.commit()
         await self.db.refresh(request)
-        return request
+        refetched = await self.get_scheduling_request_by_id(request.id)
+        return refetched or request
 
     async def get_scheduling_request_by_id(self, request_id: int) -> SchedulingRequest | None:
         """Obtiene una solicitud de agendamiento por ID con relaciones cargadas."""
@@ -284,6 +285,7 @@ class SchedulingRepository:
                 selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
                 selectinload(SchedulingRequest.internship),
                 selectinload(SchedulingRequest.presentation),
+                selectinload(SchedulingRequest.document),
             )
         )
         result = await self.db.execute(query)
@@ -300,6 +302,7 @@ class SchedulingRepository:
                 selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
                 selectinload(SchedulingRequest.internship),
                 selectinload(SchedulingRequest.presentation),
+                selectinload(SchedulingRequest.document),
             )
             .order_by(SchedulingRequest.created_at.desc())
         )
@@ -333,6 +336,7 @@ class SchedulingRepository:
             selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
             selectinload(SchedulingRequest.internship),
             selectinload(SchedulingRequest.presentation),
+            selectinload(SchedulingRequest.document),
         ).order_by(SchedulingRequest.created_at.asc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -342,7 +346,8 @@ class SchedulingRepository:
         """Guarda cambios en una solicitud de agendamiento."""
         await self.db.commit()
         await self.db.refresh(request)
-        return request
+        refetched = await self.get_scheduling_request_by_id(request.id)
+        return refetched or request
 
     async def get_scheduling_config(self, coordinator_id: int) -> SchedulingConfig | None:
         """Obtiene la configuración de agendamiento de un coordinador."""
