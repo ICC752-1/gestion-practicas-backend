@@ -981,9 +981,12 @@ class DocumentService:
 
         if (
             status_title == APPROVED_INTERNSHIP_STATE
-            and await self._has_observed_document_for_type(
-                internship.id,
-                document_type.id,
+            and (
+                document_type.name == "Diapositivas de Presentación"
+                or await self._has_observed_document_for_type(
+                    internship.id,
+                    document_type.id,
+                )
             )
         ):
             return

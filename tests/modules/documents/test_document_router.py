@@ -101,7 +101,7 @@ def _config(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(
         DOCUMENT_STORAGE_DIR=str(tmp_path),
         DOCUMENT_MAX_BYTES=10,
-        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip",
+        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip,ppt,pptx,doc",
     )
 
 

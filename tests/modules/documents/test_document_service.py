@@ -126,7 +126,7 @@ def _config(tmp_path, max_bytes: int = 10) -> SimpleNamespace:
     return SimpleNamespace(
         DOCUMENT_STORAGE_DIR=str(tmp_path),
         DOCUMENT_MAX_BYTES=max_bytes,
-        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip",
+        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip,ppt,pptx,doc",
     )
 
 
@@ -425,6 +425,34 @@ async def test_student_cannot_upload_new_document_after_approval_without_observa
         )
 
     assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_student_can_upload_presentation_slides_after_approval(tmp_path):
+    repository = FakeDocumentRepository()
+    slides_type = _document_type(
+        3,
+        name="Diapositivas de Presentación",
+        category=DocumentCategoryEnum.academic,
+    )
+    repository.document_types[3] = slides_type
+    repository.internship_by_id = _internship(
+        user_id=10,
+        status_title="Aprobada",
+    )
+    service = _service(tmp_path, repository=repository)
+
+    document = await service.upload_document(
+        internship_id=7,
+        document_type_id=3,
+        file_name="presentacion.pptx",
+        content=b"data",
+        actor=_user(10, "Estudiante"),
+    )
+
+    assert document is repository.created_document
+    assert document.user_id == 10
+    assert document.type_id == 3
 
 
 @pytest.mark.asyncio
