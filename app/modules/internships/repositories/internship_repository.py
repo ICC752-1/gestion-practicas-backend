@@ -42,6 +42,7 @@ from app.modules.internships.models.student_internship_requirement_model import 
     StudentRegistrationRequirement,
 )
 from app.modules.scheduling.models.presentation_model import Presentation
+from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
 from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
@@ -898,3 +899,18 @@ class InternshipRepository:
         await self.db.commit()
         await self.db.refresh(existing)
         return existing
+
+    async def is_internship_applications_disabled(self) -> bool:
+        """Indica si la inscripción de prácticas está globalmente desactivada.
+
+        El flag ``internship_applications_disabled`` vive en ``scheduling_config``
+        (tabla por-coordinador), pero semánticamente es global: sólo el
+        ``Director de carrera`` puede modificarlo. Se considera desactivada si
+        existe algún registro con el flag en ``True``.
+        """
+        result = await self.db.execute(
+            select(SchedulingConfig.id)
+            .where(SchedulingConfig.internship_applications_disabled.is_(True))
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None

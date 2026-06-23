@@ -23,7 +23,9 @@ class NotificationEventTypeEnum(str, enum.Enum):
     internship_rejected = "internship_rejected"
     internship_derived = "internship_derived"
     requirement_status_changed = "requirement_status_changed"
+    appointment_scheduled = "appointment_scheduled"
     custom = "custom"
+    presentation_approved = "presentation_approved"
 
 
 class NotificationStatusEnum(str, enum.Enum):
@@ -79,7 +81,9 @@ class Notification(Base):
             "internship_rejected",
             "internship_derived",
             "requirement_status_changed",
+            "appointment_scheduled",
             "custom",
+            "presentation_approved",
             name="enumNotificationEventType",
             create_type=False,
         ),

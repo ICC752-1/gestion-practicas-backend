@@ -2,19 +2,27 @@
 
 from datetime import date, time
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.auth.models.role_model import Role
+from app.modules.auth.models.user_model import User
+from app.modules.auth.models.user_role_model import UserRole
 from app.modules.internships.models.internship_model import Internship
 from app.modules.scheduling.models.presentation_model import (
     Presentation,
     PresentationPurposeEnum,
     PresentationStatusEnum,
 )
+from app.modules.scheduling.models.scheduling_config_model import SchedulingConfig
+from app.modules.scheduling.models.scheduling_request_model import SchedulingRequest
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
 )
+
+
+ADMIN_ROLE_NAMES = {"Encargado de practica", "Director de carrera"}
 
 
 ACTIVE_BLOCK_STATUSES = (
@@ -81,7 +89,7 @@ class SchedulingRepository:
             .options(
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
-                selectinload(Presentation.owner),
+                selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
             )
         )
         result = await self.db.execute(query)
@@ -98,7 +106,7 @@ class SchedulingRepository:
             .options(
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
-                selectinload(Presentation.owner),
+                selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
             )
         )
         result = await self.db.execute(query)
@@ -121,8 +129,12 @@ class SchedulingRepository:
     ) -> list[Presentation]:
         """Lista bloques publicados disponibles."""
 
-        query = select(Presentation).where(
-            Presentation.status == PresentationStatusEnum.available,
+        query = (
+            select(Presentation)
+            .where(Presentation.status == PresentationStatusEnum.available)
+            .options(
+                selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
+            )
         )
 
         if date_from is not None:
@@ -151,6 +163,7 @@ class SchedulingRepository:
             .options(
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
+                selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
             )
             .order_by(Presentation.date.asc(), Presentation.start_time.asc())
         )
@@ -169,7 +182,7 @@ class SchedulingRepository:
             )
             .options(
                 selectinload(Presentation.internship),
-                selectinload(Presentation.owner),
+                selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
             )
             .order_by(Presentation.date.asc(), Presentation.start_time.asc())
         )
@@ -252,3 +265,193 @@ class SchedulingRepository:
         result = await self.db.execute(query.limit(1))
 
         return result.scalar_one_or_none() is not None
+
+    async def create_scheduling_request(self, request: SchedulingRequest) -> SchedulingRequest:
+        """Crea y persiste una nueva solicitud de agendamiento."""
+        self.db.add(request)
+        await self.db.commit()
+        await self.db.refresh(request)
+        return request
+
+    async def get_scheduling_request_by_id(self, request_id: int) -> SchedulingRequest | None:
+        """Obtiene una solicitud de agendamiento por ID con relaciones cargadas."""
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.id == request_id)
+            .options(
+                selectinload(SchedulingRequest.student).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+            )
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def list_requests_for_student(self, student_id: int) -> list[SchedulingRequest]:
+        """Obtiene todas las solicitudes de agendamiento de un estudiante."""
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.student_id == student_id)
+            .options(
+                selectinload(SchedulingRequest.student).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+            )
+            .order_by(SchedulingRequest.created_at.desc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_pending_requests(
+        self, actor_id: int | None = None
+    ) -> list[SchedulingRequest]:
+        """Obtiene las solicitudes pendientes de agendamiento.
+
+        Cuando ``actor_id`` se proporciona, filtra las solicitudes dirigidas al
+        coordinador autenticado (``target_coordinator_id == actor_id``) o a
+        solicitudes legacy sin destinatario explícito
+        (``target_coordinator_id IS NULL``).
+        """
+
+        query = select(SchedulingRequest).where(SchedulingRequest.status == "pending")
+
+        if actor_id is not None:
+            query = query.where(
+                or_(
+                    SchedulingRequest.target_coordinator_id == actor_id,
+                    SchedulingRequest.target_coordinator_id.is_(None),
+                )
+            )
+
+        query = query.options(
+            selectinload(SchedulingRequest.student).selectinload(User.roles).selectinload(UserRole.role),
+            selectinload(SchedulingRequest.coordinator).selectinload(User.roles).selectinload(UserRole.role),
+            selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
+            selectinload(SchedulingRequest.internship),
+            selectinload(SchedulingRequest.presentation),
+        ).order_by(SchedulingRequest.created_at.asc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+
+    async def save_scheduling_request(self, request: SchedulingRequest) -> SchedulingRequest:
+        """Guarda cambios en una solicitud de agendamiento."""
+        await self.db.commit()
+        await self.db.refresh(request)
+        return request
+
+    async def get_scheduling_config(self, coordinator_id: int) -> SchedulingConfig | None:
+        """Obtiene la configuración de agendamiento de un coordinador."""
+        query = select(SchedulingConfig).where(SchedulingConfig.coordinator_id == coordinator_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def has_any_general_consultation_enabled(self) -> bool:
+        """Indica si al menos un coordinador tiene habilitadas las consultas generales."""
+        query = select(SchedulingConfig.id).where(SchedulingConfig.general_consultations_enabled.is_(True)).limit(1)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none() is not None
+
+    async def is_internship_applications_disabled(self) -> bool:
+        """Indica si la inscripción de prácticas está globalmente desactivada.
+
+        El flag ``internship_applications_disabled`` se almacena por-coordinador,
+        pero semánticamente es global: sólo el ``Director de carrera`` puede
+        modificarlo. Se consulta si existe algún registro con el flag en ``True``.
+        """
+        query = (
+            select(SchedulingConfig.id)
+            .where(SchedulingConfig.internship_applications_disabled.is_(True))
+            .limit(1)
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none() is not None
+
+    async def list_active_coordinators_for_consultations(self) -> list[User]:
+        """Lista coordinadores con consultas generales habilitadas.
+
+        Retorna usuarios activos con rol administrativo que tienen
+        ``general_consultations_enabled == True`` en su configuración, con sus
+        roles cargados para que el esquema pueda serializar ``role_name``.
+        """
+        query = (
+            select(User)
+            .join(SchedulingConfig, SchedulingConfig.coordinator_id == User.id)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(
+                SchedulingConfig.general_consultations_enabled.is_(True),
+                User.is_active.is_(True),
+                Role.name.in_(ADMIN_ROLE_NAMES),
+            )
+            .options(selectinload(User.roles).selectinload(UserRole.role))
+            .order_by(User.id.asc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().unique().all())
+
+    async def upsert_scheduling_config(
+        self,
+        coordinator_id: int,
+        general_consultations_enabled: bool | None = None,
+        internship_applications_disabled: bool | None = None,
+    ) -> SchedulingConfig:
+        """Crea o actualiza selectivamente la configuración de un coordinador.
+
+        Solo actualiza los campos que reciban un valor distinto de ``None``,
+        preservando los demás. Al menos uno de los dos campos debe estar
+        definido.
+        """
+        config = await self.get_scheduling_config(coordinator_id)
+        if config is None:
+            config = SchedulingConfig(
+                coordinator_id=coordinator_id,
+                general_consultations_enabled=(
+                    general_consultations_enabled
+                    if general_consultations_enabled is not None
+                    else False
+                ),
+                internship_applications_disabled=(
+                    internship_applications_disabled
+                    if internship_applications_disabled is not None
+                    else False
+                ),
+            )
+            self.db.add(config)
+        else:
+            if general_consultations_enabled is not None:
+                config.general_consultations_enabled = general_consultations_enabled
+            if internship_applications_disabled is not None:
+                config.internship_applications_disabled = (
+                    internship_applications_disabled
+                )
+        await self.db.commit()
+        await self.db.refresh(config)
+        return config
+
+    async def get_supervisor_evaluation_recommendation(self, internship_id: int) -> str | None:
+        """Obtiene la recomendación de la evaluación del supervisor para una práctica."""
+        query = select(SupervisorEvaluation.recommendation).where(
+            SupervisorEvaluation.internship_id == internship_id
+        )
+        result = await self.db.execute(query)
+        return result.scalar()
+
+    async def has_self_evaluation(self, internship_id: int) -> bool:
+        """Indica si el estudiante ya completó y envió su autoevaluación."""
+        from app.modules.self_evaluations.models.self_evaluation_model import (
+            SelfEvaluation,
+            SelfEvaluationStatusEnum,
+        )
+        query = select(SelfEvaluation.id).where(
+            SelfEvaluation.internship_id == internship_id,
+            SelfEvaluation.status == SelfEvaluationStatusEnum.submitted,
+        )
+        result = await self.db.execute(query.limit(1))
+        return result.scalar_one_or_none() is not None
+
+

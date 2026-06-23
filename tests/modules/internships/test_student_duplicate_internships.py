@@ -74,6 +74,9 @@ class FakeDuplicateRepository:
             return SimpleNamespace(is_completed=True)
         return None
 
+    async def is_internship_applications_disabled(self) -> bool:
+        return False
+
     async def get_blocking_internship_for_registration(self, **kwargs):
         return self.blocking_internship
 

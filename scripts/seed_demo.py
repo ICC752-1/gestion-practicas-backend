@@ -54,6 +54,8 @@ from app.modules.internships.models.internship_exception_model import (
     InternshipException,
 )
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -76,6 +78,7 @@ from app.modules.notifications.models.notification_model import (
 
 STUDENT_DEMO_EMAIL = "estudiante.demo@ufromail.cl"
 STUDENT_OTHER_EMAIL = "estudiante.otro@ufromail.cl"
+STUDENT_ACTIVE_EMAIL = "estudiante.activo@ufromail.cl"
 LEGACY_DEMO_EMAILS = ("estudiante.demo@correo.cl", "estudiante.otro@correo.cl")
 INDUCTION_OPTIONS = {"accept": "Entiendo y acepto", "reject": "No acepto"}
 INDUCTION_CORRECT_ANSWER = "accept"
@@ -117,6 +120,15 @@ DEMO_USERS = [
         "rut": "21000002-1",
         "first_name": "Estudiante",
         "last_name": "Otro",
+        "role": STUDENT_ROLE,
+        "degree": "Ingenieria Civil Informatica",
+        "cod_degree": "ICI",
+    },
+    {
+        "email": STUDENT_ACTIVE_EMAIL,
+        "rut": "21000009-1",
+        "first_name": "Estudiante",
+        "last_name": "Activo",
         "role": STUDENT_ROLE,
         "degree": "Ingenieria Civil Informatica",
         "cod_degree": "ICI",
@@ -207,6 +219,27 @@ class DemoSeeder:
 
         internship_ids = await self._get_demo_internship_ids(user_ids)
         if internship_ids:
+            from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
+            from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+                SupervisorEvaluation,
+                SupervisorEvaluationInvitation,
+            )
+            from app.modules.scheduling.models.presentation_model import Presentation
+
+            await self.session.execute(
+                delete(SelfEvaluation).where(SelfEvaluation.internship_id.in_(internship_ids))
+            )
+            await self.session.execute(
+                delete(SupervisorEvaluation).where(SupervisorEvaluation.internship_id.in_(internship_ids))
+            )
+            await self.session.execute(
+                delete(SupervisorEvaluationInvitation).where(
+                    SupervisorEvaluationInvitation.internship_id.in_(internship_ids)
+                )
+            )
+            await self.session.execute(
+                delete(Presentation).where(Presentation.internship_id.in_(internship_ids))
+            )
             await self.session.execute(
                 delete(Document).where(Document.internship_id.in_(internship_ids))
             )
@@ -225,6 +258,22 @@ class DemoSeeder:
             )
 
         if user_ids:
+            from app.modules.scheduling.models.presentation_model import Presentation
+            from app.modules.presentation_letters.models.presentation_letter_model import PresentationLetter
+
+            await self.session.execute(
+                delete(Presentation).where(
+                    Presentation.user_id.in_(user_ids)
+                    | Presentation.owner_id.in_(user_ids)
+                )
+            )
+            await self.session.execute(
+                delete(PresentationLetter).where(PresentationLetter.student_id.in_(user_ids))
+            )
+            await self.session.execute(
+                text("DELETE FROM logaction WHERE user_id = ANY(:user_ids)"),
+                {"user_ids": user_ids}
+            )
             await self.session.execute(
                 delete(Notification).where(Notification.recipient_user_id.in_(user_ids))
             )
@@ -560,7 +609,7 @@ class DemoSeeder:
     async def _ensure_internships(self, context: SeedContext) -> None:
         pending = context.states["Pendiente"]
         approved = context.states["Aprobada"]
-        await self._ensure_internship(
+        internship = await self._ensure_internship(
             owner=context.users[STUDENT_DEMO_EMAIL],
             status=approved,
             org_name=f"{DEMO_ORG_PREFIX} exportable",
@@ -568,7 +617,14 @@ class DemoSeeder:
             period=PracticePeriodEnum.semester,
             has_school_insurance=True,
             with_documents=True,
+            start_date=date.today() - timedelta(days=70),
+            end_date=date.today() - timedelta(days=10),
+            completion_status=CompletionStatusEnum.pending_presentation,
+            final_result=FinalResultEnum.pending,
         )
+        await self._ensure_self_evaluation(internship, context.users[STUDENT_DEMO_EMAIL])
+        await self._ensure_supervisor_evaluation(internship)
+
         blocked = await self._ensure_internship(
             owner=context.users[STUDENT_OTHER_EMAIL],
             status=pending,
@@ -585,6 +641,116 @@ class DemoSeeder:
 
         self.stats["skipped"] += len(UNSUPPORTED_DEMO_SCENARIOS)
 
+    async def _ensure_self_evaluation(self, internship: Internship, student: User) -> None:
+        from app.modules.self_evaluations.models.self_evaluation_model import (
+            SelfEvaluation,
+            SelfEvaluationStatusEnum,
+        )
+        from app.modules.self_evaluations.schemas.self_evaluation_schema import (
+            SELF_EVALUATION_CRITERIA,
+        )
+
+        query = select(SelfEvaluation).where(
+            SelfEvaluation.internship_id == internship.id,
+            SelfEvaluation.student_id == student.id,
+        )
+        existing = (await self.session.execute(query)).scalar_one_or_none()
+
+        responses = {
+            "communication": 5,
+            "teamwork": 5,
+            "organization_understanding": 5,
+            "process_understanding": 5,
+            "risk_prevention": 5,
+            "ethics": 5,
+            "learning_application": 5,
+        }
+
+        if existing is None:
+            self.session.add(
+                SelfEvaluation(
+                    internship_id=internship.id,
+                    student_id=student.id,
+                    form_version="1.0",
+                    criteria_snapshot=SELF_EVALUATION_CRITERIA,
+                    responses=responses,
+                    observations="Autoevaluación de prueba completada.",
+                    status=SelfEvaluationStatusEnum.submitted,
+                    submitted_at=datetime.now(UTC).replace(tzinfo=None),
+                )
+            )
+            self.stats["created"] += 1
+        else:
+            existing.responses = responses
+            existing.status = SelfEvaluationStatusEnum.submitted
+            self.stats["reused"] += 1
+
+    async def _ensure_supervisor_evaluation(self, internship: Internship) -> None:
+        from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+            SupervisorEvaluation,
+            SupervisorEvaluationInvitation,
+        )
+
+        # Primero asegurar que exista la invitación para que no se vea como bloqueada en el timeline
+        inv_query = select(SupervisorEvaluationInvitation).where(
+            SupervisorEvaluationInvitation.internship_id == internship.id
+        )
+        invitation = (await self.session.execute(inv_query)).scalar_one_or_none()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        if invitation is None:
+            import uuid
+            token = str(uuid.uuid4())
+            invitation = SupervisorEvaluationInvitation(
+                internship_id=internship.id,
+                supervisor_name_snapshot=internship.supervisor_name,
+                supervisor_email_snapshot=internship.supervisor_email,
+                token_hash=token,
+                expires_at=now + timedelta(days=30),
+                sent_at=now - timedelta(days=2),
+                used_at=now - timedelta(days=1),
+                created_at=now - timedelta(days=2),
+            )
+            self.session.add(invitation)
+            await self.session.flush()
+            self.stats["created"] += 1
+        else:
+            self.stats["reused"] += 1
+
+        query = select(SupervisorEvaluation).where(
+            SupervisorEvaluation.internship_id == internship.id
+        )
+        existing = (await self.session.execute(query)).scalar_one_or_none()
+
+        criteria_scores = {
+            "technical_performance": 5,
+            "responsibility": 5,
+            "communication": 5,
+            "teamwork": 5,
+            "autonomy": 5,
+        }
+
+        if existing is None:
+            self.session.add(
+                SupervisorEvaluation(
+                    internship_id=internship.id,
+                    invitation_id=invitation.id,
+                    supervisor_name_snapshot=internship.supervisor_name,
+                    supervisor_email_snapshot=internship.supervisor_email,
+                    criteria_scores=criteria_scores,
+                    observations="Excelente desempeño general durante su práctica.",
+                    recommendation="recommended",
+                    status="submitted",
+                    submitted_at=now - timedelta(days=1),
+                )
+            )
+            self.stats["created"] += 1
+        else:
+            existing.invitation_id = invitation.id
+            existing.criteria_scores = criteria_scores
+            existing.recommendation = "recommended"
+            existing.status = "submitted"
+            self.stats["reused"] += 1
+
     async def _ensure_internship(
         self,
         *,
@@ -595,6 +761,10 @@ class DemoSeeder:
         period: PracticePeriodEnum,
         has_school_insurance: bool,
         with_documents: bool,
+        start_date: date | None = None,
+        end_date: date | None = None,
+        completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started,
+        final_result: FinalResultEnum = FinalResultEnum.pending,
     ) -> Internship:
         query = select(Internship).where(
             Internship.user_id == owner.id,
@@ -615,8 +785,8 @@ class DemoSeeder:
                 supervisor_department="TI",
                 supervisor_email="supervisor.demo@empresa.cl",
                 supervisor_phone="+56922222222",
-                start_date=date.today(),
-                end_date=date.today() + timedelta(days=60),
+                start_date=start_date or date.today(),
+                end_date=end_date or (date.today() + timedelta(days=60)),
                 schedule="Lunes a viernes 09:00-18:00",
                 days="Lunes,Martes,Miercoles,Jueves,Viernes",
                 modality="Presencial",
@@ -634,6 +804,8 @@ class DemoSeeder:
                     if has_school_insurance
                     else SchoolInsuranceStatusEnum.pending
                 ),
+                completion_status=completion_status,
+                final_result=final_result,
             )
             self.session.add(internship)
             await self.session.flush()
@@ -646,6 +818,10 @@ class DemoSeeder:
                 if has_school_insurance
                 else SchoolInsuranceStatusEnum.pending
             )
+            internship.start_date = start_date or date.today()
+            internship.end_date = end_date or (date.today() + timedelta(days=60))
+            internship.completion_status = completion_status
+            internship.final_result = final_result
             self.stats["updated"] += 1
 
         if with_documents:
@@ -755,7 +931,6 @@ class DemoSeeder:
         result = await self.session.execute(
             select(Internship.id).where(
                 Internship.user_id.in_(user_ids),
-                Internship.org_name.startswith(DEMO_ORG_PREFIX),
             )
         )
         return list(result.scalars().all())

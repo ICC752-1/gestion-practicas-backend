@@ -179,6 +179,83 @@ def build_internship_approved_notification(
     )
 
 
+def build_appointment_scheduled_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    scheduling_request_id: int | None,
+    presentation_id: int | None,
+    scheduled_date: str | None,
+    scheduled_time: str | None,
+    modality: str | None = None,
+    location: str | None = None,
+    resolved_by_role: str | None = None,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para el evento de cita agendada.
+
+    Args:
+        recipient_user_id: Identificador del estudiante destinatario.
+        recipient_email: Correo electronico del estudiante (opcional).
+        scheduling_request_id: Identificador de la solicitud respondida (opcional).
+        presentation_id: Identificador de la cita (Presentation) creada.
+        scheduled_date: Fecha asignada (isoformat) de la cita.
+        scheduled_time: Rango horario asignado (texto legible).
+        modality: Modalidad de la cita (Presencial/Remoto/Híbrido).
+        location: Ubicación o enlace de la reunión.
+        resolved_by_role: Rol de visualización de quien agendó
+            (Director/Coordinador).
+        status: Estado inicial de la notificacion (por defecto simulated).
+
+    Returns:
+        Entidad `Notification` lista para ser persistida.
+    """
+
+    agendador_label = resolved_by_role or "Coordinación"
+
+    details = [
+        ("Fecha", scheduled_date),
+        ("Hora", scheduled_time),
+        ("Modalidad", modality),
+        ("Ubicación", location),
+        ("Agendado por", agendador_label),
+    ]
+
+    if scheduling_request_id is not None:
+        details.append(("N° de solicitud", f"#{scheduling_request_id}"))
+
+    intro_text = (
+        "Tienes una cita confirmada para la presentación final de tu práctica. "
+        "Revisa el detalle en la plataforma para asistir a tiempo."
+        if scheduling_request_id is None
+        else (
+            "Tu solicitud de agendamiento fue respondida y tienes una cita "
+            "confirmada. Revisa el detalle en la plataforma para asistir a "
+            "tiempo."
+        )
+    )
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.appointment_scheduled,
+        subject="Cita agendada",
+        content=_build_email_body(
+            title="Cita agendada",
+            intro=intro_text,
+            details=details,
+            action_label="Ver mis citas",
+        ),
+        status=status,
+        payload={
+            "scheduling_request_id": scheduling_request_id,
+            "presentation_id": presentation_id,
+            "scheduled_date": scheduled_date,
+            "scheduled_time": scheduled_time,
+            "resolved_by_role": resolved_by_role,
+        },
+    )
+
+
 def build_internship_rejected_notification(
     recipient_user_id: int,
     recipient_email: str | None,
@@ -509,3 +586,55 @@ def build_requirement_status_changed_notification(
             "previous_status": previous_status,
         },
     )
+
+
+def build_presentation_approved_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    internship_id: int,
+    internship_type: object | None = None,
+    evaluator_role: str | None = None,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye una notificacion para el evento de aprobacion de presentacion final.
+
+    Args:
+        recipient_user_id: Identificador del estudiante destinatario.
+        recipient_email: Correo electronico del estudiante (opcional).
+        internship_id: Identificador de la practica.
+        internship_type: Tipo de practica.
+        evaluator_role: Rol de quien aprobo (Coordinador o Director).
+        status: Estado inicial de la notificacion.
+
+    Returns:
+        Entidad `Notification` lista para ser persistida.
+    """
+
+    request_type = _format_internship_request_type(internship_type)
+    role_label = evaluator_role or "Coordinación"
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.presentation_approved,
+        subject="Presentación final aprobada",
+        content=_build_email_body(
+            title="Presentación final aprobada",
+            intro=(
+                f"Felicidades, tu presentación final de {request_type} ha sido aprobada "
+                f"por el/la {role_label.lower()} de prácticas. Tu proceso se encuentra en etapa de finalización."
+            ),
+            details=[
+                ("Tipo de Práctica", request_type.capitalize()),
+                ("Resultado de Presentación", "Aprobada"),
+                ("Calificado por", role_label),
+            ],
+            action_label="Ver seguimiento",
+        ),
+        status=status,
+        payload={
+            "internship_id": internship_id,
+            "evaluator_role": evaluator_role,
+        },
+    )
+

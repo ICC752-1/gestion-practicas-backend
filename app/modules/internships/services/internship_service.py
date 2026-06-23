@@ -222,6 +222,24 @@ class InternshipService:
             Entidad `Internship` persistida.
         """
 
+        is_disabled_method = getattr(
+            self.internship_repository, "is_internship_applications_disabled", None
+        )
+        applications_disabled = (
+            await is_disabled_method() if is_disabled_method is not None else False
+        )
+        if applications_disabled:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "internship_applications_disabled",
+                    "message": (
+                        "La inscripción de prácticas se encuentra temporalmente "
+                        "desactivada por la Dirección de carrera."
+                    ),
+                },
+            )
+
         initial_status = await self._get_required_state(PENDING_STATUS_TITLE)
         data = internship_data.model_dump()
         insurance_req = await self.internship_repository.get_student_requirement(
@@ -605,6 +623,68 @@ class InternshipService:
             or (is_approved and start_date is not None and start_date <= now_date)
         )
 
+        request_in_review_status = self._event_status(
+            completed=current_status
+            in {
+                IN_REVIEW_STATUS_TITLE,
+                IN_REVIEW_DIRAE_STATUS_TITLE,
+                APPROVED_STATUS_TITLE,
+                REJECTED_STATUS_TITLE,
+            },
+            blocked=is_cancelled,
+            current=current_status == PENDING_STATUS_TITLE,
+        )
+        request_approved_status = self._event_status(
+            completed=is_approved or completion_status != CompletionStatusEnum.not_started.value,
+            blocked=is_cancelled or current_status == REJECTED_STATUS_TITLE,
+            current=current_status in {PENDING_STATUS_TITLE, IN_REVIEW_STATUS_TITLE},
+        )
+        practice_in_progress_status = self._event_status(
+            completed=practice_started,
+            blocked=not is_approved or is_cancelled,
+            current=is_approved and not practice_started,
+        )
+        self_evaluation_submitted_status = self._event_status(
+            completed=self_submitted,
+            blocked=not is_approved or is_cancelled,
+            current=practice_started and not self_submitted,
+        )
+        supervisor_invitation_sent_status = self._event_status(
+            completed=invitation_sent,
+            blocked=not self_submitted or is_cancelled,
+            current=self_submitted and not invitation_sent,
+        )
+        supervisor_evaluation_submitted_status = self._event_status(
+            completed=supervisor_submitted,
+            blocked=not invitation_sent or is_cancelled,
+            current=invitation_sent and not supervisor_submitted,
+        )
+        final_presentation_scheduled_status = self._event_status(
+            completed=final_scheduled,
+            blocked=not supervisor_submitted or is_cancelled,
+            current=supervisor_submitted and not final_scheduled,
+        )
+        final_presentation_completed_status = self._event_status(
+            completed=final_completed,
+            blocked=not final_scheduled or is_cancelled,
+            current=final_scheduled and not final_completed,
+        )
+        practice_finalized_status = self._event_status(
+            completed=completion_status == CompletionStatusEnum.finalized.value,
+            blocked=not final_completed or is_cancelled,
+            current=final_completed
+            and completion_status != CompletionStatusEnum.finalized.value,
+        )
+
+        dirae_status_val = getattr(internship, "dirae_status", None)
+        dirae_status_val = getattr(dirae_status_val, "value", dirae_status_val)
+        dirae_completed = dirae_status_val == "exported"
+        dirae_event_status = self._event_status(
+            completed=dirae_completed,
+            blocked=is_cancelled,
+            current=completion_status == CompletionStatusEnum.finalized.value and not dirae_completed,
+        )
+
         events = [
             self._lifecycle_event(
                 "request_created",
@@ -615,96 +695,90 @@ class InternshipService:
             ),
             self._lifecycle_event(
                 "request_in_review",
-                "Solicitud en revisión",
-                "Coordinación o dirección inició la revisión administrativa.",
-                self._event_status(
-                    completed=current_status
-                    in {
-                        IN_REVIEW_STATUS_TITLE,
-                        IN_REVIEW_DIRAE_STATUS_TITLE,
-                        APPROVED_STATUS_TITLE,
-                        REJECTED_STATUS_TITLE,
-                    },
-                    blocked=is_cancelled,
-                    current=current_status == PENDING_STATUS_TITLE,
-                ),
+                "Solicitud en revisión"
+                if request_in_review_status == "completed"
+                else "Solicitud por revisar",
+                "Coordinación o dirección inició la revisión administrativa."
+                if request_in_review_status == "completed"
+                else "Coordinación o dirección debe iniciar la revisión administrativa.",
+                request_in_review_status,
                 status_dates.get(IN_REVIEW_STATUS_TITLE),
             ),
             self._lifecycle_event(
                 "request_approved",
-                "Solicitud de práctica aprobada",
-                "La solicitud administrativa fue aprobada.",
-                self._event_status(
-                    completed=is_approved or completion_status != CompletionStatusEnum.not_started.value,
-                    blocked=is_cancelled or current_status == REJECTED_STATUS_TITLE,
-                    current=current_status in {PENDING_STATUS_TITLE, IN_REVIEW_STATUS_TITLE},
-                ),
+                "Solicitud de práctica aprobada"
+                if request_approved_status == "completed"
+                else "Solicitud de práctica por aprobar",
+                "La solicitud administrativa fue aprobada."
+                if request_approved_status == "completed"
+                else "La solicitud de práctica está en espera de aprobación.",
+                request_approved_status,
                 status_dates.get(APPROVED_STATUS_TITLE),
             ),
             self._lifecycle_event(
                 "practice_in_progress",
-                "Práctica en ejecución",
-                "El estudiante se encuentra realizando la práctica aprobada.",
-                self._event_status(
-                    completed=practice_started,
-                    blocked=not is_approved or is_cancelled,
-                    current=is_approved and not practice_started,
-                ),
+                "Práctica en ejecución"
+                if practice_in_progress_status == "completed"
+                else "Práctica por iniciar",
+                "El estudiante se encuentra realizando la práctica aprobada."
+                if practice_in_progress_status == "completed"
+                else "El estudiante iniciará la práctica una vez aprobada.",
+                practice_in_progress_status,
                 practice_start_at if practice_started else None,
             ),
             self._lifecycle_event(
                 "self_evaluation_submitted",
-                "Autoevaluación enviada",
-                "El estudiante completó su autoevaluación.",
-                self._event_status(
-                    completed=self_submitted,
-                    blocked=not is_approved or is_cancelled,
-                    current=practice_started and not self_submitted,
-                ),
+                "Autoevaluación enviada"
+                if self_evaluation_submitted_status == "completed"
+                else "Autoevaluación por enviar",
+                "El estudiante completó su autoevaluación."
+                if self_evaluation_submitted_status == "completed"
+                else "El estudiante debe completar y enviar su autoevaluación.",
+                self_evaluation_submitted_status,
                 self_evaluation.submitted_at if self_submitted else None,
             ),
             self._lifecycle_event(
                 "supervisor_invitation_sent",
-                "Evaluación enviada al supervisor",
-                "El sistema envió el enlace temporal de evaluación al supervisor.",
-                self._event_status(
-                    completed=invitation_sent,
-                    blocked=not self_submitted or is_cancelled,
-                    current=self_submitted and not invitation_sent,
-                ),
+                "Evaluación enviada al supervisor"
+                if supervisor_invitation_sent_status == "completed"
+                else "Evaluación por enviar al supervisor",
+                "El sistema envió el enlace temporal de evaluación al supervisor."
+                if supervisor_invitation_sent_status == "completed"
+                else "El sistema enviará el enlace temporal de evaluación al supervisor.",
+                supervisor_invitation_sent_status,
                 active_invitation.sent_at if active_invitation is not None else None,
             ),
             self._lifecycle_event(
                 "supervisor_evaluation_submitted",
-                "Evaluación del supervisor completada",
-                "El supervisor completó la evaluación del estudiante.",
-                self._event_status(
-                    completed=supervisor_submitted,
-                    blocked=not invitation_sent or is_cancelled,
-                    current=invitation_sent and not supervisor_submitted,
-                ),
+                "Evaluación del supervisor completada"
+                if supervisor_evaluation_submitted_status == "completed"
+                else "Evaluación del supervisor por completar",
+                "El supervisor completó la evaluación del estudiante."
+                if supervisor_evaluation_submitted_status == "completed"
+                else "El supervisor debe completar la evaluación del estudiante.",
+                supervisor_evaluation_submitted_status,
                 supervisor_evaluation.submitted_at if supervisor_submitted else None,
             ),
             self._lifecycle_event(
                 "final_presentation_scheduled",
-                "Presentación final agendada",
-                "El estudiante reservó una presentación o entrevista final.",
-                self._event_status(
-                    completed=final_scheduled,
-                    blocked=not supervisor_submitted or is_cancelled,
-                    current=supervisor_submitted and not final_scheduled,
-                ),
+                "Presentación final agendada"
+                if final_presentation_scheduled_status == "completed"
+                else "Presentación final por agendar",
+                "El estudiante reservó una presentación o entrevista final."
+                if final_presentation_scheduled_status == "completed"
+                else "El estudiante debe reservar una fecha para su presentación o entrevista final.",
+                final_presentation_scheduled_status,
                 self._first_presentation_datetime(final_presentations),
             ),
             self._lifecycle_event(
                 "final_presentation_completed",
-                "Presentación final completada",
-                "La presentación final fue registrada por administración.",
-                self._event_status(
-                    completed=final_completed,
-                    blocked=not final_scheduled or is_cancelled,
-                    current=final_scheduled and not final_completed,
-                ),
+                "Presentación final completada"
+                if final_presentation_completed_status == "completed"
+                else "Presentación final por completar",
+                "La presentación final fue registrada por administración."
+                if final_presentation_completed_status == "completed"
+                else "La presentación final debe ser realizada y calificada.",
+                final_presentation_completed_status,
                 self._first_presentation_datetime(
                     [
                         item
@@ -715,17 +789,15 @@ class InternshipService:
             ),
             self._lifecycle_event(
                 "practice_finalized",
-                "Práctica finalizada",
+                "Práctica finalizada"
+                if practice_finalized_status == "completed"
+                else "Práctica por finalizar",
                 (
-                    "La práctica quedó cerrada con resultado "
-                    f"{final_result or 'pendiente'}."
+                    f"La práctica quedó cerrada con resultado {final_result or 'pendiente'}."
+                    if practice_finalized_status == "completed"
+                    else "La práctica se encuentra pendiente de cierre final."
                 ),
-                self._event_status(
-                    completed=completion_status == CompletionStatusEnum.finalized.value,
-                    blocked=not final_completed or is_cancelled,
-                    current=final_completed
-                    and completion_status != CompletionStatusEnum.finalized.value,
-                ),
+                practice_finalized_status,
                 self._first_presentation_datetime(
                     [
                         item
@@ -735,6 +807,17 @@ class InternshipService:
                 )
                 if completion_status == CompletionStatusEnum.finalized.value
                 else None,
+            ),
+            self._lifecycle_event(
+                "dirae_exported",
+                "Documentación exportada a DIRAE"
+                if dirae_completed
+                else "Documentación por exportar a DIRAE",
+                "La documentación final de la práctica fue exportada exitosamente a DIRAE."
+                if dirae_completed
+                else "La documentación del proceso de práctica se encuentra pendiente de exportación a DIRAE.",
+                dirae_event_status,
+                getattr(internship, "updated_at", None) if dirae_completed else None,
             ),
         ]
 
@@ -756,7 +839,7 @@ class InternshipService:
             if event.status == "completed"
         }
         progress_percentage = max(
-            [progress_map[event_type] for event_type in completed_types]
+            [progress_map[event_type] for event_type in completed_types if event_type in progress_map]
             or [0]
         )
         current_step = next(

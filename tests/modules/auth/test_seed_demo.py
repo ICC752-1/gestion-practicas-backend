@@ -51,6 +51,7 @@ def test_seed_demo_student_emails_use_institutional_domain() -> None:
     assert student_emails == [
         "estudiante.demo@ufromail.cl",
         "estudiante.otro@ufromail.cl",
+        "estudiante.activo@ufromail.cl",
     ]
 
 
