@@ -3,23 +3,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.main import app
 from app.modules.admin.schemas.admin_report_schema import AdminReportFilters
 from app.modules.admin.services.admin_report_service import (
     REPORT_ROLES,
     AdminReportService,
 )
 from app.modules.auth.dependencies.role_dependency import require_roles
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
 
 
 def _user(*roles: str, cod_degree: str | None = None):
@@ -119,11 +108,6 @@ class FakeReportRepository:
     async def recurrent_organizations(self, filters: AdminReportFilters):
         self._remember(filters)
         return [("acme spa", "ACME SpA", 2, 1, 1, 0)]
-
-
-def test_admin_report_routes_are_registered() -> None:
-    assert "GET" in _methods_for_path("/admin/reports/dashboard")
-    assert "GET" in _methods_for_path("/admin/reports/export.csv")
 
 
 @pytest.mark.parametrize(

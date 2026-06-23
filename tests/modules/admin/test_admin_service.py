@@ -1,6 +1,8 @@
 from datetime import date, datetime, UTC
 from types import SimpleNamespace
 
+import pytest
+
 from app.modules.admin.schemas.admin_schema import (
     AdminUpdateInternshipSchoolInsuranceRequest,
     AdminUpdateSchoolInsuranceRequest,
@@ -597,6 +599,38 @@ async def test_update_internship_school_insurance_validates_request() -> None:
     assert result.insurance_validated_by == 20
     assert result.insurance_notes == "Seguro validado para esta solicitud."
     assert repository.updated_internship_school_insurance.has_school_insurance is True
+
+
+async def test_update_internship_school_insurance_rejects_cancelled_practice() -> None:
+    repository = FakeAdminRepository()
+    student = FakeStudent(
+        student_id=7,
+        email="ana@example.com",
+        first_name="Ana",
+        last_name="Lopez",
+        rut="12.345.678-9",
+        is_active=True,
+    )
+    repository.internship_by_id = _internship(
+        internship_id=15,
+        student=student,
+        status=FakeStatus(1, "Pendiente", "Pendiente"),
+        is_cancelled=True,
+    )
+    service = AdminService(db=None)
+    service.repository = repository
+
+    with pytest.raises(ValueError, match="solicitud anulada"):
+        await service.update_internship_school_insurance(
+            internship_id=15,
+            payload=AdminUpdateInternshipSchoolInsuranceRequest(
+                status="validated",
+                notes="Seguro validado para esta solicitud.",
+            ),
+            updated_by_user_id=20,
+        )
+
+    assert repository.updated_internship_school_insurance is None
 
 
 async def test_get_student_registration_requirements_returns_institutional_data() -> None:
