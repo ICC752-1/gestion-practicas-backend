@@ -61,8 +61,8 @@ class SchedulingRepository:
 
         await self.db.commit()
         await self.db.refresh(slot)
-
-        return slot
+        refetched = await self.get_slot_by_id(slot.id)
+        return refetched or slot
 
     async def save_slots(self, slots: list[Presentation]) -> list[Presentation]:
         """Confirma cambios de varios bloques en una misma transaccion."""
@@ -90,6 +90,7 @@ class SchedulingRepository:
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
                 selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(Presentation.document).selectinload(Document.document_type),
             )
         )
         result = await self.db.execute(query)
@@ -107,6 +108,7 @@ class SchedulingRepository:
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
                 selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(Presentation.document).selectinload(Document.document_type),
             )
         )
         result = await self.db.execute(query)
@@ -164,6 +166,7 @@ class SchedulingRepository:
                 selectinload(Presentation.internship),
                 selectinload(Presentation.student),
                 selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(Presentation.document).selectinload(Document.document_type),
             )
             .order_by(Presentation.date.asc(), Presentation.start_time.asc())
         )
@@ -183,6 +186,7 @@ class SchedulingRepository:
             .options(
                 selectinload(Presentation.internship),
                 selectinload(Presentation.owner).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(Presentation.document).selectinload(Document.document_type),
             )
             .order_by(Presentation.date.asc(), Presentation.start_time.asc())
         )
@@ -285,7 +289,7 @@ class SchedulingRepository:
                 selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
                 selectinload(SchedulingRequest.internship),
                 selectinload(SchedulingRequest.presentation),
-                selectinload(SchedulingRequest.document),
+                selectinload(SchedulingRequest.document).selectinload(Document.document_type),
             )
         )
         result = await self.db.execute(query)
@@ -302,7 +306,7 @@ class SchedulingRepository:
                 selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
                 selectinload(SchedulingRequest.internship),
                 selectinload(SchedulingRequest.presentation),
-                selectinload(SchedulingRequest.document),
+                selectinload(SchedulingRequest.document).selectinload(Document.document_type),
             )
             .order_by(SchedulingRequest.created_at.desc())
         )
@@ -336,7 +340,7 @@ class SchedulingRepository:
             selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
             selectinload(SchedulingRequest.internship),
             selectinload(SchedulingRequest.presentation),
-            selectinload(SchedulingRequest.document),
+            selectinload(SchedulingRequest.document).selectinload(Document.document_type),
         ).order_by(SchedulingRequest.created_at.asc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
@@ -464,8 +468,17 @@ class SchedulingRepository:
         presentation_id: int,
     ) -> SchedulingRequest | None:
         """Obtiene la solicitud de agendamiento asociada a una presentación."""
-        query = select(SchedulingRequest).where(
-            SchedulingRequest.presentation_id == presentation_id
+        query = (
+            select(SchedulingRequest)
+            .where(SchedulingRequest.presentation_id == presentation_id)
+            .options(
+                selectinload(SchedulingRequest.student).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.target_coordinator).selectinload(User.roles).selectinload(UserRole.role),
+                selectinload(SchedulingRequest.internship),
+                selectinload(SchedulingRequest.presentation),
+                selectinload(SchedulingRequest.document).selectinload(Document.document_type),
+            )
         )
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
