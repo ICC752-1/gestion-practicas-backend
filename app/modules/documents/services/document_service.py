@@ -1271,8 +1271,8 @@ class DocumentService:
     ) -> None:
         """Determina y actualiza automáticamente el estado DIRAE de la práctica.
 
-        Solo se realiza la transición automática si el estado actual es
-        in_review, observed o ready.
+        Solo se realiza la transición automática si la práctica está finalizada
+        y el estado actual es not_started, in_review, observed o ready.
         """
         if not hasattr(self.repository, "db"):
             return
@@ -1281,8 +1281,12 @@ class DocumentService:
         if internship is None:
             return
 
+        if getattr(internship, "completion_status", None) != CompletionStatusEnum.finalized:
+            return
+
         current_status = getattr(internship, "dirae_status", DiraeStatusEnum.not_started)
         if current_status not in {
+            DiraeStatusEnum.not_started,
             DiraeStatusEnum.in_review,
             DiraeStatusEnum.observed,
             DiraeStatusEnum.ready,

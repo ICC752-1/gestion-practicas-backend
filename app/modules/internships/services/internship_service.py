@@ -682,7 +682,7 @@ class InternshipService:
         dirae_event_status = self._event_status(
             completed=dirae_completed,
             blocked=is_cancelled,
-            current=completion_status == CompletionStatusEnum.finalized.value and not dirae_completed,
+            current=False,
         )
 
         events = [
@@ -848,7 +848,7 @@ class InternshipService:
                 for event in events
                 if event.status == "current"
             ),
-            events[-1].title if progress_percentage == 100 else "Solicitud registrada",
+            "Práctica finalizada" if completion_status == CompletionStatusEnum.finalized.value else "Solicitud registrada",
         )
 
         return InternshipLifecycleResponse(
