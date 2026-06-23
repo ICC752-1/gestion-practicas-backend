@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.modules.auth.models.role_model import Role
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
+from app.modules.documents.models.document_model import Document
 from app.modules.internships.models.internship_model import Internship
 from app.modules.scheduling.models.presentation_model import (
     Presentation,
