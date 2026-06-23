@@ -225,8 +225,8 @@ CREATE INDEX ix_document_user_id ON Document(user_id);
 CREATE INDEX ix_document_status ON Document(status);
 
 INSERT INTO DocumentType (name, description, is_required, category, is_sensitive) VALUES
-    ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', TRUE, 'Académico', FALSE),
-    ('Carta de aceptación', 'Documento emitido por la organización receptora.', TRUE, 'Administrativo', FALSE),
+    ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', FALSE, 'Académico', FALSE),
+    ('Carta de aceptación', 'Documento emitido por la organización receptora.', FALSE, 'Administrativo', FALSE),
     ('Seguro escolar', 'Respaldo administrativo de cobertura cuando corresponda.', FALSE, 'Administrativo', TRUE),
     ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo', FALSE);
 

@@ -33,7 +33,7 @@ from app.modules.supervisor_evaluations.schemas.supervisor_evaluation_schema imp
 
 
 INVITATION_TTL_DAYS = 14
-ADMIN_ROLES = {"Encargado de practica", "Director de carrera"}
+ADMIN_ROLES = {"Encargado de practica", "Director de carrera", "Secretaria de Carrera"}
 SUPERVISOR_ROLE = "Supervisor de practica"
 APPROVED_INTERNSHIP_STATUS = "Aprobada"
 
