@@ -228,7 +228,8 @@ INSERT INTO DocumentType (name, description, is_required, category, is_sensitive
     ('Formulario de inscripción', 'Formulario de inscripción de práctica firmado o respaldado.', FALSE, 'Académico', FALSE),
     ('Carta de aceptación', 'Documento emitido por la organización receptora.', FALSE, 'Administrativo', FALSE),
     ('Seguro escolar', 'Respaldo administrativo de cobertura cuando corresponda.', FALSE, 'Administrativo', TRUE),
-    ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo', FALSE);
+    ('Documento complementario', 'Documento adicional requerido para regularizar o respaldar el caso.', FALSE, 'Administrativo', FALSE),
+    ('Diapositivas de Presentación', 'Material de apoyo o diapositivas para la presentación final.', FALSE, 'Académico', FALSE);
 
 CREATE TABLE Presentation (
     id SERIAL PRIMARY KEY,
@@ -251,6 +252,9 @@ CREATE TABLE Presentation (
     internship_id INTEGER REFERENCES Internship(id),
     user_id INTEGER REFERENCES Users(id),
     owner_id INTEGER NOT NULL REFERENCES Users(id),
+    is_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    confirmed_at TIMESTAMP,
+    document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL,
     CONSTRAINT ck_presentation_time_range CHECK (end_time > start_time),
     CONSTRAINT ck_presentation_duration_positive CHECK (duration_minutes > 0)
 );
@@ -293,6 +297,7 @@ CREATE TABLE scheduling_request (
     presentation_id INTEGER REFERENCES Presentation(id) ON DELETE SET NULL, -- cita creada al responder
     target_coordinator_id INTEGER REFERENCES Users(id) ON DELETE SET NULL, -- coordinador destinatario de la solicitud
     resolved_by_role VARCHAR(50),                                          -- rol del actor que resolvió (Director/Coordinador)
+    document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP
@@ -728,3 +733,9 @@ ALTER TABLE scheduling_config ADD COLUMN IF NOT EXISTS internship_applications_d
 ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS target_coordinator_id INTEGER REFERENCES Users(id) ON DELETE SET NULL;
 ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS resolved_by_role VARCHAR(50);
 CREATE INDEX IF NOT EXISTS ix_scheduling_request_target_coordinator ON scheduling_request(target_coordinator_id);
+
+-- Migraciones para subida de diapositivas y confirmación de citas
+ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS is_confirmed BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP;
+ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;
+ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;

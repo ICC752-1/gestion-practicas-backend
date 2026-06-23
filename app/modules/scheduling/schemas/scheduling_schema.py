@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
+from app.modules.documents.schemas.document_schema import DocumentResponse
 from app.modules.scheduling.models.presentation_model import (
     PresentationPurposeEnum,
     PresentationResultEnum,
@@ -123,7 +124,11 @@ class PresentationSlotResponse(BaseModel):
     internship_id: int | None
     user_id: int | None
     owner_id: int
+    is_confirmed: bool
+    confirmed_at: datetime | None
+    document_id: int | None
     owner: "UserCompactResponse | None" = None
+    document: DocumentResponse | None = None
 
 
 class UserCompactResponse(BaseModel):
@@ -213,6 +218,7 @@ class SchedulingRequestCreateRequest(BaseModel):
     target_coordinator_id: int | None = Field(default=None, gt=0)
     message: str | None = Field(default=None, max_length=1000)
     preferred_dates: list[date] = Field(min_length=1, max_length=3)
+    document_id: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_purpose_requirements(self) -> "SchedulingRequestCreateRequest":
@@ -289,6 +295,7 @@ class SchedulingRequestResponse(BaseModel):
     presentation_id: int | None
     target_coordinator_id: int | None
     resolved_by_role: str | None
+    document_id: int | None
     created_at: datetime
     updated_at: datetime
     resolved_at: datetime | None
@@ -296,6 +303,7 @@ class SchedulingRequestResponse(BaseModel):
     student: UserCompactResponse | None = None
     coordinator: UserCompactResponse | None = None
     target_coordinator: UserCompactResponse | None = None
+    document: DocumentResponse | None = None
 
     @field_validator("preferred_dates", mode="before")
     @classmethod
@@ -369,6 +377,7 @@ class DirectSchedulingRequest(BaseModel):
     modality: Modality
     location: str | None = Field(default=None, max_length=500)
     comments: str | None = Field(default=None, max_length=1000)
+    document_id: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "DirectSchedulingRequest":
@@ -376,5 +385,13 @@ class DirectSchedulingRequest(BaseModel):
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be greater than start_time")
         return self
+
+
+class AppointmentDocumentUpdateRequest(BaseModel):
+    """Payload para actualizar el documento de diapositivas de una cita."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    document_id: int = Field(gt=0)
 
 

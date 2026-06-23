@@ -454,4 +454,15 @@ class SchedulingRepository:
         result = await self.db.execute(query.limit(1))
         return result.scalar_one_or_none() is not None
 
+    async def get_scheduling_request_by_presentation_id(
+        self,
+        presentation_id: int,
+    ) -> SchedulingRequest | None:
+        """Obtiene la solicitud de agendamiento asociada a una presentación."""
+        query = select(SchedulingRequest).where(
+            SchedulingRequest.presentation_id == presentation_id
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
 

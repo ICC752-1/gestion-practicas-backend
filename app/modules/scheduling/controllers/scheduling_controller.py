@@ -35,6 +35,7 @@ from app.modules.scheduling.schemas.scheduling_schema import (
     SchedulingConfigResponse,
     SchedulingConfigUpdateRequest,
     DirectSchedulingRequest,
+    AppointmentDocumentUpdateRequest,
 )
 from app.modules.scheduling.services.scheduling_service import SchedulingService
 
@@ -372,4 +373,43 @@ async def toggle_general_consultations(
     service = _build_service(db)
     config = await service.toggle_general_consultations(actor=current_user, payload=payload)
     return SchedulingConfigResponse.model_validate(config)
+
+
+@router.patch(
+    "/appointments/{appointment_id}/confirm",
+    response_model=PresentationSlotResponse,
+)
+async def confirm_appointment(
+    appointment_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationSlotResponse:
+    """Confirma la asistencia a una cita agendada por parte del estudiante."""
+
+    service = _build_service(db)
+    slot = await service.confirm_appointment(appointment_id=appointment_id, actor=current_user)
+
+    return PresentationSlotResponse.model_validate(slot)
+
+
+@router.patch(
+    "/appointments/{appointment_id}/document",
+    response_model=PresentationSlotResponse,
+)
+async def update_appointment_document(
+    appointment_id: int,
+    payload: AppointmentDocumentUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationSlotResponse:
+    """Asocia un documento de diapositivas a una cita existente."""
+
+    service = _build_service(db)
+    slot = await service.update_appointment_document(
+        appointment_id=appointment_id,
+        document_id=payload.document_id,
+        actor=current_user,
+    )
+
+    return PresentationSlotResponse.model_validate(slot)
 
