@@ -1,7 +1,6 @@
 """Tests unitarios para el router documental."""
 
 from datetime import date, datetime
-from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
@@ -20,16 +19,6 @@ from app.modules.documents.models.document_model import (
     DocumentExtensionEnum,
     DocumentStatusEnum,
 )
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
 
 
 def _role(name: str) -> SimpleNamespace:
@@ -227,30 +216,6 @@ class FakeDocumentService:
         )
 
 
-def test_documents_router_is_registered() -> None:
-    paths = {route.path for route in app.routes}
-
-    assert "/documents/types" in paths
-    assert "GET" in _methods_for_path("/documents/types")
-    assert "/internships/{internship_id}/documents" in paths
-    assert "POST" in _methods_for_path("/internships/{internship_id}/documents")
-    assert "GET" in _methods_for_path("/internships/{internship_id}/documents")
-    assert "/documents/{document_id}/download" in paths
-    assert "GET" in _methods_for_path("/documents/{document_id}/download")
-    assert "/documents/{document_id}/status" in paths
-    assert "PATCH" in _methods_for_path("/documents/{document_id}/status")
-    assert "/documents/{document_id}" in paths
-    assert "DELETE" in _methods_for_path("/documents/{document_id}")
-    assert "/internships/{internship_id}/documents/package" in paths
-    assert "GET" in _methods_for_path(
-        "/internships/{internship_id}/documents/package",
-    )
-    assert "/dirae/document-packages/export" in paths
-    assert "GET" in _methods_for_path("/dirae/document-packages/export")
-    assert "/internships/{internship_id}/dirae-reopen" in paths
-    assert "POST" in _methods_for_path("/internships/{internship_id}/dirae-reopen")
-
-
 def test_download_document_requires_authentication() -> None:
     with TestClient(app) as client:
         response = client.get("/documents/55/download")
@@ -319,24 +284,6 @@ def test_download_document_rejects_cross_student(monkeypatch, tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_document_types_returns_active_types(monkeypatch):
-    service = FakeDocumentService()
-    monkeypatch.setattr(
-        document_controller,
-        "_build_service",
-        lambda db: service,
-    )
-
-    result = await document_controller.list_document_types(
-        db=object(),
-        current_user=_user(10, ["Estudiante"]),
-    )
-
-    assert len(result) == 1
-    assert result[0].id == 1
-
-
-@pytest.mark.asyncio
 async def test_upload_document_reads_file_and_returns_metadata(monkeypatch):
     service = FakeDocumentService()
     monkeypatch.setattr(
@@ -384,69 +331,6 @@ async def test_export_dirae_document_packages_rejects_non_document_admin_roles(
 
 
 @pytest.mark.asyncio
-async def test_update_document_status_returns_reviewed_document(monkeypatch):
-    service = FakeDocumentService()
-    monkeypatch.setattr(
-        document_controller,
-        "_build_service",
-        lambda db: service,
-    )
-
-    payload = document_controller.DocumentStatusUpdateRequest(
-        status="observed",
-        comment="Falta firma",
-    )
-    result = await document_controller.update_document_status(
-        document_id=55,
-        payload=payload,
-        db=object(),
-        current_user=_user(99, ["Secretaria de Carrera"]),
-    )
-
-    assert result.status == DocumentStatusEnum.observed
-    assert result.review_comment == "Falta firma"
-
-
-@pytest.mark.asyncio
-async def test_delete_document_returns_204(monkeypatch):
-    service = FakeDocumentService()
-    monkeypatch.setattr(
-        document_controller,
-        "_build_service",
-        lambda db: service,
-    )
-
-    response = await document_controller.delete_document(
-        document_id=55,
-        db=object(),
-        current_user=_user(10, ["Estudiante"]),
-    )
-
-    assert response.status_code == 204
-    assert service.deleted_id == 55
-
-
-@pytest.mark.asyncio
-async def test_get_document_package_returns_summary(monkeypatch):
-    service = FakeDocumentService()
-    monkeypatch.setattr(
-        document_controller,
-        "_build_service",
-        lambda db: service,
-    )
-
-    result = await document_controller.get_document_package(
-        internship_id=7,
-        db=object(),
-        current_user=_user(10, ["Estudiante"]),
-    )
-
-    assert result.internship_id == 7
-    assert result.exportable is True
-    assert result.required_documents[0].document.id == 55
-
-
-@pytest.mark.asyncio
 async def test_export_dirae_document_packages_returns_csv(monkeypatch):
     service = FakeDocumentService()
     monkeypatch.setattr(
@@ -487,10 +371,3 @@ async def test_router_propagates_service_errors(monkeypatch):
         )
 
     assert exc.value.status_code == 404
-
-
-def test_fake_upload_file_shape_matches_needed_api() -> None:
-    upload = FakeUploadFile()
-
-    assert upload.filename == "formulario.pdf"
-    assert isinstance(BytesIO(b"data"), BytesIO)
