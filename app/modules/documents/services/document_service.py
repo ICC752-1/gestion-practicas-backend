@@ -21,6 +21,9 @@ from app.modules.documents.models.document_model import (
 from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
+)
 from app.modules.internships.models.internship_model import (
     CompletionStatusEnum,
     DiraeStatusEnum,
@@ -260,6 +263,7 @@ class DocumentService:
             raise
 
         await self._dispatch_document_uploaded_notifications(created_document)
+        await self._auto_transition_dirae_status(internship_id, actor.id)
 
         return created_document
 
@@ -347,6 +351,7 @@ class DocumentService:
         )
 
         await self._dispatch_document_status_notification(updated_document)
+        await self._auto_transition_dirae_status(document.internship_id, actor.id)
 
         return updated_document
 
@@ -369,7 +374,9 @@ class DocumentService:
         self._require_not_deleted(document)
 
         if self._has_any_role(actor, DOCUMENT_ADMIN_ROLES):
-            return await self.repository.soft_delete_document(document, actor.id)
+            deleted = await self.repository.soft_delete_document(document, actor.id)
+            await self._auto_transition_dirae_status(document.internship_id, actor.id)
+            return deleted
 
         self._require_owner(actor, document.internship)
         if document.status == DocumentStatusEnum.approved:
@@ -378,7 +385,9 @@ class DocumentService:
                 detail="Approved documents cannot be deleted by the student",
             )
 
-        return await self.repository.soft_delete_document(document, actor.id)
+        deleted = await self.repository.soft_delete_document(document, actor.id)
+        await self._auto_transition_dirae_status(document.internship_id, actor.id)
+        return deleted
 
     async def get_document_package(
         self,
@@ -397,6 +406,10 @@ class DocumentService:
 
         internship = await self._get_internship_or_404(internship_id)
         self._require_read_access(actor, internship)
+
+        await self._auto_transition_dirae_status(internship_id, actor.id)
+        # Reload the internship to obtain the updated dirae_status after any automatic transition
+        internship = await self._get_internship_or_404(internship_id)
 
         return await self._build_document_package(internship, actor=actor)
 
@@ -1250,3 +1263,71 @@ class DocumentService:
             user_role.role.name in role_names
             for user_role in actor.roles
         )
+
+    async def _auto_transition_dirae_status(
+        self,
+        internship_id: int,
+        actor_id: int | None = None,
+    ) -> None:
+        """Determina y actualiza automáticamente el estado DIRAE de la práctica.
+
+        Solo se realiza la transición automática si el estado actual es
+        in_review, observed o ready.
+        """
+        if not hasattr(self.repository, "db"):
+            return
+
+        internship = await self.repository.get_internship_by_id(internship_id)
+        if internship is None:
+            return
+
+        current_status = getattr(internship, "dirae_status", DiraeStatusEnum.not_started)
+        if current_status not in {
+            DiraeStatusEnum.in_review,
+            DiraeStatusEnum.observed,
+            DiraeStatusEnum.ready,
+        }:
+            return
+
+        required_types = await self.repository.list_required_document_types()
+        documents = await self.repository.list_package_documents_by_internship(internship_id)
+
+        approved_type_ids = {
+            doc.type_id
+            for doc in documents
+            if doc.status == DocumentStatusEnum.approved and doc.deleted_at is None
+        }
+
+        missing_required = any(
+            req_type.id not in approved_type_ids for req_type in required_types
+        )
+        observed_pending = any(
+            doc.status == DocumentStatusEnum.observed and doc.deleted_at is None
+            for doc in documents
+        )
+        uploaded_pending = any(
+            doc.status == DocumentStatusEnum.uploaded and doc.deleted_at is None
+            for doc in documents
+        )
+
+        if missing_required or observed_pending:
+            if observed_pending:
+                target_status = DiraeStatusEnum.observed
+            else:
+                target_status = DiraeStatusEnum.in_review
+        elif uploaded_pending:
+            target_status = DiraeStatusEnum.in_review
+        else:
+            target_status = DiraeStatusEnum.ready
+
+        if current_status != target_status:
+            internship.dirae_status = target_status
+            history_entry = InternshipDiraeStatusHistory(
+                internship_id=internship_id,
+                previous_status=current_status,
+                new_status=target_status,
+                actor_id=actor_id,
+                reason="Transición automática por cambio en estado de documentos.",
+            )
+            self.repository.db.add(history_entry)
+            await self.repository.db.commit()
