@@ -68,6 +68,7 @@ STUDENT_ROLE = "Estudiante"
 DASHBOARD_READ_ROLES = [
     "Encargado de practica",
     "Director de carrera",
+    "Secretaria de Carrera",
 ]
 PRIVILEGED_READ_ROLES = {
     "Encargado de practica",
