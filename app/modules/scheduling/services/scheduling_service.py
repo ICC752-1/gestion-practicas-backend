@@ -1,7 +1,8 @@
 """Servicio de negocio para publicacion y reserva de agenda."""
 
 import logging
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 
@@ -62,8 +63,16 @@ ROLE_DISPLAY_MAPPING = {
 }
 
 
+_LOCAL_TZ = ZoneInfo("America/Santiago")
+
+
 def _now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    """Retorna la hora actual en zona horaria local (America/Santiago) sin tzinfo.
+
+    Las horas guardadas en la BD son naive pero representan hora local de Chile,
+    por lo que la comparacion debe hacerse en la misma zona horaria.
+    """
+    return datetime.now(_LOCAL_TZ).replace(tzinfo=None)
 
 
 def _role_names(user: User) -> set[str]:
