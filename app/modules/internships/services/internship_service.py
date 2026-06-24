@@ -1910,7 +1910,7 @@ class InternshipService:
 
         if (
             editable_until is not None
-            and datetime.now(UTC).replace(tzinfo=None) > editable_until
+            and datetime.now(UTC).replace(tzinfo=None) >= editable_until
         ):
             reasons.append("window_expired")
 
