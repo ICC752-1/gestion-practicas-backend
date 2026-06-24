@@ -636,7 +636,7 @@ FROM (VALUES
     ('superadmin@ufrontera.cl', 'Superadmin')
 ) AS assignments(email, role_name)
 JOIN Users users ON users.email = assignments.email
-JOIN Roles roles ON roles.name = assignments.role_name;
+JOIN Roles roles ON roles.name::text = assignments.role_name;
 
 -- Contenido minimo de induccion para flujos demo/Insomnia.
 -- Permite que el estudiante complete el prerrequisito inexceptuable antes
