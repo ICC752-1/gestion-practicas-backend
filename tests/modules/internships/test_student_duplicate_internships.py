@@ -89,7 +89,11 @@ class FakeDuplicateRepository:
     async def list_internships_by_user(self, user_id: int):
         return []
 
-    async def get_passed_induction_attempt(self, user_id: int):
+    async def get_passed_induction_attempt(
+        self,
+        user_id: int,
+        content_version_id: int | None = None,
+    ):
         return None
 
     async def get_active_induction_content(self):

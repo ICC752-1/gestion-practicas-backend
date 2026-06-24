@@ -615,6 +615,8 @@ class RegistrationEligibilityResponse(BaseModel):
             el cumplimiento del seguro escolar.
         has_induction: ``True`` si el estudiante aprobó el cuestionario
             de inducción obligatoria.
+        requires_retake: ``True`` si la versión activa exige repetir la
+            inducción aunque existan aprobaciones anteriores.
         has_school_insurance_exception: ``True`` si existe una excepción
             administrativa activa para seguro escolar en alguna práctica
             vigente del estudiante.
@@ -639,6 +641,7 @@ class RegistrationEligibilityResponse(BaseModel):
     has_school_insurance: bool
     insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
     has_induction: bool
+    requires_retake: bool = False
     has_school_insurance_exception: bool = False
     has_approved_practice_1: bool = False
     sequentiality_blocked: bool = False
