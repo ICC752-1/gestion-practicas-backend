@@ -7,7 +7,7 @@ informacion base de una practica profesional asociada a un estudiante.
 from datetime import UTC, date, datetime
 import enum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,6 +29,44 @@ class PracticeTypeEnum(str, enum.Enum):
     practice_2 = "Práctica de Estudio II"
     controlled_practice = "Práctica Controlada"
     thesis = "Tesis"
+
+
+class CompletionStatusEnum(str, enum.Enum):
+    """Estados del ciclo de ejecucion/cierre de la practica."""
+
+    not_started = "not_started"
+    in_progress = "in_progress"
+    pending_evaluations = "pending_evaluations"
+    pending_presentation = "pending_presentation"
+    finalized = "finalized"
+
+
+class FinalResultEnum(str, enum.Enum):
+    """Resultado final consolidado de la practica."""
+
+    pending = "pending"
+    passed = "passed"
+    failed = "failed"
+
+
+class DiraeStatusEnum(str, enum.Enum):
+    """Estado local del expediente documental DIRAE."""
+
+    not_started = "not_started"
+    in_review = "in_review"
+    observed = "observed"
+    ready = "ready"
+    exported = "exported"
+
+
+class SchoolInsuranceStatusEnum(str, enum.Enum):
+    """Estado de validacion del seguro escolar para una solicitud concreta."""
+
+    pending = "pending"
+    validated = "validated"
+    requires_exception = "requires_exception"
+    exception_authorized = "exception_authorized"
+    not_applicable = "not_applicable"
 
 
 class Internship(Base):
@@ -67,6 +105,18 @@ class Internship(Base):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
+        blocks_new_registration: Indica si bloquea nuevas solicitudes del mismo
+            tipo para el mismo estudiante.
+        completion_status: Estado del ciclo de ejecucion/cierre posterior a la
+            aprobacion administrativa.
+        final_result: Resultado final consolidado de la practica.
+        dirae_status: Estado local del expediente documental DIRAE.
+        insurance_status: Estado de validacion del seguro escolar para esta
+            solicitud concreta.
+        insurance_validated_by: Identificador del actor que valido o regularizo
+            el seguro escolar para esta solicitud.
+        insurance_validated_at: Fecha y hora de la validacion o regularizacion.
+        insurance_notes: Observacion administrativa asociada a la validacion.
         status: Relacion ORM hacia `CurrentState`.
         student: Relacion ORM hacia `User`.
         cancellation_actor: Relacion ORM hacia el usuario anulador.
@@ -163,14 +213,76 @@ class Internship(Base):
         nullable=True,
     )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    blocks_new_registration: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+    completion_status: Mapped[CompletionStatusEnum] = mapped_column(
+        PGEnum(
+            CompletionStatusEnum,
+            name="enumCompletionStatus",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=CompletionStatusEnum.not_started,
+        nullable=False,
+    )
+    final_result: Mapped[FinalResultEnum] = mapped_column(
+        PGEnum(
+            FinalResultEnum,
+            name="enumFinalResult",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=FinalResultEnum.pending,
+        nullable=False,
+    )
+    dirae_status: Mapped[DiraeStatusEnum] = mapped_column(
+        PGEnum(
+            DiraeStatusEnum,
+            name="enumDiraeStatus",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        default=DiraeStatusEnum.not_started,
+        nullable=False,
+    )
+    insurance_status: Mapped[SchoolInsuranceStatusEnum] = mapped_column(
+        PGEnum(
+            SchoolInsuranceStatusEnum,
+            name="enumSchoolInsuranceStatus",
+            values_callable=lambda values: [item.value for item in values],
+            create_type=False,
+        ),
+        default=SchoolInsuranceStatusEnum.pending,
+        nullable=False,
+    )
+    insurance_validated_by: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+    insurance_validated_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+    insurance_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status = relationship("CurrentState", back_populates="internships")
     student = relationship("User", foreign_keys=[user_id])
     cancellation_actor = relationship("User", foreign_keys=[cancelled_by])
+    insurance_validator = relationship("User", foreign_keys=[insurance_validated_by])
     status_history = relationship(
         "InternshipStatusHistory",
         back_populates="internship",
         cascade="all, delete-orphan",
+    )
+    dirae_status_history = relationship(
+        "InternshipDiraeStatusHistory",
+        back_populates="internship",
+        cascade="all, delete-orphan",
+        order_by="InternshipDiraeStatusHistory.changed_at",
     )
 
     exceptions = relationship(
@@ -180,3 +292,12 @@ class Internship(Base):
         order_by="InternshipException.authorized_at",
         lazy="selectin",
     )
+
+
+Index(
+    "uq_internship_blocking_type_per_student",
+    Internship.user_id,
+    Internship.internship_type,
+    unique=True,
+    postgresql_where=text("blocks_new_registration IS TRUE"),
+)

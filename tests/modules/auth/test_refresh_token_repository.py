@@ -9,15 +9,25 @@ def _utc_now() -> datetime:
 
 
 class FakeResult:
-    def __init__(self, value: RefreshToken | None) -> None:
+    def __init__(self, value: RefreshToken | None | list[RefreshToken]) -> None:
         self.value = value
 
     def scalar_one_or_none(self) -> RefreshToken | None:
         return self.value
 
+    def scalars(self):
+        return self
+
+    def all(self) -> list[RefreshToken]:
+        if self.value is None:
+            return []
+        if isinstance(self.value, list):
+            return self.value
+        return [self.value]
+
 
 class FakeSession:
-    def __init__(self, execute_result: RefreshToken | None = None) -> None:
+    def __init__(self, execute_result: RefreshToken | list[RefreshToken] | None = None) -> None:
         self.added = None
         self.commits = 0
         self.refreshed = None
@@ -107,3 +117,15 @@ def test_is_refresh_token_valid_returns_false_for_expired_token() -> None:
     refresh_token = _refresh_token(expires_at=_utc_now() - timedelta(seconds=1))
 
     assert repository.is_refresh_token_valid(refresh_token) is False
+
+
+async def test_revoke_active_tokens_for_user_revokes_matching_tokens() -> None:
+    refresh_tokens = [_refresh_token(), _refresh_token()]
+    db = FakeSession(execute_result=refresh_tokens)
+    repository = RefreshTokenRepository(db)
+
+    revoked_count = await repository.revoke_active_tokens_for_user(user_id=1)
+
+    assert revoked_count == 2
+    assert all(refresh_token.revoked_at is not None for refresh_token in refresh_tokens)
+    assert db.commits == 1

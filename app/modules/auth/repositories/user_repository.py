@@ -5,12 +5,13 @@ operaciones de persistencia relacionadas con la entidad `User` usando una sesió
 asíncrona de SQLAlchemy.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
+from app.modules.auth.models.role_model import Role
 
 
 class UserRepository:
@@ -105,6 +106,10 @@ class UserRepository:
         self,
         is_active: bool | None = None,
         email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -124,9 +129,84 @@ class UserRepository:
         if email:
             query = query.where(User.email == email)
 
+        if search:
+            pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    User.first_name.ilike(pattern),
+                    User.last_name.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.rut.ilike(pattern),
+                )
+            )
+
+        if role_name:
+            query = query.join(UserRole).join(Role).where(Role.name == role_name)
+
+        query = query.order_by(User.id)
+
+        if limit is not None:
+            query = query.limit(limit).offset(offset)
+
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def count_users(
+        self,
+        is_active: bool | None = None,
+        email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+    ) -> int:
+        """Cuenta usuarios con los mismos filtros del listado administrativo."""
+
+        query = select(func.count(User.id))
+
+        if is_active is not None:
+            query = query.where(User.is_active == is_active)
+
+        if email:
+            query = query.where(User.email == email)
+
+        if search:
+            pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    User.first_name.ilike(pattern),
+                    User.last_name.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.rut.ilike(pattern),
+                )
+            )
+
+        if role_name:
+            query = query.join(UserRole).join(Role).where(Role.name == role_name)
+
+        result = await self.db.execute(query)
+
+        return int(result.scalar_one())
+
+    async def count_active_users_with_role(
+        self,
+        role_name: str,
+        exclude_user_id: int | None = None,
+    ) -> int:
+        """Cuenta usuarios activos que tienen un rol especifico."""
+
+        query = (
+            select(func.count(User.id))
+            .join(UserRole)
+            .join(Role)
+            .where(User.is_active.is_(True), Role.name == role_name)
+        )
+
+        if exclude_user_id is not None:
+            query = query.where(User.id != exclude_user_id)
+
+        result = await self.db.execute(query)
+
+        return int(result.scalar_one())
 
     async def update_user(self, user: User) -> User:
         """Actualiza un usuario existente en la base de datos.

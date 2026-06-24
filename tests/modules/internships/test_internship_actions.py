@@ -1,9 +1,9 @@
 """Tests unitarios para las acciones administrativas de practicas.
 
 Cubre las subtareas 6 del issue 9.5:
-- Aprobacion valida directa desde pendiente, En revision y En revision DIRAE
-- Rechazo valido
-- Derivacion valida a DIRAE
+ - Aprobacion valida directa desde pendiente, En revision y En revision DIRAE
+ - Rechazo valido
+ - Inicio de revision DIRAE sin modificar estado administrativo
 - Rol incorrecto para cada accion (403)
 - Comentario faltante en rechazo y derivacion (400)
 - Transicion invalida desde estado terminal (409)
@@ -16,6 +16,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    DiraeStatusEnum,
+    SchoolInsuranceStatusEnum,
+)
 from app.modules.internships.services.internship_service import (
     APPROVED_STATUS_TITLE,
     IN_REVIEW_DIRAE_STATUS_TITLE,
@@ -32,11 +37,21 @@ def _make_state(title: str, state_id: int = 1) -> MagicMock:
     return state
 
 
-def _make_internship(status_title: str | None, internship_id: int = 1) -> MagicMock:
+def _make_internship(
+    status_title: str | None,
+    internship_id: int = 1,
+    completion_status=CompletionStatusEnum.not_started,
+    dirae_status=DiraeStatusEnum.not_started,
+) -> MagicMock:
     internship = MagicMock()
     internship.id = internship_id
     internship.status_id = 1
     internship.status = _make_state(status_title) if status_title else None
+    internship.completion_status = completion_status
+    internship.dirae_status = dirae_status
+    internship.start_date = None
+    internship.end_date = None
+    internship.insurance_status = SchoolInsuranceStatusEnum.validated
     return internship
 
 
@@ -73,6 +88,16 @@ def _make_service(
 
     repo.update_internship_status_with_history.side_effect = _update_with_history
 
+    async def _update_dirae_with_history(
+        internship, new_status, actor_id, reason
+    ):
+        internship.dirae_status = new_status
+        return internship
+
+    repo.update_internship_dirae_status_with_history.side_effect = (
+        _update_dirae_with_history
+    )
+
     return InternshipService(internship_repository=repo)
 
 class TestApprove:
@@ -93,6 +118,23 @@ class TestApprove:
 
         # El flujo por defecto para el Encargado es mover a "En revisión"
         assert result.status.title == IN_REVIEW_STATUS_TITLE
+
+    @pytest.mark.asyncio
+    async def test_encargado_no_notifica_aprobacion_al_pasar_a_en_revision(self):
+        """Pendiente -> En revisión no debe informar aprobación al estudiante."""
+        state_map = {
+            IN_REVIEW_STATUS_TITLE: _make_state(IN_REVIEW_STATUS_TITLE, 2),
+            APPROVED_STATUS_TITLE: _make_state(APPROVED_STATUS_TITLE, 3),
+        }
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship, state_map=state_map)
+        service._dispatch_notification = AsyncMock()
+        actor = _make_user("Encargado de practica")
+
+        result = await service.approve(internship.id, actor, comment=None)
+
+        assert result.status.title == IN_REVIEW_STATUS_TITLE
+        service._dispatch_notification.assert_not_awaited()
         
     @pytest.mark.asyncio
     async def test_director_aprueba_desde_pendiente_directo_a_aprobada(self):
@@ -277,32 +319,43 @@ class TestReject:
 class TestDerive:
 
     @pytest.mark.asyncio
-    async def test_derivacion_valida_desde_pendiente(self):
-        """Secretaria de Carrera deriva desde Pendiente → En revision DIRAE."""
-        state_map = {
-            IN_REVIEW_DIRAE_STATUS_TITLE: _make_state(IN_REVIEW_DIRAE_STATUS_TITLE, 5)
-        }
-        internship = _make_internship(PENDING_STATUS_TITLE)
-        service = _make_service(internship=internship, state_map=state_map)
+    async def test_derivacion_valida_desde_aprobada_finalizada(self):
+        """Secretaria inicia revision DIRAE sin cambiar estado administrativo."""
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+        )
+        service = _make_service(internship=internship)
         actor = _make_user("Secretaria de Carrera")
 
         result = await service.derive(internship.id, actor, comment="Requiere revision DIRAE")
 
-        assert result.status.title == IN_REVIEW_DIRAE_STATUS_TITLE
+        assert result.status.title == APPROVED_STATUS_TITLE
+        assert result.dirae_status == DiraeStatusEnum.in_review
 
     @pytest.mark.asyncio
-    async def test_derivacion_valida_desde_en_revision(self):
-        """Secretaria de Carrera deriva desde En revision → En revision DIRAE."""
-        state_map = {
-            IN_REVIEW_DIRAE_STATUS_TITLE: _make_state(IN_REVIEW_DIRAE_STATUS_TITLE, 5)
-        }
-        internship = _make_internship(IN_REVIEW_STATUS_TITLE)
-        service = _make_service(internship=internship, state_map=state_map)
+    async def test_derivacion_desde_pendiente_lanza_409(self):
+        """No se puede iniciar DIRAE antes de aprobar la solicitud."""
+        internship = _make_internship(PENDING_STATUS_TITLE)
+        service = _make_service(internship=internship)
         actor = _make_user("Secretaria de Carrera")
 
-        result = await service.derive(internship.id, actor, comment="Se eleva a DIRAE")
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="Se eleva a DIRAE")
 
-        assert result.status.title == IN_REVIEW_DIRAE_STATUS_TITLE
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_derivacion_desde_aprobada_no_finalizada_lanza_409(self):
+        """No se puede iniciar DIRAE antes de finalizar la practica."""
+        internship = _make_internship(APPROVED_STATUS_TITLE)
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.derive(internship.id, actor, comment="Se eleva a DIRAE")
+
+        assert exc.value.status_code == 409
 
     @pytest.mark.asyncio
     async def test_sin_comentario_lanza_400(self):
@@ -341,9 +394,13 @@ class TestDerive:
         assert exc.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_aprobada_lanza_409(self):
-        """Derivar una practica aprobada devuelve 409."""
-        internship = _make_internship(APPROVED_STATUS_TITLE)
+    async def test_dirae_ya_en_revision_lanza_409(self):
+        """No se registra dos veces el mismo estado DIRAE."""
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.in_review,
+        )
         service = _make_service(internship=internship)
         actor = _make_user("Secretaria de Carrera")
 
@@ -374,3 +431,107 @@ class TestDerive:
             await service.derive(999, actor, comment="Motivo")
 
         assert exc.value.status_code == 404
+
+
+class TestDiraeRectification:
+
+    @pytest.mark.asyncio
+    async def test_reapertura_valida_desde_ready_registra_observed(self):
+        """Secretaría reabre un expediente listo para rectificación documental."""
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        result = await service.reopen_dirae_rectification(
+            internship.id,
+            actor,
+            reason="Observación documental posterior",
+        )
+
+        assert result.status.title == APPROVED_STATUS_TITLE
+        assert result.dirae_status == DiraeStatusEnum.observed
+        service.internship_repository.update_internship_dirae_status_with_history.assert_awaited_once_with(
+            internship=internship,
+            new_status=DiraeStatusEnum.observed,
+            actor_id=actor.id,
+            reason="Observación documental posterior",
+        )
+
+    @pytest.mark.asyncio
+    async def test_reapertura_valida_desde_exported_registra_observed(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.exported,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        result = await service.reopen_dirae_rectification(
+            internship.id,
+            actor,
+            reason="Rectificación posterior a exportación",
+        )
+
+        assert result.dirae_status == DiraeStatusEnum.observed
+
+    @pytest.mark.asyncio
+    async def test_reapertura_exige_comentario(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason=" ",
+            )
+
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reapertura_rechaza_estado_no_reabrible(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.in_review,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Secretaria de Carrera")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason="Motivo",
+            )
+
+        assert exc.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_reapertura_rechaza_rol_sin_permiso(self):
+        internship = _make_internship(
+            APPROVED_STATUS_TITLE,
+            completion_status=CompletionStatusEnum.finalized,
+            dirae_status=DiraeStatusEnum.ready,
+        )
+        service = _make_service(internship=internship)
+        actor = _make_user("Encargado de practica")
+
+        with pytest.raises(HTTPException) as exc:
+            await service.reopen_dirae_rectification(
+                internship.id,
+                actor,
+                reason="Motivo",
+            )
+
+        assert exc.value.status_code == 403

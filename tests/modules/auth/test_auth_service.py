@@ -3,7 +3,11 @@ from types import SimpleNamespace
 import pytest
 
 from app.modules.auth.schemas.token_schema import TokenResponse
-from app.modules.auth.services.auth_service import AuthService
+from app.modules.auth.services.auth_service import (
+    AccountActivationError,
+    AuthService,
+    TemporaryPasswordChangeRequiredError,
+)
 
 
 class FakeUserRepository:
@@ -11,6 +15,7 @@ class FakeUserRepository:
         self.user = user
         self.requested_email = None
         self.requested_user_id = None
+        self.updated_user = None
 
     async def get_user_by_email(self, email: str):
         self.requested_email = email
@@ -19,6 +24,10 @@ class FakeUserRepository:
     async def get_user_by_id(self, user_id: int):
         self.requested_user_id = user_id
         return self.user
+
+    async def update_user(self, user):
+        self.updated_user = user
+        return user
 
 
 class FakePasswordService:
@@ -29,6 +38,9 @@ class FakePasswordService:
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         self.calls.append((plain_password, hashed_password))
         return self.is_valid
+
+    def hash_password(self, password: str) -> str:
+        return f"hashed-{password}"
 
 
 class FakeTokenService:
@@ -98,12 +110,39 @@ class FakeRefreshTokenRepository:
         return getattr(refresh_token, "is_valid", True)
 
 
-def _user(is_active: bool = True):
+class FakeActivationTokenRepository:
+    def __init__(self, activation_token=None, is_valid: bool = True) -> None:
+        self.activation_token = activation_token
+        self.is_valid = is_valid
+        self.requested_hash = None
+        self.consumed_activation_token = None
+        self.consumed_user = None
+
+    async def get_token_by_hash(self, token_hash: str):
+        self.requested_hash = token_hash
+        return self.activation_token
+
+    def is_token_valid(self, activation_token) -> bool:
+        return self.is_valid
+
+    async def consume_token_for_user(self, activation_token, user):
+        self.consumed_activation_token = activation_token
+        self.consumed_user = user
+        activation_token.used_at = "used"
+        return activation_token
+
+
+def _user(is_active: bool = True, must_change_password: bool = False):
     return SimpleNamespace(
         id=1,
         email="user@example.com",
+        first_name="Ana",
+        last_name="Perez",
         is_active=is_active,
+        must_change_password=must_change_password,
+        is_verified=not must_change_password,
         password_hash="hashed",
+        admission_year=2022,
         roles=[SimpleNamespace(role=SimpleNamespace(name="Estudiante"))],
     )
 
@@ -117,6 +156,14 @@ def _stored_refresh_token(
         user_id=user_id,
         token_hash=token_hash,
         is_valid=is_valid,
+        revoked_at=None,
+    )
+
+
+def _activation_token(user=None):
+    return SimpleNamespace(
+        user=user or _user(must_change_password=True),
+        used_at=None,
         revoked_at=None,
     )
 
@@ -199,6 +246,139 @@ async def test_login_returns_tokens_for_valid_credentials() -> None:
     assert persisted_refresh_token.token_hash == "hashed-refresh-token"
     assert persisted_refresh_token.token_hash != response.refresh_token
     assert persisted_refresh_token.expires_at is not None
+
+
+async def test_login_requires_temporary_password_change_before_session() -> None:
+    user = _user(must_change_password=True)
+    service, _, _, _, refresh_token_repository = _service(user=user)
+
+    with pytest.raises(TemporaryPasswordChangeRequiredError):
+        await service.login("user@example.com", "temporary-secret")
+
+    assert refresh_token_repository.created_refresh_token is None
+
+
+async def test_complete_temporary_password_replaces_hash_and_clears_flag() -> None:
+    user = _user(must_change_password=True)
+    service, repository, _, _, _ = _service(user=user)
+
+    await service.complete_temporary_password_change(
+        email="user@example.com",
+        temporary_password="temporary-secret",
+        new_password="new-secure-password",
+    )
+
+    assert repository.updated_user is user
+    assert user.password_hash == "hashed-new-secure-password"
+    assert user.must_change_password is False
+    assert user.is_verified is True
+
+
+async def test_complete_temporary_password_rejects_accounts_without_pending_change() -> None:
+    service, _, _, _, _ = _service(user=_user())
+
+    with pytest.raises(ValueError, match="Temporary password change is not required"):
+        await service.complete_temporary_password_change(
+            email="user@example.com",
+            temporary_password="current-password",
+            new_password="new-secure-password",
+        )
+
+
+async def test_activate_account_sets_password_and_consumes_token() -> None:
+    user = _user(must_change_password=True)
+    activation_token = _activation_token(user=user)
+    user_repository = FakeUserRepository(user=user)
+    password_service = FakePasswordService(is_valid=True)
+    token_service = FakeTokenService()
+    activation_token_repository = FakeActivationTokenRepository(
+        activation_token=activation_token
+    )
+    service = AuthService(
+        password_service=password_service,
+        token_service=token_service,
+        user_repository=user_repository,
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        activation_token_repository=activation_token_repository,
+    )
+
+    await service.activate_account(
+        token="raw-activation-token",
+        new_password="new-secure-password",
+        admission_year=2023,
+    )
+
+    assert activation_token_repository.requested_hash == "hashed-raw-activation-token"
+    assert activation_token_repository.consumed_activation_token is activation_token
+    assert activation_token_repository.consumed_user is user
+    assert user.password_hash == "hashed-new-secure-password"
+    assert user.must_change_password is False
+    assert user.is_verified is True
+    assert user.admission_year == 2023
+
+
+async def test_get_activation_account_info_returns_student_data() -> None:
+    user = _user(must_change_password=True)
+    activation_token = _activation_token(user=user)
+    activation_token_repository = FakeActivationTokenRepository(
+        activation_token=activation_token
+    )
+    service = AuthService(
+        password_service=FakePasswordService(is_valid=True),
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(user=user),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        activation_token_repository=activation_token_repository,
+    )
+
+    info = await service.get_activation_account_info(token="raw-activation-token")
+
+    assert activation_token_repository.requested_hash == "hashed-raw-activation-token"
+    assert info == {
+        "email": "user@example.com",
+        "first_name": "Ana",
+        "last_name": "Perez",
+        "roles": ["Estudiante"],
+        "admission_year": 2022,
+    }
+
+
+async def test_activate_account_rejects_missing_token() -> None:
+    service = AuthService(
+        password_service=FakePasswordService(is_valid=True),
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(user=None),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        activation_token_repository=FakeActivationTokenRepository(
+            activation_token=None
+        ),
+    )
+
+    with pytest.raises(AccountActivationError, match="Invalid or expired"):
+        await service.activate_account(
+            token="missing-token",
+            new_password="new-secure-password",
+        )
+
+
+async def test_activate_account_rejects_expired_token() -> None:
+    user = _user(must_change_password=True)
+    service = AuthService(
+        password_service=FakePasswordService(is_valid=True),
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(user=user),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        activation_token_repository=FakeActivationTokenRepository(
+            activation_token=_activation_token(user=user),
+            is_valid=False,
+        ),
+    )
+
+    with pytest.raises(AccountActivationError, match="Invalid or expired"):
+        await service.activate_account(
+            token="expired-token",
+            new_password="new-secure-password",
+        )
 
 
 async def test_create_session_for_user_returns_tokens_and_persists_refresh_token() -> None:

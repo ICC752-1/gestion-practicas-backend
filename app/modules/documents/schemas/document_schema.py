@@ -10,6 +10,7 @@ from app.modules.documents.models.document_model import (
     DocumentExtensionEnum,
     DocumentStatusEnum,
 )
+from app.modules.internships.models.internship_model import DiraeStatusEnum
 
 
 class DocumentTypeResponse(BaseModel):
@@ -21,6 +22,7 @@ class DocumentTypeResponse(BaseModel):
         description: Descripcion funcional.
         is_required: Indica si es parte del paquete minimo.
         category: Categoria funcional.
+        is_sensitive: Indica si contiene antecedentes reservados.
         is_active: Indica si puede usarse en cargas nuevas.
     """
 
@@ -31,6 +33,7 @@ class DocumentTypeResponse(BaseModel):
     description: str
     is_required: bool
     category: DocumentCategoryEnum | None
+    is_sensitive: bool
     is_active: bool
 
 
@@ -118,9 +121,17 @@ class DocumentPackageResponse(BaseModel):
 
     internship_id: int
     status: str | None
+    dirae_status: DiraeStatusEnum
     exportable: bool
     reasons: list[
-        Literal["internship_not_approved", "missing_required_documents"]
+        Literal[
+            "internship_not_approved",
+            "practice_not_finalized",
+            "dirae_not_ready",
+            "missing_required_documents",
+            "observed_documents_pending",
+            "sensitive_document_restricted",
+        ]
     ]
     student: DocumentPackageStudentResponse
     internship: DocumentPackageInternshipResponse

@@ -18,6 +18,32 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
+
+class CompleteTemporaryPasswordRequest(BaseModel):
+    """Payload para reemplazar una credencial temporal de un solo uso."""
+
+    email: EmailStr
+    temporary_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ActivateAccountRequest(BaseModel):
+    """Payload para activar una cuenta mediante enlace de un solo uso."""
+
+    token: str = Field(min_length=32, max_length=512)
+    new_password: str = Field(min_length=8, max_length=128)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
+
+
+class ActivationAccountInfoResponse(BaseModel):
+    """Datos mínimos de una cuenta pendiente de activación."""
+
+    email: EmailStr
+    first_name: str
+    last_name: str
+    roles: list[str]
+    admission_year: int | None = None
+
 class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
 
@@ -25,7 +51,7 @@ class RefreshTokenRequest(BaseModel):
         refresh_token: Token de refresco emitido previamente.
     """
 
-    refresh_token: str
+    refresh_token: str | None = None
 
 class ChangePasswordRequest(BaseModel):
     """Payload de solicitud para cambiar la contraseña del usuario.
@@ -68,4 +94,4 @@ class LogoutRequest(BaseModel):
         refresh_token: Token de refresco que se desea invalidar.
     """
 
-    refresh_token: str
+    refresh_token: str | None = None

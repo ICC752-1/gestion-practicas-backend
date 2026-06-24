@@ -120,6 +120,9 @@ class FakeInternshipRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self.updated_insurance_status = None
+        self.updated_insurance_actor_id = None
+        self.updated_insurance_notes = None
         
         # Atributos de rastreo para Excepciones Administrativas
         self.created_exception_internship_id = None
@@ -167,6 +170,9 @@ class FakeInternshipRepository:
         self.requested_user_id = user_id
         return self.internships_by_user
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def list_dashboard_internships(self):
         return self.dashboard_internships
 
@@ -208,14 +214,32 @@ class FakeInternshipRepository:
             rule=rule,
             reason=reason,
             authorized_by=authorized_by,
-            actor=_user(authorized_by, "Encargado", "De Práctica")
+            actor=_user(authorized_by, "Ana", "Director", roles=["Director de carrera"])
         )
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = actor_id
+        internship.insurance_notes = notes
+        self.updated_insurance_status = status
+        self.updated_insurance_actor_id = actor_id
+        self.updated_insurance_notes = notes
+        return internship
 
     async def list_exceptions(self, internship_id: int):
         return self.exceptions_list
 
     async def get_student_requirement(self, user_id: int, requirement: str):
         return self._student_requirements.get((user_id, requirement))
+
+    async def is_internship_applications_disabled(self) -> bool:
+        return False
 
     async def get_passed_induction_attempt(self, user_id: int):
         return self._passed_induction_for_user.get(user_id)
@@ -248,6 +272,9 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository = FakeInternshipRepository()
     repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
         is_completed=False,
+    )
+    repository._student_requirements[(42, "induction")] = SimpleNamespace(
+        is_completed=True,
     )
     service = InternshipService(internship_repository=repository)
 
@@ -473,7 +500,7 @@ async def test_grant_exception_success_and_idempotency() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     
-    actor = _user(user_id=22, first_name="Juan", last_name="Coordinador", roles=["Encargado de practica"])
+    actor = _user(user_id=22, first_name="Ana", last_name="Director", roles=["Director de carrera"])
     repository.internship_by_id = SimpleNamespace(
         id=7,
         status_id=1,
@@ -859,6 +886,9 @@ async def test_registration_eligibility_sequentiality_blocked() -> None:
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
     repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
     repository.internships_by_user = [
         SimpleNamespace(
@@ -882,6 +912,9 @@ async def test_registration_eligibility_has_approved_practice_1() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
         is_completed=True,
     )
     repository._passed_induction_for_user[10] = SimpleNamespace(passed=True)
@@ -958,6 +991,9 @@ async def test_create_practice_2_allowed_without_approved_practice_1() -> None:
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
         is_completed=True,
     )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
+        is_completed=True,
+    )
 
     payload = _valid_payload()
     payload.internship_type = PracticeTypeEnum.practice_2
@@ -978,6 +1014,9 @@ async def test_create_practice_2_allowed_with_active_practice_1() -> None:
     repository = FakeInternshipRepository()
     service = InternshipService(internship_repository=repository)
     repository._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(10, "induction")] = SimpleNamespace(
         is_completed=True,
     )
     repository.internships_by_user = [

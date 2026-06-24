@@ -1,6 +1,6 @@
 """Modelo ORM de requisitos de prácticas de estudiantes."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import enum
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, UniqueConstraint
@@ -8,6 +8,10 @@ from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.database import Base
+
+
+def _utc_now_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class StudentInternshipRequirement(Base):
@@ -68,13 +72,13 @@ class StudentInternshipRequirement(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
+        default=_utc_now_naive,
         nullable=False,
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=_utc_now_naive,
+        onupdate=_utc_now_naive,
         nullable=False,
     )
 

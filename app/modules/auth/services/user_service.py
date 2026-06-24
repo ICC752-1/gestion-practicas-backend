@@ -6,6 +6,7 @@ repositorios correspondientes.
 """
 
 import logging
+import secrets
 
 from app.modules.auth.models.user_model import User
 from app.modules.auth.repositories.user_repository import UserRepository
@@ -52,7 +53,8 @@ class UserService:
             Entidad `User` persistida.
         """
 
-        hashed_password = self.password_service.hash_password(payload.password)
+        initial_password = payload.password or secrets.token_urlsafe(32)
+        hashed_password = self.password_service.hash_password(initial_password)
 
         user = User(
             email=payload.email,
@@ -62,6 +64,7 @@ class UserService:
             rut=normalize_rut(payload.rut),
             degree=payload.degree,
             cod_degree=payload.cod_degree,
+            admission_year=payload.admission_year,
             sexo=payload.sexo,
             phone=normalize_phone(payload.phone) if payload.phone else None,
             profession=payload.profession,
@@ -70,6 +73,7 @@ class UserService:
             sup_phone=normalize_phone(payload.sup_phone) if payload.sup_phone else None,
             is_active=True,
             is_verified=False,
+            must_change_password=True,
         )
         user = await self.user_repository.create_user(user)
 
@@ -84,6 +88,10 @@ class UserService:
         self,
         is_active: bool | None = None,
         email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -98,6 +106,26 @@ class UserService:
         return await self.user_repository.list_users(
             is_active=is_active,
             email=email,
+            search=search,
+            role_name=role_name,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def count_users(
+        self,
+        is_active: bool | None = None,
+        email: str | None = None,
+        search: str | None = None,
+        role_name: str | None = None,
+    ) -> int:
+        """Cuenta usuarios con filtros administrativos."""
+
+        return await self.user_repository.count_users(
+            is_active=is_active,
+            email=email,
+            search=search,
+            role_name=role_name,
         )
 
     async def update_user(self, user: User, payload: UserUpdateRequest) -> User:

@@ -19,12 +19,17 @@ from app.modules.admin.schemas.admin_schema import (
     AdminStudentInternshipRequirementItem,
     AdminStudentListItem,
     AdminSummaryResponse,
+    AdminUpdateInternshipSchoolInsuranceRequest,
     AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.admin.services.admin_service import AdminService
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
+from app.modules.auth.utils.roles import (
+    CAREER_DIRECTOR_ROLE,
+    PRACTICE_MANAGER_ROLE,
+)
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
@@ -36,10 +41,12 @@ from app.modules.notifications.services.notification_service import (
 router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = logging.getLogger(__name__)
 
-PRACTICE_MANAGER_ROLE = "Encargado de practica"
-SCHOOL_INSURANCE_ADMIN_ROLES = [
+ADMIN_READ_ROLES = [
     PRACTICE_MANAGER_ROLE,
-    "Director de carrera",
+    CAREER_DIRECTOR_ROLE,
+]
+SCHOOL_INSURANCE_ADMIN_ROLES = [
+    CAREER_DIRECTOR_ROLE,
 ]
 
 
@@ -64,7 +71,7 @@ def _build_service(db: AsyncSession) -> AdminService:
 @router.get("/summary", response_model=AdminSummaryResponse)
 async def get_summary(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminSummaryResponse:
     """Obtiene el resumen administrativo visible para el encargado.
 
@@ -86,7 +93,7 @@ async def get_summary(
 @router.get("/students", response_model=list[AdminStudentListItem])
 async def get_students(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> list[AdminStudentListItem]:
     """Obtiene el listado administrativo de estudiantes.
 
@@ -108,7 +115,7 @@ async def get_students(
 @router.get("/internships", response_model=list[AdminInternshipListItem])
 async def get_internships(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
     status_filter: Annotated[
         AdminInternshipStatusFilter | None,
         Query(alias="status"),
@@ -141,7 +148,7 @@ async def get_internships(
 async def get_internship_detail(
     internship_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminInternshipDetailResponse:
     """Obtiene el detalle administrativo de una practica.
 
@@ -174,6 +181,51 @@ async def get_internship_detail(
     return internship
 
 
+@router.patch(
+    "/internships/{internship_id}/school-insurance",
+    response_model=AdminInternshipDetailResponse,
+)
+async def update_internship_school_insurance(
+    internship_id: int,
+    payload: AdminUpdateInternshipSchoolInsuranceRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[
+        User,
+        Depends(require_roles(SCHOOL_INSURANCE_ADMIN_ROLES)),
+    ],
+) -> AdminInternshipDetailResponse:
+    """Actualiza la validacion de seguro escolar de una solicitud concreta."""
+
+    logger.info(
+        "Admin internship school insurance update request received",
+        extra={
+            "user_id": current_user.id,
+            "internship_id": internship_id,
+            "status": payload.status,
+        },
+    )
+
+    try:
+        internship = await _build_service(db).update_internship_school_insurance(
+            internship_id=internship_id,
+            payload=payload,
+            updated_by_user_id=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    return internship
+
+
 @router.get(
     "/students/{student_id}/internship-requirements",
     response_model=list[AdminStudentInternshipRequirementItem],
@@ -181,7 +233,7 @@ async def get_internship_detail(
 async def get_student_internship_requirements(
     student_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> list[AdminStudentInternshipRequirementItem]:
     """Obtiene requisitos de práctica asociados a un estudiante."""
 
@@ -204,7 +256,7 @@ async def update_student_internship_requirement_status(
     requirement_id: int,
     payload: AdminUpdateStudentInternshipRequirementStatusRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles([PRACTICE_MANAGER_ROLE]))],
+    current_user: Annotated[User, Depends(require_roles(ADMIN_READ_ROLES))],
 ) -> AdminStudentInternshipRequirementItem:
     """Actualiza el estado de un requisito de práctica."""
 

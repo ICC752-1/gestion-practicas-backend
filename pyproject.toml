@@ -19,6 +19,7 @@ dependencies = [
     "fastapi-mail>=1.6.4",
     "httpx>=0.28.1",
     "python-multipart>=0.0.20",
+    "docxtpl>=0.20.2",
 ]
 
 [dependency-groups]
@@ -26,6 +27,7 @@ dev = [
     "pytest>=8.4.0",
     "pytest-asyncio>=1.2.0",
     "ruff>=0.15.12",
+    "tzdata>=2025.1",
 ]
 
 [tool.pytest.ini_options]

@@ -38,9 +38,13 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipCreateRequest,
     InternshipDashboardListItem,
     InternshipDashboardStatsResponse,
+    InternshipDiraeStatusHistoryResponse,
+    InternshipLifecycleResponse,
     InternshipResponse,
     InternshipTrackingResponse,
     RegistrationEligibilityResponse,
+    StudentInternshipActionAvailabilityResponse,
+    StudentInternshipUpdateRequest,
 )
 from app.modules.internships.services.internship_service import InternshipService
 
@@ -64,6 +68,7 @@ STUDENT_ROLE = "Estudiante"
 DASHBOARD_READ_ROLES = [
     "Encargado de practica",
     "Director de carrera",
+    "Secretaria de Carrera",
 ]
 PRIVILEGED_READ_ROLES = {
     "Encargado de practica",
@@ -71,10 +76,12 @@ PRIVILEGED_READ_ROLES = {
     "Secretaria de Carrera",
 }
 
-ACTION_ROLES = [
-    "Encargado de practica", 
-    "Director de carrera", 
-    "Secretaria de Carrera"]
+RESOLUTION_ACTION_ROLES = [
+    "Encargado de practica",
+    "Director de carrera",
+]
+
+DIRAE_ACTION_ROLES = ["Secretaria de Carrera"]
 
 EXCEPTION_ROLES = [
     "Encargado de practica", 
@@ -441,6 +448,169 @@ async def get_internship_tracking(
     ]
 
 
+@router.get(
+    "/{internship_id}/lifecycle-tracking",
+    response_model=InternshipLifecycleResponse,
+)
+async def get_internship_lifecycle_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> InternshipLifecycleResponse:
+    """Obtiene el seguimiento agregado de solicitud, ejecución y cierre."""
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return await service.get_lifecycle_tracking(internship_id=internship_id)
+
+
+@router.post(
+    "/{internship_id}/start-review",
+    response_model=InternshipActionResponse,
+)
+async def start_internship_review(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Marca una solicitud pendiente como en revisión al abrir su detalle."""
+
+    service = _build_service(db)
+    internship = await service.start_review(internship_id, current_user)
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        comment=None,
+    )
+
+
+@router.get(
+    "/{internship_id}/dirae-tracking",
+    response_model=list[InternshipDiraeStatusHistoryResponse],
+)
+async def get_internship_dirae_tracking(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> list[InternshipDiraeStatusHistoryResponse]:
+    """Obtiene el historial local del expediente DIRAE."""
+
+    service = _build_service(db)
+    internship = await service.get_internship(internship_id=internship_id)
+
+    if internship is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Internship not found",
+        )
+
+    if not _can_read_internship(user=current_user, internship=internship):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return await service.list_internship_dirae_tracking(internship_id)
+
+
+@router.get(
+    "/{internship_id}/student-actions",
+    response_model=StudentInternshipActionAvailabilityResponse,
+)
+async def get_student_actions(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> StudentInternshipActionAvailabilityResponse:
+    """Obtiene acciones recientes disponibles para el estudiante propietario.
+
+    Args:
+        internship_id: Identificador de la practica.
+        db: Sesion asincrona de base de datos.
+        current_user: Estudiante autenticado.
+
+    Returns:
+        Disponibilidad de correccion y anulacion de la solicitud.
+    """
+
+    service = _build_service(db)
+    return await service.get_student_action_availability(
+        internship_id=internship_id,
+        actor=current_user,
+    )
+
+
+@router.patch(
+    "/{internship_id}/student",
+    response_model=InternshipResponse,
+)
+async def update_student_internship_fields(
+    internship_id: int,
+    payload: StudentInternshipUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InternshipResponse:
+    """Permite al propietario corregir una solicitud reciente y pendiente."""
+
+    logger.info(
+        "HTTP PATCH /internships/%s/student - Corrección solicitada por "
+        "estudiante ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.update_student_fields(
+        internship_id=internship_id,
+        actor=current_user,
+        payload=payload,
+    )
+
+    return InternshipResponse.model_validate(internship)
+
+
+@router.post(
+    "/{internship_id}/student/cancel",
+    response_model=InternshipCancelResponse,
+)
+async def cancel_student_internship(
+    internship_id: int,
+    payload: InternshipCancelRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InternshipCancelResponse:
+    """Permite al propietario anular una solicitud reciente y pendiente."""
+
+    logger.info(
+        "HTTP POST /internships/%s/student/cancel - Anulación solicitada por "
+        "estudiante ID: %s",
+        internship_id,
+        current_user.id,
+    )
+
+    service = _build_service(db)
+    internship = await service.cancel_by_student(
+        internship_id=internship_id,
+        actor=current_user,
+        reason=payload.reason,
+    )
+
+    return InternshipCancelResponse.model_validate(internship)
+
+
 @router.patch(
     "/{internship_id}/admin",
     response_model=InternshipResponse,
@@ -539,7 +709,7 @@ async def approve_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
 ) -> InternshipActionResponse:
     """Aprueba una practica sin imponer orden secuencial entre roles.
 
@@ -585,7 +755,7 @@ async def reject_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(RESOLUTION_ACTION_ROLES))],
 ) -> InternshipActionResponse:
     """Rechaza una practica que no se encuentra en estado terminal.
  
@@ -630,13 +800,12 @@ async def derive_internship(
     internship_id: int,
     payload: InternshipActionRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ACTION_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
 ) -> InternshipActionResponse:
-    """Deriva una practica a revision por DIRAE.
+    """Inicia la revision local del expediente DIRAE.
  
-    Solo `Secretaria de Carrera` puede ejecutar esta accion. La practica no
-    debe encontrarse en estado terminal (`Aprobada`, `Rechazada`, `Reprobada`).
-    El comentario es obligatorio.
+    Solo `Secretaria de Carrera` puede ejecutar esta accion. La solicitud debe
+    estar aprobada y la practica finalizada. El comentario es obligatorio.
  
     Args:
         internship_id: Identificador de la practica a derivar.
@@ -645,13 +814,13 @@ async def derive_internship(
         current_user: Usuario autenticado con rol autorizado por `require_roles`.
  
     Returns:
-        `InternshipActionResponse` con el nuevo `status_id` y el comentario.
+        `InternshipActionResponse` con `dirae_status` y el comentario.
  
     Raises:
         HTTPException 400: Si no se proporciona comentario.
         HTTPException 403: Si el actor no tiene permiso `derive`.
         HTTPException 404: Si la practica no existe.
-        HTTPException 409: Si la practica ya esta en estado terminal.
+        HTTPException 409: Si no cumple las reglas para revision DIRAE.
     """
     logger.info("HTTP POST /internships/%s/derive - Petición de derivación a DIRAE recibida del actor ID: %s", 
                 internship_id, current_user.id)
@@ -664,6 +833,34 @@ async def derive_internship(
     return InternshipActionResponse(
         id=internship.id,
         status_id=internship.status_id,
+        dirae_status=internship.dirae_status,
+        comment=payload.comment,
+    )
+
+
+@router.post(
+    "/{internship_id}/dirae-reopen",
+    response_model=InternshipActionResponse,
+)
+async def reopen_dirae_rectification(
+    internship_id: int,
+    payload: InternshipActionRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Reabre el expediente DIRAE para rectificacion documental controlada."""
+
+    service = _build_service(db)
+    internship = await service.reopen_dirae_rectification(
+        internship_id,
+        current_user,
+        payload.comment,
+    )
+
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        dirae_status=internship.dirae_status,
         comment=payload.comment,
     )
 

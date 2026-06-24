@@ -5,7 +5,7 @@ administrativas y la gestion de requisitos del estudiante.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,12 +21,16 @@ from app.modules.admin.schemas.admin_schema import (
     AdminStudentListItem,
     AdminSummaryByStatusItem,
     AdminSummaryResponse,
+    AdminUpdateInternshipSchoolInsuranceRequest,
     AdminUpdateSchoolInsuranceRequest,
     AdminUpdateStudentInternshipRequirementStatusRequest,
 )
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.current_state_model import CurrentState
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_model import (
+    Internship,
+    SchoolInsuranceStatusEnum,
+)
 from app.modules.internships.models.student_internship_requirement_model import (
     RegistrationRequirementType,
     StudentRegistrationRequirement,
@@ -43,12 +47,19 @@ from app.modules.notifications.utils.notification_event_helpers import (
 logger = logging.getLogger(__name__)
 
 UNKNOWN_STATUS = "Sin estado"
+CANCELLED_STATUS_TITLE = "Anulada"
 PENDING_STATUS_TITLE = "Pendiente"
 IN_REVIEW_STATUS_TITLE = "En revisión"
 IN_REVIEW_DIRAE_STATUS_TITLE = "En revisión DIRAE"
 APPROVED_STATUS_TITLE = "Aprobada"
 REJECTED_STATUS_TITLE = "Rechazada"
 LEGACY_REJECTED_STATUS_TITLE = "Reprobada"
+
+
+def _utc_now_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 STATUS_LABEL_TO_ADMIN_FILTER: dict[str, AdminInternshipStatusFilter] = {
     PENDING_STATUS_TITLE: "submitted",
     IN_REVIEW_STATUS_TITLE: "in_review",
@@ -209,9 +220,91 @@ class AdminService:
             user_id=internship.user_id,
             student=student_info,
             status=status_info,
+            is_cancelled=internship.is_cancelled,
+            cancelled_at=internship.cancelled_at,
+            cancellation_reason=internship.cancellation_reason,
+            insurance_status=getattr(
+                internship,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            ),
+            insurance_validated_by=getattr(
+                internship,
+                "insurance_validated_by",
+                None,
+            ),
+            insurance_validated_at=getattr(
+                internship,
+                "insurance_validated_at",
+                None,
+            ),
+            insurance_notes=getattr(internship, "insurance_notes", None),
         )
 
         return detail
+
+    async def update_internship_school_insurance(
+        self,
+        internship_id: int,
+        payload: AdminUpdateInternshipSchoolInsuranceRequest,
+        updated_by_user_id: int,
+    ) -> AdminInternshipDetailResponse | None:
+        """Actualiza la validacion de seguro escolar de una solicitud."""
+
+        internship = await self.repository.get_internship_by_id(internship_id)
+        if internship is None:
+            return None
+
+        if internship.is_cancelled:
+            raise ValueError(
+                "No se puede actualizar el seguro escolar de una solicitud anulada."
+            )
+
+        status = SchoolInsuranceStatusEnum(payload.status)
+        updated = await self.repository.update_internship_school_insurance(
+            internship=internship,
+            status=status,
+            updated_by_user_id=updated_by_user_id,
+            notes=payload.notes,
+        )
+
+        student_info = self._build_student_info(updated.student)
+        status_info = self._build_status_info(updated.status)
+
+        return AdminInternshipDetailResponse(
+            id=updated.id,
+            org_name=updated.org_name,
+            sector=updated.sector,
+            address=updated.address,
+            city=updated.city,
+            org_phone=updated.org_phone,
+            web=updated.web,
+            start_date=updated.start_date,
+            end_date=updated.end_date,
+            schedule=updated.schedule,
+            days=updated.days,
+            modality=updated.modality,
+            internship_address=updated.internship_address,
+            act_description=updated.act_description,
+            ben_description=updated.ben_description,
+            amount=updated.amount,
+            upload_date=updated.upload_date,
+            status_id=updated.status_id,
+            user_id=updated.user_id,
+            student=student_info,
+            status=status_info,
+            is_cancelled=updated.is_cancelled,
+            cancelled_at=updated.cancelled_at,
+            cancellation_reason=updated.cancellation_reason,
+            insurance_status=getattr(
+                updated,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            ),
+            insurance_validated_by=getattr(updated, "insurance_validated_by", None),
+            insurance_validated_at=getattr(updated, "insurance_validated_at", None),
+            insurance_notes=getattr(updated, "insurance_notes", None),
+        )
 
     async def get_student_internship_requirements(
         self,
@@ -275,7 +368,7 @@ class AdminService:
 
         previous_status = requirement.status
         requirement.status = payload.status
-        requirement.status_updated_at = datetime.now(timezone.utc)
+        requirement.status_updated_at = _utc_now_naive()
         requirement.status_updated_by = updated_by_user_id
 
         updated_requirement = (
@@ -350,7 +443,7 @@ class AdminService:
 
         requirement.is_completed = payload.is_completed
         requirement.completed_at = (
-            datetime.now(timezone.utc) if payload.is_completed else None
+            _utc_now_naive() if payload.is_completed else None
         )
         requirement.updated_by = updated_by_user_id
 
@@ -388,6 +481,8 @@ class AdminService:
             first_name=student.first_name,
             last_name=student.last_name,
             rut=student.rut,
+            degree=getattr(student, "degree", None),
+            cod_degree=getattr(student, "cod_degree", None),
         )
 
         return student_info
@@ -417,6 +512,8 @@ class AdminService:
                 last_name=student.last_name,
                 rut=student.rut,
                 is_active=student.is_active,
+                degree=getattr(student, "degree", None),
+                cod_degree=getattr(student, "cod_degree", None),
             )
             student_items.append(student_item)
 
@@ -465,6 +562,12 @@ class AdminService:
                 user_id=internship.user_id,
                 student=student_info,
                 status=status_info,
+                is_cancelled=internship.is_cancelled,
+                insurance_status=getattr(
+                    internship,
+                    "insurance_status",
+                    SchoolInsuranceStatusEnum.pending,
+                ),
             )
             internship_items.append(internship_item)
 
@@ -493,6 +596,9 @@ class AdminService:
         status_filter: AdminInternshipStatusFilter,
     ) -> bool:
         """Evalua si una practica corresponde al filtro normalizado admin."""
+
+        if internship.is_cancelled:
+            return False
 
         status_title = PENDING_STATUS_TITLE
         if internship.status is not None and internship.status.title:

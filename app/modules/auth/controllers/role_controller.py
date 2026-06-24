@@ -20,13 +20,7 @@ from app.modules.auth.schemas.rol_schema import (
     RoleUpdateRequest,
 )
 from app.modules.auth.services.role_service import RoleService
-
-ADMIN_ROLES = [
-    "Supervisor de practica",
-    "Encargado de practica",
-    "Director de carrera",
-    "Secretaria de Carrera",
-]
+from app.modules.auth.utils.roles import USER_ADMIN_ROLES
 
 router = APIRouter(prefix="/roles", tags=["Roles"])
 logger = logging.getLogger(__name__)
@@ -42,7 +36,7 @@ def _build_service(db: AsyncSession) -> RoleService:
 @router.get("", response_model=list[RoleResponse])
 async def list_roles(
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> list[RoleResponse]:
     """Lista todos los roles existentes.
 
@@ -74,7 +68,7 @@ async def list_roles(
 async def get_role(
     role_id: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> RoleResponse:
     """Obtiene un rol por identificador.
 
@@ -121,7 +115,7 @@ async def update_role(
     role_id: int,
     payload: RoleUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(ADMIN_ROLES))],
+    current_user: Annotated[User, Depends(require_roles(USER_ADMIN_ROLES))],
 ) -> RoleResponse:
     """Actualiza la descripcion de un rol.
 

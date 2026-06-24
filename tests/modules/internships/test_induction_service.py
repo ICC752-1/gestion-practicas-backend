@@ -22,6 +22,7 @@ from pydantic import ValidationError
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.internships.schemas.internship_schema import (
     InductionAttemptRequest,
@@ -95,9 +96,13 @@ def _fake_question(q_id: int, correct: str, order: int = 0) -> SimpleNamespace:
     )
 
 
-def _fake_content(questions: list | None = None, min_score: int = 5) -> SimpleNamespace:
+def _fake_content(
+    questions: list | None = None,
+    min_score: int = 5,
+    content_id: int = 1,
+) -> SimpleNamespace:
     return SimpleNamespace(
-        id=1,
+        id=content_id,
         title="Inducción 2026",
         description="Contenido de prueba",
         min_score=min_score,
@@ -134,6 +139,9 @@ class FakeInductionRepository:
         self.updated_actor_id = None
         self.updated_reason = None
         self.updated_metadata = None
+        self.updated_insurance_status = None
+        self.updated_insurance_actor_id = None
+        self.updated_insurance_notes = None
 
         self._student_requirements = {}
         self._passed_induction_for_user = {}
@@ -176,6 +184,9 @@ class FakeInductionRepository:
         self.requested_user_id = user_id
         return self.internships_by_user
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
 
@@ -197,6 +208,21 @@ class FakeInductionRepository:
         if dict_val is not None:
             return dict_val
         return getattr(self, "_exception_by_rule_value", None)
+
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        internship.insurance_validated_by = actor_id
+        internship.insurance_notes = notes
+        self.updated_insurance_status = status
+        self.updated_insurance_actor_id = actor_id
+        self.updated_insurance_notes = notes
+        return internship
 
     # ── Prerrequisitos ───────────────────────────────────────────────────
 
@@ -257,6 +283,29 @@ class TestInductionContent:
         assert len(result.questions) == 2
         assert result.questions[0].id == 1
         assert result.questions[0].question_text == "Pregunta 1"
+
+    @pytest.mark.asyncio
+    async def test_get_active_induction_content_preserves_keyed_options(self):
+        """1.c. Las alternativas se exponen como {clave: texto}."""
+        repo = FakeInductionRepository()
+        questions = [
+            SimpleNamespace(
+                id=1,
+                question_text="Confirmación",
+                options={"accept": "Entiendo y acepto", "reject": "No acepto"},
+                correct_answer="accept",
+                order=1,
+            ),
+        ]
+        repo._active_induction_content = _fake_content(questions=questions)
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_active_induction_content()
+
+        assert result.questions[0].options == {
+            "accept": "Entiendo y acepto",
+            "reject": "No acepto",
+        }
 
     @pytest.mark.asyncio
     async def test_get_active_induction_content_returns_none_when_no_content(self):
@@ -443,8 +492,8 @@ class TestIntegratedRules:
         assert result.status.title == IN_REVIEW_STATUS_TITLE
 
     @pytest.mark.asyncio
-    async def test_approval_uses_current_insurance_instead_of_creation_snapshot(self):
-        """3.d. Un seguro regularizado después de crear permite aprobar."""
+    async def test_approval_requires_explicit_validation_after_insurance_regularization(self):
+        """3.d. Seguro global regularizado no basta para aprobar periodo estival."""
         repo = FakeInductionRepository()
         service = InternshipService(internship_repository=repo)
         actor = _make_user("Encargado de practica")
@@ -465,6 +514,39 @@ class TestIntegratedRules:
             internship_period=PracticePeriodEnum.summer,
             internship_type=PracticeTypeEnum.practice_1,
             has_school_insurance=False,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            await service.approve(internship_id=7, actor=actor, comment=None)
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["rule"] == "school_insurance"
+        assert exc.value.detail["insurance_status"] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_approval_uses_request_level_insurance_validation(self):
+        """3.e. La validación explícita de la solicitud permite aprobar verano."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+        actor = _make_user("Encargado de practica")
+        repo._student_requirements[(10, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
+        repo._student_requirements[(10, "school_insurance")] = SimpleNamespace(
+            is_completed=True,
+        )
+
+        repo.internship_by_id = SimpleNamespace(
+            id=7,
+            user_id=10,
+            org_name="Acme Chile",
+            student=SimpleNamespace(email="test@ufro.cl"),
+            status_id=2,
+            status=_status(2, IN_REVIEW_STATUS_TITLE),
+            internship_period=PracticePeriodEnum.summer,
+            internship_type=PracticeTypeEnum.practice_1,
+            has_school_insurance=True,
+            insurance_status=SchoolInsuranceStatusEnum.validated,
         )
 
         result = await service.approve(internship_id=7, actor=actor, comment=None)
@@ -820,6 +902,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=True,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -833,6 +918,9 @@ class TestSchoolInsuranceComputation:
     async def test_create_sets_insurance_false_when_student_lacks_requirement(self):
         """5.b. has_school_insurance=False si no hay requisito registrado."""
         repo = FakeInductionRepository()
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -849,6 +937,9 @@ class TestSchoolInsuranceComputation:
         repo._student_requirements[(42, "school_insurance")] = SimpleNamespace(
             is_completed=False,
         )
+        repo._student_requirements[(42, "induction")] = SimpleNamespace(
+            is_completed=True,
+        )
         service = InternshipService(internship_repository=repo)
 
         internship = await service.create_internship(
@@ -857,6 +948,21 @@ class TestSchoolInsuranceComputation:
         )
 
         assert internship.has_school_insurance is False
+
+    @pytest.mark.asyncio
+    async def test_create_rejects_when_induction_is_missing(self):
+        """5.d. No se crea solicitud si la inducción obligatoria está pendiente."""
+        repo = FakeInductionRepository()
+        service = InternshipService(internship_repository=repo)
+
+        with pytest.raises(HTTPException) as exc:
+            await service.create_internship(
+                internship_data=_valid_payload(),
+                user_id=42,
+            )
+
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "induction_required"
 
 
 # ── Tests: Elegibilidad ──────────────────────────────────────────────────────
@@ -885,6 +991,7 @@ class TestRegistrationEligibility:
         assert result.blocked is True
         assert result.has_school_insurance is False
         assert result.has_induction is False
+        assert result.can_create_request is False
 
     @pytest.mark.asyncio
     async def test_eligibility_returns_not_blocked_when_all_met(self):

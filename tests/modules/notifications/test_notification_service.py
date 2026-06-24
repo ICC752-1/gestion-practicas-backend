@@ -11,12 +11,17 @@ Cubre los siguientes escenarios:
 """
 
 import pytest
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
     NotificationStatusEnum,
+)
+from app.modules.internships.models.internship_model import (
+    PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 from app.modules.notifications.services.notification_service import (
     NotificationService,
@@ -248,12 +253,13 @@ class TestEventHelpers:
             recipient_email="s@test.com",
             internship_id=5,
             org_name="Acme Corp",
+            internship_type=PracticeTypeEnum.practice_1,
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_approved
-        assert notification.subject == "Práctica aprobada"
+        assert notification.subject == "Solicitud de práctica aprobada"
         assert "Acme Corp" in notification.content
-        assert "aprobada" in notification.content
+        assert "Su solicitud de práctica I ha sido aprobada por administración" in notification.content
         assert notification.recipient_user_id == 10
         assert notification.recipient_email == "s@test.com"
 
@@ -267,8 +273,8 @@ class TestEventHelpers:
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_rejected
-        assert notification.subject == "Práctica rechazada"
-        assert "rechazada" in notification.content
+        assert notification.subject == "Solicitud de práctica rechazada"
+        assert "Su solicitud de práctica fue rechazada" in notification.content
         assert "Falta de documentos" in notification.content
         assert notification.recipient_email is None
 
@@ -292,8 +298,8 @@ class TestEventHelpers:
         )
 
         assert notification.event_type == NotificationEventTypeEnum.internship_derived
-        assert notification.subject == "Práctica derivada a DIRAE"
-        assert "DIRAE" in notification.content
+        assert notification.subject == "Expediente DIRAE de práctica derivado"
+        assert "El expediente DIRAE asociado a su práctica fue derivado" in notification.content
         assert "Revision DIRAE" in notification.content
 
     def test_requirement_status_changed_notification(self):
@@ -329,6 +335,9 @@ class TestNotificationFromExternalService:
         internship.id = 1
         internship.user_id = 10
         internship.org_name = "Acme"
+        internship.start_date = date(2026, 3, 10)
+        internship.end_date = date(2026, 6, 20)
+        internship.insurance_status = SchoolInsuranceStatusEnum.validated
         internship.student = MagicMock()
         internship.student.email = "s@test.com"
 
@@ -366,7 +375,7 @@ class TestNotificationFromExternalService:
         actor = MagicMock()
         actor.id = 99
         actor.roles = [
-            SimpleNamespace(role=SimpleNamespace(name="Encargado de practica"))
+            SimpleNamespace(role=SimpleNamespace(name="Director de carrera"))
         ]
 
         await service.approve(1, actor, comment=None)
@@ -386,6 +395,9 @@ class TestNotificationFromExternalService:
         internship.id = 1
         internship.user_id = 10
         internship.org_name = "Acme"
+        internship.start_date = date(2026, 3, 10)
+        internship.end_date = date(2026, 6, 20)
+        internship.insurance_status = SchoolInsuranceStatusEnum.validated
         internship.student = MagicMock()
         internship.student.email = "s@test.com"
 
@@ -416,7 +428,7 @@ class TestNotificationFromExternalService:
         actor = MagicMock()
         actor.id = 99
         actor.roles = [
-            SimpleNamespace(role=SimpleNamespace(name="Encargado de practica"))
+            SimpleNamespace(role=SimpleNamespace(name="Director de carrera"))
         ]
 
         result = await service.approve(1, actor, comment=None)

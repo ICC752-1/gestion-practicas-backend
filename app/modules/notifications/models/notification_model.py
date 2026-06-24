@@ -23,7 +23,9 @@ class NotificationEventTypeEnum(str, enum.Enum):
     internship_rejected = "internship_rejected"
     internship_derived = "internship_derived"
     requirement_status_changed = "requirement_status_changed"
+    appointment_scheduled = "appointment_scheduled"
     custom = "custom"
+    presentation_approved = "presentation_approved"
 
 
 class NotificationStatusEnum(str, enum.Enum):
@@ -56,6 +58,7 @@ class Notification(Base):
         payload: Metadata adicional del evento en formato JSONB.
         created_at: Marca temporal de creacion de la notificacion.
         sent_at: Marca temporal de envio real (null si simulated/failed).
+        read_at: Marca temporal de lectura dentro de la plataforma.
         recipient: Relacion ORM hacia el usuario destinatario.
     """
 
@@ -65,6 +68,7 @@ class Notification(Base):
     recipient_user_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("users.id"),
+        index=True,
         nullable=True,
     )
     recipient_email: Mapped[str | None] = mapped_column(
@@ -77,7 +81,9 @@ class Notification(Base):
             "internship_rejected",
             "internship_derived",
             "requirement_status_changed",
+            "appointment_scheduled",
             "custom",
+            "presentation_approved",
             name="enumNotificationEventType",
             create_type=False,
         ),
@@ -103,5 +109,12 @@ class Notification(Base):
         nullable=False,
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     recipient = relationship("User", foreign_keys=[recipient_user_id])
+
+    @property
+    def is_read(self) -> bool:
+        """Indica si el destinatario ya marco la notificacion como leida."""
+
+        return self.read_at is not None

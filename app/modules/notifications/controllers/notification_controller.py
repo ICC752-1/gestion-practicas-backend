@@ -6,6 +6,7 @@ autenticacion, sesion de base de datos y servicios de dominio.
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,12 +17,16 @@ from app.core.database.database import get_db
 from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
+from app.modules.notifications.models.notification_model import NotificationEventTypeEnum
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
 from app.modules.notifications.schemas.notification_schema import (
     EmailNotificationRequest,
+    MarkNotificationsReadRequest,
+    MarkNotificationsReadResponse,
     NotificationDetailResponse,
+    NotificationListResponse,
     NotificationListItemResponse,
     NotificationResponse,
     NotificationRetryResponse,
@@ -60,13 +65,17 @@ def _build_service(db: AsyncSession) -> NotificationService:
     )
 
 
-@router.get("", response_model=list[NotificationListItemResponse])
+@router.get("", response_model=NotificationListResponse)
 async def list_notifications(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[NotificationListItemResponse]:
+    is_read: bool | None = Query(default=None),
+    event_type: NotificationEventTypeEnum | None = Query(default=None),
+    created_from: datetime | None = Query(default=None),
+    created_to: datetime | None = Query(default=None),
+) -> NotificationListResponse:
     """Lista las notificaciones del usuario autenticado.
 
     Args:
@@ -84,12 +93,102 @@ async def list_notifications(
         user_id=current_user.id,
         limit=limit,
         offset=offset,
+        is_read=is_read,
+        event_type=event_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    total = await service.count_notifications_for_user(
+        user_id=current_user.id,
+        is_read=is_read,
+        event_type=event_type,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    unread_count = await service.count_unread_for_user(user_id=current_user.id)
+
+    return NotificationListResponse(
+        items=[
+            NotificationListItemResponse.model_validate(notification)
+            for notification in notifications
+        ],
+        total=total,
+        unread_count=unread_count,
+        limit=limit,
+        offset=offset,
     )
 
-    return [
-        NotificationListItemResponse.model_validate(notification)
-        for notification in notifications
-    ]
+
+@router.get("/unread-count")
+async def get_unread_count(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, int]:
+    """Obtiene el contador persistente de notificaciones no leidas."""
+
+    service = _build_service(db)
+    unread_count = await service.count_unread_for_user(user_id=current_user.id)
+
+    return {"unread_count": unread_count}
+
+
+@router.patch("/read", response_model=MarkNotificationsReadResponse)
+async def mark_selected_notifications_as_read(
+    payload: MarkNotificationsReadRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MarkNotificationsReadResponse:
+    """Marca varias notificaciones propias como leidas."""
+
+    service = _build_service(db)
+    updated_count = await service.mark_notifications_as_read(
+        user_id=current_user.id,
+        notification_ids=payload.notification_ids,
+    )
+    unread_count = await service.count_unread_for_user(user_id=current_user.id)
+
+    return MarkNotificationsReadResponse(
+        updated_count=updated_count,
+        unread_count=unread_count,
+    )
+
+
+@router.patch("/read-all", response_model=MarkNotificationsReadResponse)
+async def mark_all_notifications_as_read(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MarkNotificationsReadResponse:
+    """Marca todas las notificaciones propias como leidas."""
+
+    service = _build_service(db)
+    updated_count = await service.mark_notifications_as_read(user_id=current_user.id)
+    unread_count = await service.count_unread_for_user(user_id=current_user.id)
+
+    return MarkNotificationsReadResponse(
+        updated_count=updated_count,
+        unread_count=unread_count,
+    )
+
+
+@router.patch("/{notification_id}/read", response_model=MarkNotificationsReadResponse)
+async def mark_notification_as_read(
+    notification_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> MarkNotificationsReadResponse:
+    """Marca una notificacion propia como leida de forma idempotente."""
+
+    service = _build_service(db)
+    updated_count = await service.mark_notifications_as_read(
+        user_id=current_user.id,
+        notification_ids=[notification_id],
+    )
+    unread_count = await service.count_unread_for_user(user_id=current_user.id)
+
+    return MarkNotificationsReadResponse(
+        updated_count=updated_count,
+        unread_count=unread_count,
+    )
 
 
 @router.get("/{notification_id}", response_model=NotificationDetailResponse)

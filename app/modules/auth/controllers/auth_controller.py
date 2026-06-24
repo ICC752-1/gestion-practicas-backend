@@ -8,7 +8,7 @@ import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,11 +17,17 @@ from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.core.database.database import get_db
 
 from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
+from app.modules.auth.repositories.account_activation_token_repository import (
+    AccountActivationTokenRepository,
+)
 from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
+    ActivationAccountInfoResponse,
+    ActivateAccountRequest,
+    CompleteTemporaryPasswordRequest,
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
@@ -31,7 +37,11 @@ from app.modules.auth.schemas.user_schema import CurrentUserResponse
 
 from app.modules.auth.models.user_model import User
 
-from app.modules.auth.services.auth_service import AuthService
+from app.modules.auth.services.auth_service import (
+    AccountActivationError,
+    AuthService,
+    TemporaryPasswordChangeRequiredError,
+)
 from app.modules.auth.services.google_oauth_service import (
     GoogleOAuthError,
     GoogleOAuthService,
@@ -41,6 +51,28 @@ from app.modules.auth.services.token_service import TokenService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
+
+
+def _set_refresh_token_cookie(
+    response: Response,
+    refresh_token: str,
+) -> None:
+    response.set_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        refresh_token,
+        httponly=True,
+        max_age=config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/",
+        samesite="lax",
+        secure=config.REFRESH_TOKEN_COOKIE_SECURE,
+    )
+
+
+def _clear_refresh_token_cookie(response: Response) -> None:
+    response.delete_cookie(
+        config.REFRESH_TOKEN_COOKIE_NAME,
+        path="/",
+    )
 
 
 def _frontend_callback_url(params: dict[str, str], success: bool) -> str:
@@ -72,6 +104,7 @@ def _oauth_error_redirect(
 async def login(
     credentials: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
 ) -> TokenResponse:
     """Inicia sesión y devuelve tokens de acceso y refresco.
 
@@ -100,11 +133,18 @@ async def login(
 
     try:
         logger.info("Login request received")
-        return await auth_service.login(
+        token_response = await auth_service.login(
             email=credentials.email,
             password=credentials.password,
         )
+        _set_refresh_token_cookie(response, token_response.refresh_token)
+        return token_response
 
+    except TemporaryPasswordChangeRequiredError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="TEMPORARY_PASSWORD_CHANGE_REQUIRED",
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -113,10 +153,102 @@ async def login(
         )
 
 
+@router.post("/complete-temporary-password", status_code=status.HTTP_204_NO_CONTENT)
+async def complete_temporary_password(
+    payload: CompleteTemporaryPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Reemplaza una credencial temporal de un solo uso por contraseña definitiva."""
+
+    user_repository = UserRepository(db)
+    refresh_token_repository = RefreshTokenRepository(db)
+    auth_service = AuthService(
+        user_repository=user_repository,
+        refresh_token_repository=refresh_token_repository,
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        await auth_service.complete_temporary_password_change(
+            email=payload.email,
+            temporary_password=payload.temporary_password,
+            new_password=payload.new_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/activate-account", status_code=status.HTTP_204_NO_CONTENT)
+async def activate_account(
+    payload: ActivateAccountRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Activa una cuenta nueva mediante enlace de un solo uso."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        await auth_service.activate_account(
+            token=payload.token,
+            new_password=payload.new_password,
+            admission_year=payload.admission_year,
+        )
+    except AccountActivationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/activation-info", response_model=ActivationAccountInfoResponse)
+async def get_activation_info(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    token: str = Query(min_length=32, max_length=512),
+) -> ActivationAccountInfoResponse:
+    """Devuelve datos mínimos para completar una activacion por enlace."""
+
+    auth_service = AuthService(
+        user_repository=UserRepository(db),
+        refresh_token_repository=RefreshTokenRepository(db),
+        activation_token_repository=AccountActivationTokenRepository(db),
+        password_service=PasswordService(),
+        token_service=TokenService(),
+    )
+
+    try:
+        info = await auth_service.get_activation_account_info(token=token)
+    except AccountActivationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return ActivationAccountInfoResponse(**info)
+
+
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    payload: RefreshTokenRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    response: Response,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
+    payload: RefreshTokenRequest | None = None,
 ) -> TokenResponse:
     """Renueva tokens usando un refresh token valido.
 
@@ -142,7 +274,13 @@ async def refresh_token(
     )
 
     try:
-        token_response = await auth_service.refresh_session(payload.refresh_token)
+        refresh_token_value = (
+            payload.refresh_token if payload and payload.refresh_token else refresh_token_cookie
+        )
+        if refresh_token_value is None:
+            raise ValueError("Refresh token is required")
+
+        token_response = await auth_service.refresh_session(refresh_token_value)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -150,6 +288,7 @@ async def refresh_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    _set_refresh_token_cookie(response, token_response.refresh_token)
     logger.info("Refresh token completed")
 
     return token_response
@@ -244,7 +383,7 @@ async def google_callback(
         status_code=status.HTTP_303_SEE_OTHER,
     )
     response.delete_cookie(config.GOOGLE_STATE_COOKIE_NAME, path="/")
-
+    _set_refresh_token_cookie(response, token_response.refresh_token)
     return response
 
 
@@ -280,6 +419,10 @@ async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
     payload: LogoutRequest | None = None,
+    refresh_token_cookie: Annotated[
+        str | None,
+        Cookie(alias=config.REFRESH_TOKEN_COOKIE_NAME),
+    ] = None,
 ) -> Response:
     """Cierra sesión (logout) para el dispositivo actual.
 
@@ -307,7 +450,11 @@ async def logout(
     try:
         await auth_service.logout_session(
             current_user=current_user,
-            refresh_token=payload.refresh_token if payload else None,
+            refresh_token=(
+                payload.refresh_token
+                if payload and payload.refresh_token
+                else refresh_token_cookie
+            ),
         )
     except ValueError as exc:
         raise HTTPException(
@@ -317,4 +464,6 @@ async def logout(
 
     logger.info("Logout request received", extra={"user_id": current_user.id})
     logger.info("Logout completed", extra={"user_id": current_user.id})
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    final_response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_token_cookie(final_response)
+    return final_response

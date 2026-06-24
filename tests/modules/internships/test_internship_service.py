@@ -97,6 +97,9 @@ class FakeInternshipRepository:
 
         return self.internships_by_user
 
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def list_dashboard_internships(self):
         return self.dashboard_internships
 
@@ -130,6 +133,15 @@ class FakeInternshipRepository:
 
     async def get_student_requirement(self, user_id: int, requirement: str):
         return self._student_requirements.get((user_id, requirement))
+
+    async def is_internship_applications_disabled(self) -> bool:
+        return False
+
+    async def get_active_induction_content(self):
+        return None
+
+    async def get_passed_induction_attempt(self, user_id: int):
+        return None
 
 
 def _student() -> SimpleNamespace:
@@ -171,6 +183,9 @@ def _dashboard_internship(
 async def test_create_internship_assigns_authenticated_user_id() -> None:
     repository = FakeInternshipRepository()
     repository._student_requirements[(42, "school_insurance")] = SimpleNamespace(
+        is_completed=True,
+    )
+    repository._student_requirements[(42, "induction")] = SimpleNamespace(
         is_completed=True,
     )
     service = InternshipService(internship_repository=repository)

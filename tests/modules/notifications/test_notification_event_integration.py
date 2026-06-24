@@ -14,6 +14,8 @@ import pytest
 from app.modules.documents.models.document_model import DocumentStatusEnum
 from app.modules.documents.services.document_service import DocumentService
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    DiraeStatusEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
 )
@@ -43,7 +45,7 @@ def _document_config(tmp_path) -> SimpleNamespace:
     return SimpleNamespace(
         DOCUMENT_STORAGE_DIR=str(tmp_path),
         DOCUMENT_MAX_BYTES=1024,
-        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip",
+        DOCUMENT_ALLOWED_EXTENSIONS="pdf,docx,jpg,png,zip,ppt,pptx,doc",
     )
 
 
@@ -130,6 +132,19 @@ class FakeInternshipRepository:
     async def get_student_requirement(self, user_id: int, requirement: str):
         return SimpleNamespace(is_completed=True)
 
+    async def update_school_insurance_validation(
+        self,
+        internship,
+        status,
+        actor_id,
+        notes=None,
+    ):
+        internship.insurance_status = status
+        return internship
+
+    async def get_blocking_internship_for_registration(self, **kwargs):
+        return None
+
     async def get_state_by_title(self, title: str):
         return self.states.get(title)
 
@@ -150,6 +165,8 @@ class FakeInternshipRepository:
             has_school_insurance=internship.has_school_insurance,
             status_id=initial_status.id,
             status=initial_status,
+            completion_status=CompletionStatusEnum.not_started,
+            dirae_status=DiraeStatusEnum.not_started,
             student=_user(
                 internship.user_id,
                 "student@example.com",
@@ -176,6 +193,16 @@ class FakeInternshipRepository:
     ):
         internship.status = new_status
         internship.status_id = new_status.id
+        return internship
+
+    async def update_internship_dirae_status_with_history(
+        self,
+        internship,
+        new_status,
+        actor_id,
+        reason,
+    ):
+        internship.dirae_status = new_status
         return internship
 
     async def get_exception_by_rule(self, internship_id: int, rule: str):
@@ -289,7 +316,9 @@ async def test_internship_lifecycle_events_are_persisted_in_simulated_mode():
     await service.approve(created.id, director, comment="Cumple requisitos")
     created.status = internship_repository.states["Pendiente"]
     await service.reject(created.id, director, comment="No cumple requisitos")
-    created.status = internship_repository.states["Pendiente"]
+    created.status = internship_repository.states["Aprobada"]
+    created.status_id = internship_repository.states["Aprobada"].id
+    created.completion_status = CompletionStatusEnum.finalized
     await service.derive(created.id, secretaria, comment="Revisión DIRAE")
 
     notifications = notification_repository.notifications

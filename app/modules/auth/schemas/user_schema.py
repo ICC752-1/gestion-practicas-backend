@@ -18,8 +18,9 @@ class UserCreateRequest(BaseModel):
 
     Attributes:
         email: Correo electrónico del usuario.
-        password: Contraseña en texto plano.
-            Restricciones: longitud mínima 8 y máxima 128 caracteres.
+        password: Contraseña inicial opcional para compatibilidad.
+            Si no se entrega, el backend genera una credencial interna aleatoria
+            y el usuario define su contraseña mediante enlace de activación.
         first_name: Nombre(s) del usuario.
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
         last_name: Apellido(s) del usuario.
@@ -28,6 +29,7 @@ class UserCreateRequest(BaseModel):
             Restricciones: longitud máxima 100 caracteres.
         degree: Carrera o grado academico del usuario (opcional).
         cod_degree: Codigo interno de la carrera (opcional).
+        admission_year: Año de ingreso del estudiante (opcional).
         sexo: Identificador de genero del usuario (opcional).
         phone: Telefono de contacto del usuario (opcional).
         profession: Profesion del usuario (opcional).
@@ -38,7 +40,8 @@ class UserCreateRequest(BaseModel):
 
     email: EmailStr
 
-    password: str = Field(
+    password: str | None = Field(
+        default=None,
         min_length=8,
         max_length=128,
     )
@@ -60,12 +63,14 @@ class UserCreateRequest(BaseModel):
 
     degree: str | None = Field(default=None, max_length=255)
     cod_degree: str | None = Field(default=None, max_length=100)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
     sexo: Literal["Femenino", "Masculino", "Otro", "No definido"] | None = None
     phone: str | None = Field(default=None, max_length=100)
     profession: str | None = Field(default=None, max_length=100)
     position: str | None = Field(default=None, max_length=100)
     departament: str | None = Field(default=None, max_length=100)
     sup_phone: str | None = Field(default=None, max_length=100)
+    role_ids: list[int] = Field(default_factory=list)
 
     @field_validator("rut")
     @classmethod
@@ -93,6 +98,7 @@ class UserUpdateRequest(BaseModel):
         rut: RUT del usuario.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
+        admission_year: Año de ingreso del estudiante.
         sexo: Identificador de genero del usuario.
         phone: Telefono de contacto del usuario.
         profession: Profesion del usuario.
@@ -117,6 +123,7 @@ class UserUpdateRequest(BaseModel):
     rut: str | None = Field(default=None, min_length=1, max_length=100)
     degree: str | None = Field(default=None, min_length=1, max_length=255)
     cod_degree: str | None = Field(default=None, min_length=1, max_length=100)
+    admission_year: int | None = Field(default=None, ge=1900, le=2100)
     sexo: Literal["Femenino", "Masculino", "Otro", "No definido"] | None = None
     phone: str | None = Field(default=None, min_length=1, max_length=100)
     profession: str | None = Field(default=None, min_length=1, max_length=100)
@@ -155,6 +162,7 @@ class UserResponse(BaseModel):
         rut: Identificador RUT del usuario.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
+        admission_year: Año de ingreso del estudiante.
         sexo: Identificador de genero del usuario.
         phone: Telefono de contacto del usuario.
         profession: Profesion del usuario.
@@ -163,6 +171,7 @@ class UserResponse(BaseModel):
         sup_phone: Telefono del supervisor.
         is_active: Indica si la cuenta está activa.
         is_verified: Indica si la cuenta ha sido verificada.
+        must_change_password: Indica si debe reemplazar la credencial temporal.
         created_at: Marca temporal de creación del usuario.
     """
 
@@ -175,6 +184,7 @@ class UserResponse(BaseModel):
     rut: str
     degree: str | None
     cod_degree: str | None
+    admission_year: int | None
     sexo: str | None
     phone: str | None
     profession: str | None
@@ -183,7 +193,23 @@ class UserResponse(BaseModel):
     sup_phone: str | None
     is_active: bool
     is_verified: bool
+    must_change_password: bool = False
     created_at: datetime
+
+
+class UserAdminResponse(UserResponse):
+    """Respuesta administrativa con roles actuales del usuario."""
+
+    roles: list[str]
+
+
+class UserListResponse(BaseModel):
+    """Respuesta paginada para el panel de Superadmin."""
+
+    items: list[UserAdminResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class CurrentUserResponse(BaseModel):

@@ -11,13 +11,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    DiraeStatusEnum,
+    FinalResultEnum,
     PracticePeriodEnum,
     PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
 )
 
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
+DuplicateInternshipDetailCode = Literal["duplicate_internship_type"]
 
 
 class InternshipCreateRequest(BaseModel):
@@ -49,7 +54,7 @@ class InternshipCreateRequest(BaseModel):
     modality: Modality
     internship_address: str = Field(min_length=1, max_length=255)
     act_description: str = Field(min_length=1, max_length=255)
-    ben_description: str = Field(min_length=1, max_length=255)
+    ben_description: str = Field(default="", max_length=255)
     amount: int | None = Field(default=None, ge=0)
     internship_period: PracticePeriodEnum
     internship_type: PracticeTypeEnum
@@ -125,6 +130,48 @@ class InternshipTrackingResponse(BaseModel):
     )
 
 
+class InternshipDiraeStatusHistoryResponse(BaseModel):
+    """Entrada del historial local del expediente documental DIRAE."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    internship_id: int
+    previous_status: DiraeStatusEnum | None
+    new_status: DiraeStatusEnum
+    actor: InternshipTrackingActorResponse | None
+    reason: str | None
+    changed_at: datetime
+
+
+class InternshipLifecycleEventResponse(BaseModel):
+    """Evento normalizado del ciclo completo de una práctica."""
+
+    id: str
+    type: str
+    title: str
+    description: str | None = None
+    status: Literal["completed", "current", "pending", "blocked"]
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = {}
+
+
+class InternshipLifecycleResponse(BaseModel):
+    """Seguimiento agregado desde solicitud hasta cierre final."""
+
+    internship_id: int
+    progress_percentage: int
+    current_step: str
+    self_evaluation_submitted: bool
+    supervisor_invitation_sent: bool
+    supervisor_evaluation_submitted: bool
+    final_presentation_scheduled: bool
+    final_presentation_completed: bool
+    can_generate_supervisor_invitation: bool
+    can_close_practice: bool
+    events: list[InternshipLifecycleEventResponse]
+
+
 class InternshipDashboardStudentResponse(BaseModel):
     """Informacion basica del estudiante para el dashboard coordinador."""
 
@@ -136,6 +183,7 @@ class InternshipDashboardStudentResponse(BaseModel):
     last_name: str
     rut: str
     degree: str | None
+    cod_degree: str | None = None
 
 
 class InternshipDashboardListItem(BaseModel):
@@ -150,6 +198,10 @@ class InternshipDashboardListItem(BaseModel):
     upload_date: datetime
     status: DashboardInternshipStatus
     status_label: str
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
     student: InternshipDashboardStudentResponse | None
 
 
@@ -204,6 +256,17 @@ class InternshipResponse(BaseModel):
         cancelled_at: Fecha y hora de anulacion logica, si existe.
         cancelled_by: Identificador del usuario que anulo la practica.
         cancellation_reason: Motivo funcional de la anulacion logica.
+        blocks_new_registration: Indica si impide crear otra solicitud del
+            mismo tipo para el mismo estudiante.
+        completion_status: Estado de ejecucion/cierre de la practica.
+        final_result: Resultado final consolidado de la practica.
+        dirae_status: Estado local del expediente documental DIRAE.
+        insurance_status: Estado de validacion del seguro escolar para esta
+            solicitud concreta.
+        insurance_validated_by: Identificador del actor que valido o regularizo
+            el seguro escolar.
+        insurance_validated_at: Fecha y hora de la validacion o regularizacion.
+        insurance_notes: Observacion administrativa asociada.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -240,8 +303,26 @@ class InternshipResponse(BaseModel):
     cancelled_at: datetime | None
     cancelled_by: int | None
     cancellation_reason: str | None
+    blocks_new_registration: bool
+    completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started
+    final_result: FinalResultEnum = FinalResultEnum.pending
+    dirae_status: DiraeStatusEnum = DiraeStatusEnum.not_started
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
+    insurance_validated_by: int | None = None
+    insurance_validated_at: datetime | None = None
+    insurance_notes: str | None = None
 
     exceptions: list["InternshipExceptionResponse"] = []
+
+
+class DuplicateInternshipTypeDetail(BaseModel):
+    """Detalle estable para solicitudes duplicadas por tipo de practica."""
+
+    code: DuplicateInternshipDetailCode
+    existing_internship_id: int
+    internship_type: PracticeTypeEnum
+    existing_status: str | None
+    message: str
 
 
 class InternshipAdminUpdateRequest(BaseModel):
@@ -273,12 +354,82 @@ class InternshipAdminUpdateRequest(BaseModel):
     amount: int | None = None
 
 
+class StudentInternshipUpdateRequest(BaseModel):
+    """Payload para correccion reciente realizada por el estudiante propietario.
+
+    La correccion no acepta campos calculados o administrativos como
+    ``has_school_insurance``, ``status_id`` o ``user_id``. La ventana temporal,
+    el estado ``Pendiente`` y el ownership se validan en el servicio.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=1000)
+    org_name: str | None = Field(default=None, min_length=1, max_length=255)
+    sector: str | None = Field(default=None, min_length=1, max_length=255)
+    address: str | None = Field(default=None, min_length=1, max_length=255)
+    city: str | None = Field(default=None, min_length=1, max_length=255)
+    org_phone: str | None = Field(default=None, max_length=255)
+    web: str | None = Field(default=None, max_length=255)
+    supervisor_name: str | None = Field(default=None, min_length=1, max_length=255)
+    supervisor_profession: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_position: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_department: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+    supervisor_email: EmailStr | None = None
+    supervisor_phone: str | None = Field(default=None, min_length=1, max_length=255)
+    start_date: date | None = None
+    end_date: date | None = None
+    schedule: str | None = Field(default=None, min_length=1, max_length=255)
+    days: str | None = Field(default=None, min_length=1, max_length=255)
+    modality: Modality | None = None
+    internship_address: str | None = Field(default=None, min_length=1, max_length=255)
+    act_description: str | None = Field(default=None, min_length=1, max_length=255)
+    ben_description: str | None = Field(default=None, max_length=255)
+    amount: int | None = Field(default=None, ge=0)
+    internship_period: PracticePeriodEnum | None = None
+    internship_type: PracticeTypeEnum | None = None
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "StudentInternshipUpdateRequest":
+        """Valida rango cuando ambas fechas son parte de la correccion."""
+
+        if (
+            self.start_date is not None
+            and self.end_date is not None
+            and self.end_date < self.start_date
+        ):
+            raise ValueError("end_date must be greater than or equal to start_date")
+
+        return self
+
+
 class InternshipCancelRequest(BaseModel):
     """Payload para anulacion logica de una practica."""
 
     model_config = ConfigDict(extra="forbid")
 
     reason: str
+
+
+class StudentInternshipActionAvailabilityResponse(BaseModel):
+    """Disponibilidad de acciones recientes para el estudiante propietario."""
+
+    can_update: bool
+    can_cancel: bool
+    editable_until: datetime | None
+    reasons: list[str] = []
 
 
 class InternshipCancelResponse(BaseModel):
@@ -308,6 +459,7 @@ class InternshipActionResponse(BaseModel):
 
     id: int
     status_id: int | None
+    dirae_status: DiraeStatusEnum | None = None
     comment: str | None
 
 class InternshipExceptionRequest(BaseModel):
@@ -473,17 +625,27 @@ class RegistrationEligibilityResponse(BaseModel):
         has_sequentiality_exception: ``True`` si existe una excepción
             administrativa activa de secuencialidad en alguna práctica
             del estudiante.
+        has_blocking_internship: ``True`` si ya existe una solicitud vigente
+            que bloquea crear otra del mismo tipo.
+        blocking_internship_id: Identificador de la solicitud bloqueante.
+        blocking_internship_status: Estado actual de la solicitud bloqueante.
+        can_create_request: ``False`` cuando existe duplicidad bloqueante.
         blocked: ``True`` si existe un bloqueo contextual que impide la
-            aprobación o formalización. No impide crear la solicitud pendiente.
+            creación, aprobación o formalización, según la regla afectada.
         next_step: Texto descriptivo de la siguiente acción recomendada
             para el estudiante.
     """
 
     has_school_insurance: bool
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
     has_induction: bool
     has_school_insurance_exception: bool = False
     has_approved_practice_1: bool = False
     sequentiality_blocked: bool = False
     has_sequentiality_exception: bool = False
+    has_blocking_internship: bool = False
+    blocking_internship_id: int | None = None
+    blocking_internship_status: str | None = None
+    can_create_request: bool = True
     blocked: bool
     next_step: str

@@ -16,6 +16,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from app.core.config import config
 from app.modules.notifications.models.notification_model import (
     Notification,
+    NotificationEventTypeEnum,
     NotificationStatusEnum,
 )
 from app.modules.notifications.repositories.notification_repository import (
@@ -253,6 +254,10 @@ class NotificationService:
         user_id: int,
         limit: int = 50,
         offset: int = 0,
+        is_read: bool | None = None,
+        event_type: NotificationEventTypeEnum | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
     ) -> list[Notification]:
         """Obtiene las notificaciones asociadas a un usuario.
 
@@ -269,6 +274,45 @@ class NotificationService:
             user_id=user_id,
             limit=limit,
             offset=offset,
+            is_read=is_read,
+            event_type=event_type,
+            created_from=created_from,
+            created_to=created_to,
+        )
+
+    async def count_notifications_for_user(
+        self,
+        user_id: int,
+        is_read: bool | None = None,
+        event_type: NotificationEventTypeEnum | None = None,
+        created_from: datetime | None = None,
+        created_to: datetime | None = None,
+    ) -> int:
+        """Cuenta notificaciones del usuario autenticado con filtros."""
+
+        return await self.repository.count_by_recipient(
+            user_id=user_id,
+            is_read=is_read,
+            event_type=event_type,
+            created_from=created_from,
+            created_to=created_to,
+        )
+
+    async def count_unread_for_user(self, user_id: int) -> int:
+        """Cuenta notificaciones no leidas del usuario autenticado."""
+
+        return await self.repository.count_unread_by_recipient(user_id=user_id)
+
+    async def mark_notifications_as_read(
+        self,
+        user_id: int,
+        notification_ids: list[int] | None = None,
+    ) -> int:
+        """Marca notificaciones propias como leidas de forma idempotente."""
+
+        return await self.repository.mark_as_read_for_recipient(
+            user_id=user_id,
+            notification_ids=notification_ids,
         )
 
     async def get_by_id(self, notification_id: int) -> Notification | None:

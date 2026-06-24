@@ -5,8 +5,10 @@ Este modulo encapsula las consultas y operaciones de persistencia del modulo
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import bindparam, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,7 +20,10 @@ from app.modules.documents.models.document_model import (
     DocumentStatusEnum,
     DocumentType,
 )
-from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.internship_dirae_status_history_model import (
+    InternshipDiraeStatusHistory,
+)
+from app.modules.internships.models.internship_model import DiraeStatusEnum, Internship
 
 
 class DocumentRepository:
@@ -175,6 +180,84 @@ class DocumentRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def mark_internships_as_dirae_exported(
+        self,
+        internships: list[Internship],
+        actor_id: int,
+        reason: str,
+        audit_payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Marca practicas exportadas a DIRAE y registra historial local."""
+
+        for internship in internships:
+            previous_status = internship.dirae_status
+            internship.dirae_status = DiraeStatusEnum.exported
+            self.db.add(
+                InternshipDiraeStatusHistory(
+                    internship_id=internship.id,
+                    previous_status=previous_status,
+                    new_status=DiraeStatusEnum.exported,
+                    actor_id=actor_id,
+                    reason=reason,
+                )
+            )
+
+        if audit_payload is not None:
+            await self._create_dirae_export_audit_log(audit_payload)
+
+        await self.db.commit()
+
+    async def _create_dirae_export_audit_log(
+        self,
+        payload: dict[str, Any],
+    ) -> None:
+        """Persiste auditoria de negocio para exportaciones DIRAE locales."""
+
+        new_value = {
+            **payload,
+            "exported_at": payload["exported_at"].isoformat(),
+        }
+        exported_at = payload["exported_at"].replace(tzinfo=None)
+        query = text(
+            """
+            INSERT INTO LogAction (
+                action,
+                entity,
+                timestamp,
+                description,
+                old_value,
+                new_value,
+                entity_id,
+                user_id
+            ) VALUES (
+                CAST(:action AS "enumAction"),
+                CAST(:entity AS "enumEntity"),
+                :timestamp,
+                :description,
+                :old_value,
+                :new_value,
+                :entity_id,
+                :user_id
+            )
+            """
+        ).bindparams(
+            bindparam("old_value", type_=JSONB),
+            bindparam("new_value", type_=JSONB),
+        )
+        await self.db.execute(
+            query,
+            {
+                "action": "INSERT",
+                "entity": "Documento",
+                "timestamp": exported_at,
+                "description": "Exportación local de expediente documental DIRAE",
+                "old_value": None,
+                "new_value": new_value,
+                "entity_id": payload["internship_ids"][0],
+                "user_id": payload["actor_id"],
+            },
+        )
 
     async def create_document(self, document: Document) -> Document:
         """Persiste un documento.

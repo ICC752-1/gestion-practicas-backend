@@ -1,13 +1,15 @@
 """Schemas HTTP del modulo admin.
 
 Este modulo define los contratos de salida utilizados por los endpoints
-administrativos orientados al rol `Encargado de practica`.
+administrativos orientados a `Encargado de practica` y `Director de carrera`.
 """
 
 from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
+
+from app.modules.internships.models.internship_model import SchoolInsuranceStatusEnum
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 AdminInternshipStatusFilter = Literal[
@@ -53,6 +55,8 @@ class AdminStudentListItem(BaseModel):
         first_name : Nombre del estudiante.
         last_name  : Apellido del estudiante.
         rut        : RUT del estudiante.
+        degree     : Carrera o grado academico del estudiante.
+        cod_degree : Codigo interno de la carrera.
         is_active  : Indica si la cuenta esta activa.
     """
 
@@ -63,6 +67,8 @@ class AdminStudentListItem(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    degree: str | None = None
+    cod_degree: str | None = None
     is_active: bool
 
 
@@ -91,6 +97,8 @@ class AdminInternshipStudentInfo(BaseModel):
         first_name : Nombre del estudiante.
         last_name  : Apellido del estudiante.
         rut        : RUT del estudiante.
+        degree     : Carrera o grado academico del estudiante.
+        cod_degree : Codigo interno de la carrera.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -100,6 +108,8 @@ class AdminInternshipStudentInfo(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    degree: str | None = None
+    cod_degree: str | None = None
 
 
 class AdminInternshipListItem(BaseModel):
@@ -114,7 +124,10 @@ class AdminInternshipListItem(BaseModel):
         upload_date : Fecha de registro de la practica.
         user_id     : Identificador del estudiante propietario.
         student     : Informacion basica del estudiante asociado.
-        status      : Estado actual de la practica, si existe.
+    status      : Estado actual de la practica, si existe.
+    is_cancelled: Indica si la practica fue anulada logicamente.
+    insurance_status: Estado de validacion del seguro escolar para esta
+        solicitud concreta.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -128,6 +141,8 @@ class AdminInternshipListItem(BaseModel):
     user_id: int | None
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
+    is_cancelled: bool
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
 
 
 class AdminInternshipDetailResponse(BaseModel):
@@ -155,6 +170,14 @@ class AdminInternshipDetailResponse(BaseModel):
         user_id             : Identificador del estudiante propietario.
         student             : Informacion basica del estudiante asociado.
         status              : Estado actual de la practica, si existe.
+        is_cancelled        : Indica si la practica fue anulada logicamente.
+        cancelled_at        : Fecha de anulacion, si existe.
+        cancellation_reason : Motivo de anulacion, si existe.
+        insurance_status    : Estado de validacion del seguro escolar para esta
+            solicitud concreta.
+        insurance_validated_by: Usuario que valido o regularizo el seguro.
+        insurance_validated_at: Fecha de validacion o regularizacion.
+        insurance_notes     : Observacion administrativa asociada.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -180,6 +203,13 @@ class AdminInternshipDetailResponse(BaseModel):
     user_id: int | None
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
+    is_cancelled: bool
+    cancelled_at: datetime | None
+    cancellation_reason: str | None
+    insurance_status: SchoolInsuranceStatusEnum = SchoolInsuranceStatusEnum.pending
+    insurance_validated_by: int | None = None
+    insurance_validated_at: datetime | None = None
+    insurance_notes: str | None = None
 
 
 StudentInternshipRequirementType = Literal[
@@ -238,3 +268,18 @@ class AdminUpdateSchoolInsuranceRequest(BaseModel):
     """Payload administrativo para registrar el seguro escolar vigente."""
 
     is_completed: bool
+
+
+AdminInternshipSchoolInsuranceStatus = Literal[
+    "pending",
+    "validated",
+    "requires_exception",
+    "not_applicable",
+]
+
+
+class AdminUpdateInternshipSchoolInsuranceRequest(BaseModel):
+    """Payload para validar el seguro escolar de una solicitud concreta."""
+
+    status: AdminInternshipSchoolInsuranceStatus
+    notes: str | None = None
