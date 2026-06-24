@@ -1,0 +1,107 @@
+type: insomnia.rest
+specName: Gestion Practicas - Notifications
+__ dangerouslyForceUpdate: true
+
+# ---- Setup ----
+
+# ---- Happy path ----
+- request:
+    name: Listar notificaciones del usuario autenticado
+    method: GET
+    url: "{{ _.base_url }}/notifications"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+- request:
+    name: Obtener detalle de notificacion
+    method: GET
+    url: "{{ _.base_url }}/notifications/1"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+- request:
+    name: Enviar correo electronico
+    method: POST
+    url: "{{ _.base_url }}/notifications/send-email"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+      - name: Content-Type
+        value: application/json
+    body: |-
+      {
+        "to_emails": ["gestor.practica@gmail.com"],
+        "subject": "Prueba desde Insomnia",
+        "body": "<h1>Hola!</h1><p>Esto es un correo de prueba con <b>HTML</b>.</p>"
+      }
+  response:
+    statuscode: 200
+
+- request:
+    name: Reintentar envio de notificacion fallida
+    method: POST
+    url: "{{ _.base_url }}/notifications/1/retry"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 200
+
+# ---- Errors ----
+
+- request:
+    name: Listar notificaciones sin autenticacion
+    method: GET
+    url: "{{ _.base_url }}/notifications"
+  response:
+    statuscode: 401
+
+- request:
+    name: Enviar correo sin autenticacion
+    method: POST
+    url: "{{ _.base_url }}/notifications/send-email"
+    headers:
+      - name: Content-Type
+        value: application/json
+    body: |-
+      {
+        "to_emails": ["test@test.com"],
+        "subject": "No auth",
+        "body": "<p>Sin auth</p>"
+      }
+  response:
+    statuscode: 401
+
+- request:
+    name: Enviar correo con rol estudiante
+    method: POST
+    url: "{{ _.base_url }}/notifications/send-email"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.student_token }}"
+      - name: Content-Type
+        value: application/json
+    body: |-
+      {
+        "to_emails": ["test@test.com"],
+        "subject": "Wrong role",
+        "body": "<p>Rol incorrecto</p>"
+      }
+  response:
+    statuscode: 403
+
+- request:
+    name: Obtener notificacion inexistente
+    method: GET
+    url: "{{ _.base_url }}/notifications/99999"
+    headers:
+      - name: Authorization
+        value: "Bearer {{ _.token }}"
+  response:
+    statuscode: 404

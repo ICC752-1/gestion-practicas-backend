@@ -1,0 +1,592 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Internships API tests
+meta:
+  id: wrk_internships_api_tests
+  created: 1778800000000
+  modified: 1778800000000
+  description: "Colección para probar endpoints del módulo internships."
+collection:
+  - name: Setup
+    meta:
+      id: fld_internships_setup
+      created: 1778800000100
+      modified: 1778800000100
+      sortKey: -1778800000100
+      description: ""
+    children:
+      - name: POST Login estudiante semilla
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_internships_auth_login_seed_user
+          created: 1778800000001
+          modified: 1778800000001
+          isPrivate: false
+          description: "Ejecutar primero. Guarda access_token en student_access_token."
+          sortKey: -1778800000001
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "email": "{{ _.test_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("student_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("student_refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: POST Login director semilla
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_internships_auth_login_seed_director
+          created: 1778800000010
+          modified: 1778800000010
+          isPrivate: false
+          description: "Guarda access_token en access_token y director_access_token para endpoints de dashboard."
+          sortKey: -1778800000010
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "email": "{{ _.director_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("access_token", body.access_token);
+              insomnia.environment.set("director_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("refresh_token", body.refresh_token);
+              insomnia.environment.set("director_refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+  - name: Happy path
+    meta:
+      id: fld_internships_happy_path
+      created: 1778800000100
+      modified: 1778800000100
+      sortKey: -1778800000090
+      description: ""
+    children:
+      - name: POST Create Internship
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_internships_create_valid
+          created: 1778800000002
+          modified: 1778800000002
+          isPrivate: false
+          description: "Requiere student_access_token de usuario con rol Estudiante."
+          sortKey: -1778800000002
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Demo SpA",
+              "sector": "Tecnología",
+              "address": "Av. Siempre Viva 123",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa-demo.cl",
+              "supervisor_name": "Ana Pérez",
+              "supervisor_profession": "Ingeniera Civil Informática",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnología",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 123, Temuco",
+              "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET My Internships
+        url: "{{ _.base_url }}/internships/me"
+        meta:
+          id: req_internships_list_my_internships
+          created: 1778800000003
+          modified: 1778800000003
+          isPrivate: false
+          description: "Lista las prácticas asociadas al usuario autenticado."
+          sortKey: -1778800000003
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Internship by ID
+        url: "{{ _.base_url }}/internships/{{ _.internship_id }}"
+        meta:
+          id: req_internships_get_by_id
+          created: 1778800000004
+          modified: 1778800000004
+          isPrivate: false
+          description: "Actualizar internship_id en el environment con un ID existente."
+          sortKey: -1778800000004
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Dashboard Stats
+        url: "{{ _.base_url }}/internships/stats"
+        meta:
+          id: req_internships_dashboard_stats
+          created: 1778800000011
+          modified: 1778800000011
+          isPrivate: false
+          description: "Requiere access_token de usuario con rol Director de carrera o Encargado de practica."
+          sortKey: -1778800000011
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Dashboard Internships
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_internships_dashboard_list
+          created: 1778800000012
+          modified: 1778800000012
+          isPrivate: false
+          description: "Lista practicas reales para el dashboard coordinador/director."
+          sortKey: -1778800000012
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Dashboard Internships by Submitted Status
+        url: "{{ _.base_url }}/internships?status=submitted"
+        meta:
+          id: req_internships_dashboard_list_submitted
+          created: 1778800000013
+          modified: 1778800000013
+          isPrivate: false
+          description: "Debe incluir practicas sin estado o con estado Pendiente."
+          sortKey: -1778800000013
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Internship Tracking
+        url: "{{ _.base_url }}/internships/{{ _.internship_id }}/tracking"
+        meta:
+          id: req_internships_get_tracking
+          created: 1778800000021
+          modified: 1778800000021
+          isPrivate: false
+          description: "Consulta el historial de estados de una práctica existente."
+          sortKey: -1778800000021
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+  - name: Errores esperados
+    meta:
+      id: fld_internships_expected_errors
+      created: 1778800000100
+      modified: 1778800000100
+      sortKey: -1778800000080
+      description: ""
+    children:
+      - name: POST Create Internship (fechas invalidas)
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_internships_create_invalid_dates
+          created: 1778800000005
+          modified: 1778800000005
+          isPrivate: false
+          description: "Debe responder 422 porque end_date es anterior a start_date."
+          sortKey: -1778800000005
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Demo SpA",
+              "sector": "Tecnología",
+              "address": "Av. Siempre Viva 123",
+              "city": "Temuco",
+              "org_phone": "+56912345678",
+              "web": "https://empresa-demo.cl",
+              "supervisor_name": "Ana Pérez",
+              "supervisor_profession": "Ingeniera Civil Informática",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnología",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-08-31",
+              "end_date": "2026-06-01",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 123, Temuco",
+              "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: POST Create Internship (sin token)
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_internships_create_without_token
+          created: 1778800000006
+          modified: 1778800000006
+          isPrivate: false
+          description: "Debe responder 401/403 porque no se envía Bearer token."
+          sortKey: -1778800000006
+        method: POST
+        body:
+          mimeType: application/json
+          text: >-
+            {
+              "org_name": "Empresa Demo SpA",
+              "sector": "Tecnología",
+              "address": "Av. Siempre Viva 123",
+              "city": "Temuco",
+              "supervisor_name": "Ana Pérez",
+              "supervisor_profession": "Ingeniera Civil Informática",
+              "supervisor_position": "Jefa de Proyectos",
+              "supervisor_department": "Tecnología",
+              "supervisor_email": "ana.perez@empresa-demo.cl",
+              "supervisor_phone": "+56987654321",
+              "start_date": "2026-06-01",
+              "end_date": "2026-08-31",
+              "schedule": "Lunes a viernes 09:00-18:00",
+              "days": "Lunes, Martes, Miércoles, Jueves, Viernes",
+              "modality": "Presencial",
+              "internship_address": "Av. Siempre Viva 123, Temuco",
+              "act_description": "Desarrollo y apoyo en mantención de sistemas internos.",
+              "ben_description": "Fortalecimiento de procesos digitales de la organización.",
+              "amount": 150000,
+              "internship_period": "Semestre",
+              "internship_type": "Práctica de Estudio I"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Internship by ID (not found)
+        url: "{{ _.base_url }}/internships/999999"
+        meta:
+          id: req_internships_get_not_found
+          created: 1778800000007
+          modified: 1778800000007
+          isPrivate: false
+          description: "Debe responder 404 si no existe una práctica con ese ID."
+          sortKey: -1778800000007
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Dashboard Stats (sin token)
+        url: "{{ _.base_url }}/internships/stats"
+        meta:
+          id: req_internships_dashboard_stats_without_token
+          created: 1778800000014
+          modified: 1778800000014
+          isPrivate: false
+          description: "Debe responder 401/403 porque no se envia Bearer token."
+          sortKey: -1778800000014
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Dashboard Internships (rol incorrecto)
+        url: "{{ _.base_url }}/internships"
+        meta:
+          id: req_internships_dashboard_list_wrong_role
+          created: 1778800000015
+          modified: 1778800000015
+          isPrivate: false
+          description: "Usar token de estudiante; debe responder 403."
+          sortKey: -1778800000015
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Internship Tracking (sin token)
+        url: "{{ _.base_url }}/internships/{{ _.internship_id }}/tracking"
+        meta:
+          id: req_internships_get_tracking_without_token
+          created: 1778800000022
+          modified: 1778800000022
+          isPrivate: false
+          description: "Debe fallar porque el endpoint requiere token Bearer."
+          sortKey: -1778800000022
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+      - name: GET Internship Tracking (not found)
+        url: "{{ _.base_url }}/internships/999999/tracking"
+        meta:
+          id: req_internships_get_tracking_not_found
+          created: 1778800000023
+          modified: 1778800000023
+          isPrivate: false
+          description: "Debe retornar 404 cuando la práctica no existe."
+          sortKey: -1778800000023
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.5.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+
+
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_internships_api_tests
+    created: 1778800000008
+    modified: 1778800000008
+environments:
+  name: Base Environment
+  meta:
+    id: env_internships_api_tests
+    created: 1778800000009
+    modified: 1778800000009
+    isPrivate: false
+  data:
+    base_url: http://127.0.0.1:8000
+    test_email: juan.perez@correo.cl
+    director_email: claudio.navarro@ufrontera.cl
+    test_password: my_secure_password
+    access_token: paste_privileged_access_token_here
+    student_access_token: paste_student_access_token_here
+    director_access_token: paste_director_access_token_here
+    refresh_token: paste_privileged_refresh_token_here
+    student_refresh_token: paste_student_refresh_token_here
+    director_refresh_token: paste_director_refresh_token_here
+    internship_id: 1
