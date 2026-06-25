@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from app.modules.auth.controllers.user_controller import (
     _ensure_can_remove_superadmin_access,
+    _ensure_student_scope,
 )
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.utils.roles import SUPERADMIN_ROLE, USER_ADMIN_ROLES
@@ -57,6 +58,24 @@ async def test_user_admin_policy_allows_superadmin() -> None:
     result = await dependency(user)
 
     assert result is user
+
+
+def test_student_scope_allows_student_only_account() -> None:
+    _ensure_student_scope(_user(2, "Estudiante"))
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [
+        ["Director de carrera"],
+        ["Estudiante", "Director de carrera"],
+    ],
+)
+def test_student_scope_rejects_non_student_only_accounts(roles: list[str]) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _ensure_student_scope(_user(2, *roles))
+
+    assert exc_info.value.status_code == 403
 
 
 async def test_superadmin_cannot_remove_own_admin_access() -> None:
