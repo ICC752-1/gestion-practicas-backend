@@ -6,7 +6,7 @@ CREATE TYPE "enumGender" AS ENUM ('Femenino', 'Masculino', 'Otro', 'No definido'
 CREATE TYPE "enumModality" AS ENUM ('Presencial', 'Remoto', 'Híbrido');
 CREATE TYPE "enumStatus" AS ENUM ('Pendiente', 'Aprobada', 'Rechazada', 'Incompleta');
 CREATE TYPE "enumResult" AS ENUM ('Pendiente', 'Aprobada', 'Reprobado');
-CREATE TYPE "enumExtension" AS ENUM ('pdf', 'docx', 'jpg', 'png', 'zip');
+CREATE TYPE "enumExtension" AS ENUM ('pdf', 'doc', 'docx', 'jpg', 'png', 'ppt', 'pptx', 'zip');
 CREATE TYPE "exceptable_rule_enum" AS ENUM ('school_insurance', 'sequentiality', 'sequentiality_thesis', 'parallel_course');
 CREATE TYPE "enumDocumentStatus" AS ENUM ('uploaded', 'observed', 'approved', 'deleted');
 
@@ -636,7 +636,7 @@ FROM (VALUES
     ('superadmin@ufrontera.cl', 'Superadmin')
 ) AS assignments(email, role_name)
 JOIN Users users ON users.email = assignments.email
-JOIN Roles roles ON roles.name = assignments.role_name;
+JOIN Roles roles ON roles.name = assignments.role_name::"enumRole";
 
 -- Contenido minimo de induccion para flujos demo/Insomnia.
 -- Permite que el estudiante complete el prerrequisito inexceptuable antes

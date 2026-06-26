@@ -39,7 +39,12 @@ from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.role_service import RoleService
 from app.modules.auth.services.token_service import TokenService
 from app.modules.auth.services.user_service import UserService
-from app.modules.auth.utils.roles import SUPERADMIN_ROLE, USER_ADMIN_ROLES
+from app.modules.auth.utils.roles import (
+    STUDENT_ACCOUNT_MANAGER_ROLES,
+    STUDENT_ROLE,
+    SUPERADMIN_ROLE,
+    USER_ADMIN_ROLES,
+)
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
@@ -85,6 +90,44 @@ def _admin_response(user: User) -> UserAdminResponse:
 
 def _has_role(user: User, role_name: str) -> bool:
     return role_name in _role_names(user)
+
+
+def _ensure_student_scope(user: User) -> None:
+    roles = set(_role_names(user))
+    if STUDENT_ROLE not in roles or roles - {STUDENT_ROLE}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can be managed from this endpoint",
+        )
+
+
+async def _ensure_unique_user_identity(
+    *,
+    payload: UserCreateRequest,
+    user_repository: UserRepository,
+    actor_id: int,
+) -> None:
+    existing_email = await user_repository.get_user_by_email(payload.email)
+    if existing_email:
+        logger.warning(
+            "Create user failed: email already exists",
+            extra={"actor_id": actor_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already exists",
+        )
+
+    existing_rut = await user_repository.get_user_by_rut(payload.rut)
+    if existing_rut:
+        logger.warning(
+            "Create user failed: RUT already exists",
+            extra={"actor_id": actor_id},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="RUT already exists",
+        )
 
 
 async def _ensure_can_remove_superadmin_access(
@@ -199,27 +242,11 @@ async def create_user(
     logger.info("Create user request received", extra={"actor_id": current_user.id})
     user_repository = UserRepository(db)
 
-    existing_email = await user_repository.get_user_by_email(payload.email)
-    if existing_email:
-        logger.warning(
-            "Create user failed: email already exists",
-            extra={"actor_id": current_user.id},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already exists",
-        )
-
-    existing_rut = await user_repository.get_user_by_rut(payload.rut)
-    if existing_rut:
-        logger.warning(
-            "Create user failed: RUT already exists",
-            extra={"actor_id": current_user.id},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="RUT already exists",
-        )
+    await _ensure_unique_user_identity(
+        payload=payload,
+        user_repository=user_repository,
+        actor_id=current_user.id,
+    )
 
     role_repository = RoleRepository(db)
     roles_to_assign = []
@@ -262,6 +289,146 @@ async def create_user(
         "User created",
         extra={"actor_id": current_user.id, "user_id": user.id},
     )
+
+    return _admin_response(user)
+
+
+@router.get("/students", response_model=UserListResponse)
+async def list_student_accounts(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(STUDENT_ACCOUNT_MANAGER_ROLES))],
+    is_active: bool | None = Query(default=None),
+    search: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> UserListResponse:
+    """Lista cuentas de estudiantes para gestion academica acotada."""
+
+    logger.info(
+        "List student accounts request received",
+        extra={"actor_id": current_user.id, "is_active_filter": is_active},
+    )
+    service = _build_service(db)
+    users = await service.list_users(
+        is_active=is_active,
+        search=search,
+        role_name=STUDENT_ROLE,
+        limit=limit,
+        offset=offset,
+    )
+    total = await service.count_users(
+        is_active=is_active,
+        search=search,
+        role_name=STUDENT_ROLE,
+    )
+
+    return UserListResponse(
+        items=[_admin_response(user) for user in users],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/students",
+    response_model=UserAdminResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_student_account(
+    payload: UserCreateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(STUDENT_ACCOUNT_MANAGER_ROLES))],
+) -> UserAdminResponse:
+    """Crea una cuenta con rol Estudiante sin conceder permisos administrativos."""
+
+    logger.info(
+        "Create student account request received",
+        extra={"actor_id": current_user.id},
+    )
+    user_repository = UserRepository(db)
+    await _ensure_unique_user_identity(
+        payload=payload,
+        user_repository=user_repository,
+        actor_id=current_user.id,
+    )
+
+    service = _build_service(db)
+    user = await service.create_user(payload.model_copy(update={"role_ids": []}))
+
+    student_role = await RoleRepository(db).get_role_by_name(STUDENT_ROLE)
+    if not student_role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student role not found",
+        )
+
+    await _build_role_service(db).assign_role(user=user, role=student_role)
+    refreshed_user = await user_repository.get_user_by_id(user.id)
+    if refreshed_user:
+        user = refreshed_user
+
+    activation_url, activation_expires_at = await _create_account_activation_link(
+        activation_token_repository=AccountActivationTokenRepository(db),
+        user=user,
+        actor=current_user,
+        token_service=TokenService(),
+    )
+
+    await _dispatch_account_activation_notification(
+        notification_service=_build_notification_service(db),
+        user=user,
+        activation_url=activation_url,
+        expires_at=activation_expires_at,
+    )
+
+    logger.info(
+        "Student account created",
+        extra={"actor_id": current_user.id, "user_id": user.id},
+    )
+
+    return _admin_response(user)
+
+
+@router.patch("/students/{user_id}", response_model=UserAdminResponse)
+async def update_student_account(
+    user_id: int,
+    payload: UserUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(STUDENT_ACCOUNT_MANAGER_ROLES))],
+) -> UserAdminResponse:
+    """Actualiza datos basicos o estado de una cuenta exclusivamente estudiantil."""
+
+    user_repository = UserRepository(db)
+    user = await user_repository.get_user_by_id(user_id)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    _ensure_student_scope(user)
+
+    if payload.rut:
+        existing_rut = await user_repository.get_user_by_rut(payload.rut)
+        if existing_rut and existing_rut.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="RUT already exists",
+            )
+
+    service = _build_service(db)
+    user = await service.update_user(user, payload)
+
+    if payload.is_active is False:
+        revoked_count = await RefreshTokenRepository(db).revoke_active_tokens_for_user(
+            user_id,
+        )
+        logger.info(
+            "Refresh tokens revoked after student deactivation",
+            extra={"actor_id": current_user.id, "user_id": user_id, "count": revoked_count},
+        )
 
     return _admin_response(user)
 
