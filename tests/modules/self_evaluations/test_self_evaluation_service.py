@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from app.modules.documents.models.document_model import Document as _Document
 from app.modules.self_evaluations.models.self_evaluation_model import (
     SelfEvaluationStatusEnum,
 )
@@ -15,6 +16,9 @@ from app.modules.self_evaluations.schemas.self_evaluation_schema import (
 from app.modules.self_evaluations.services.self_evaluation_service import (
     SelfEvaluationService,
 )
+
+
+_REGISTER_DOCUMENT_MODEL = _Document
 
 
 class FakeSelfEvaluationRepository:

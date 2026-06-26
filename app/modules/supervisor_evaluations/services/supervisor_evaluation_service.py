@@ -8,12 +8,10 @@ from app.core.config import config
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models import Internship
 from app.modules.internships.models.internship_model import CompletionStatusEnum
-from app.modules.notifications.models.notification_model import (
-    Notification,
-    NotificationEventTypeEnum,
-    NotificationStatusEnum,
-)
 from app.modules.notifications.services.notification_service import NotificationService
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_supervisor_evaluation_invitation_notification,
+)
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
     SupervisorEvaluationInvitation,
@@ -139,6 +137,7 @@ class SupervisorEvaluationService:
         await self._dispatch_invitation_notification(
             internship=internship,
             invitation_url=public_url,
+            expires_at=invitation.expires_at,
         )
 
         demo_token = token if self._is_simulated_mode() else None
@@ -312,20 +311,19 @@ class SupervisorEvaluationService:
         *,
         internship: Internship,
         invitation_url: str,
+        expires_at: datetime,
     ) -> None:
         if self.notification_service is None:
             return
 
-        notification = Notification(
-            recipient_user_id=None,
+        notification = build_supervisor_evaluation_invitation_notification(
             recipient_email=internship.supervisor_email,
-            event_type=NotificationEventTypeEnum.custom,
-            subject="Evaluación de práctica pendiente",
-            content=(
-                "Tiene una evaluación de práctica pendiente en la plataforma. "
-                f"Ingrese al formulario desde este enlace: {invitation_url}"
-            ),
-            status=NotificationStatusEnum.simulated,
-            payload={"internship_id": internship.id, "event": "supervisor_evaluation_invitation"},
+            internship_id=internship.id,
+            org_name=internship.org_name,
+            student_name=_student_name(internship),
+            supervisor_name=internship.supervisor_name,
+            internship_type=internship.internship_type,
+            invitation_url=invitation_url,
+            expires_at=expires_at,
         )
         await self.notification_service.create_and_dispatch(notification)
