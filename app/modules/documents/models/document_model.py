@@ -27,9 +27,12 @@ class DocumentExtensionEnum(str, enum.Enum):
     """Extensiones de archivo permitidas para documentos."""
 
     pdf = "pdf"
+    doc = "doc"
     docx = "docx"
     jpg = "jpg"
     png = "png"
+    ppt = "ppt"
+    pptx = "pptx"
     zip = "zip"
 
 
@@ -107,9 +110,12 @@ class Document(Base):
     extension: Mapped[DocumentExtensionEnum] = mapped_column(
         PGEnum(
             "pdf",
+            "doc",
             "docx",
             "jpg",
             "png",
+            "ppt",
+            "pptx",
             "zip",
             name="enumExtension",
             create_type=False,

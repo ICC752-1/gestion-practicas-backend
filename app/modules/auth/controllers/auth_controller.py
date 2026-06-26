@@ -20,9 +20,7 @@ from app.modules.auth.repositories.refresh_token_repository import RefreshTokenR
 from app.modules.auth.repositories.account_activation_token_repository import (
     AccountActivationTokenRepository,
 )
-from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
-from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 
 from app.modules.auth.schemas.auth_schema import (
     ActivationAccountInfoResponse,
@@ -356,9 +354,6 @@ async def google_callback(
     user_repository = UserRepository(db)
     google_oauth_service = GoogleOAuthService(
         user_repository=user_repository,
-        role_repository=RoleRepository(db),
-        user_role_repository=UserRoleRepository(db),
-        password_service=PasswordService(),
         token_service=TokenService(),
         refresh_token_repository=RefreshTokenRepository(db),
     )

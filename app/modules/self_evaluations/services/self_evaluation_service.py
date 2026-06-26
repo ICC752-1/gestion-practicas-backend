@@ -7,12 +7,11 @@ from fastapi import HTTPException, status
 
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_model import CompletionStatusEnum, Internship
-from app.modules.notifications.models.notification_model import (
-    Notification,
-    NotificationEventTypeEnum,
-    NotificationStatusEnum,
-)
 from app.modules.notifications.services.notification_service import NotificationService
+from app.modules.notifications.utils.notification_event_helpers import (
+    build_self_evaluation_submitted_admin_notification,
+    build_self_evaluation_submitted_notification,
+)
 from app.modules.self_evaluations.models.self_evaluation_model import (
     SelfEvaluation,
     SelfEvaluationStatusEnum,
@@ -327,39 +326,24 @@ class SelfEvaluationService:
         if self.notification_service is None:
             return
 
-        notification = Notification(
+        notification = build_self_evaluation_submitted_notification(
             recipient_user_id=internship.user_id,
             recipient_email=internship.student.email if internship.student else None,
-            event_type=NotificationEventTypeEnum.custom,
-            subject="Autoevaluación enviada",
-            content="Tu autoevaluación de práctica fue registrada correctamente.",
-            status=NotificationStatusEnum.simulated,
-            payload={
-                "event": "self_evaluation_submitted",
-                "internship_id": internship.id,
-                "self_evaluation_id": evaluation.id,
-            },
+            internship_id=internship.id,
+            org_name=internship.org_name,
+            self_evaluation_id=evaluation.id,
         )
         await self.notification_service.create_and_dispatch(notification)
 
         recipients = await self.repository.list_users_by_roles(ADMIN_ROLES)
         for recipient in recipients:
-            admin_notification = Notification(
+            admin_notification = build_self_evaluation_submitted_admin_notification(
                 recipient_user_id=recipient.id,
                 recipient_email=recipient.email,
-                event_type=NotificationEventTypeEnum.custom,
-                subject="Autoevaluación de estudiante enviada",
-                content=(
-                    "Un estudiante envió su autoevaluación de práctica. "
-                    f"Práctica #{internship.id}."
-                ),
-                status=NotificationStatusEnum.simulated,
-                payload={
-                    "event": "self_evaluation_submitted_admin",
-                    "internship_id": internship.id,
-                    "self_evaluation_id": evaluation.id,
-                    "student_id": internship.user_id,
-                },
+                internship_id=internship.id,
+                org_name=internship.org_name,
+                student_user_id=internship.user_id,
+                self_evaluation_id=evaluation.id,
             )
             await self.notification_service.create_and_dispatch(admin_notification)
 

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.modules.documents.models.document_model import Document as _Document
 from app.modules.supervisor_evaluations.schemas.supervisor_evaluation_schema import (
     CRITERIA_KEYS,
     SupervisorEvaluationSubmitRequest,
@@ -11,6 +12,9 @@ from app.modules.supervisor_evaluations.services.supervisor_evaluation_service i
     SupervisorEvaluationError,
     SupervisorEvaluationService,
 )
+
+
+_REGISTER_DOCUMENT_MODEL = _Document
 
 
 def _utc_now() -> datetime:
@@ -141,6 +145,11 @@ async def test_generate_invitation_returns_demo_link_in_simulated_mode() -> None
     assert response.demo_url.endswith(response.demo_token)
     assert response.supervisor_email == "supervisor@empresa.cl"
     assert len(notifications.notifications) == 1
+    notification = notifications.notifications[0]
+    assert "<!doctype html>" in notification.content
+    assert "Evaluación de práctica pendiente" in notification.content
+    assert response.demo_url in notification.content
+    assert "Roberto Saez" in notification.content
     assert repository.invitation.token_hash != response.demo_token
 
 
