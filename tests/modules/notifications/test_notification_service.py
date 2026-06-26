@@ -11,10 +11,11 @@ Cubre los siguientes escenarios:
 """
 
 import pytest
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.modules.documents.models.document_model import Document as _Document
 from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
     NotificationStatusEnum,
@@ -31,7 +32,13 @@ from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_derived_notification,
     build_internship_rejected_notification,
     build_requirement_status_changed_notification,
+    build_self_evaluation_submitted_admin_notification,
+    build_self_evaluation_submitted_notification,
+    build_supervisor_evaluation_invitation_notification,
 )
+
+
+_REGISTER_DOCUMENT_MODEL = _Document
 
 
 def _make_config(mode: str = "simulated") -> SimpleNamespace:
@@ -318,6 +325,47 @@ class TestEventHelpers:
         )
         assert "Práctica de Estudio I" in notification.subject
         assert "Aprobada" in notification.content
+
+    def test_supervisor_evaluation_invitation_uses_shared_html_body(self):
+        notification = build_supervisor_evaluation_invitation_notification(
+            recipient_email="supervisor@empresa.cl",
+            internship_id=7,
+            org_name="Empresa Demo",
+            student_name="Ana Perez",
+            supervisor_name="Roberto Saez",
+            internship_type=PracticeTypeEnum.practice_1,
+            invitation_url="https://app.example/supervisor/evaluacion/token",
+            expires_at=datetime(2026, 6, 20, 12, 0, 0),
+        )
+
+        assert notification.subject == "Evaluación de práctica pendiente"
+        assert "<!doctype html>" in notification.content
+        assert "Sistema de Gestión de Prácticas" in notification.content
+        assert "https://app.example/supervisor/evaluacion/token" in notification.content
+        assert "Roberto Saez" in notification.content
+        assert notification.payload["event"] == "supervisor_evaluation_invitation"
+
+    def test_self_evaluation_notifications_use_shared_html_body(self):
+        student_notification = build_self_evaluation_submitted_notification(
+            recipient_user_id=10,
+            recipient_email="student@example.com",
+            internship_id=7,
+            org_name="Empresa Demo",
+            self_evaluation_id=3,
+        )
+        admin_notification = build_self_evaluation_submitted_admin_notification(
+            recipient_user_id=20,
+            recipient_email="admin@example.com",
+            internship_id=7,
+            org_name="Empresa Demo",
+            student_user_id=10,
+            self_evaluation_id=3,
+        )
+
+        assert "<!doctype html>" in student_notification.content
+        assert "Autoevaluación enviada" in student_notification.content
+        assert "<!doctype html>" in admin_notification.content
+        assert "Autoevaluación de estudiante enviada" in admin_notification.content
 
 
 class TestNotificationFromExternalService:
