@@ -1,8 +1,6 @@
 """Servicio para autenticacion con Google OAuth."""
 
-import hashlib
 import logging
-import secrets
 from typing import Any
 from urllib.parse import urlencode
 
@@ -12,11 +10,8 @@ from jwt import PyJWKClient
 
 from app.core.config import Config, config
 from app.modules.auth.models.user_model import User
-from app.modules.auth.models.user_role_model import UserRole
 from app.modules.auth.repositories.refresh_token_repository import RefreshTokenRepository
-from app.modules.auth.repositories.role_repository import RoleRepository
 from app.modules.auth.repositories.user_repository import UserRepository
-from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 from app.modules.auth.schemas.token_schema import TokenResponse
 from app.modules.auth.services.auth_service import AuthService
 from app.modules.auth.services.password_service import PasswordService
@@ -44,17 +39,11 @@ class GoogleOAuthService:
         token_service: TokenService,
         user_repository: UserRepository | None = None,
         refresh_token_repository: RefreshTokenRepository | None = None,
-        role_repository: RoleRepository | None = None,
-        user_role_repository: UserRoleRepository | None = None,
-        password_service: PasswordService | None = None,
         settings: Config = config,
     ) -> None:
         self.token_service = token_service
         self.user_repository = user_repository
         self.refresh_token_repository = refresh_token_repository
-        self.role_repository = role_repository
-        self.user_role_repository = user_role_repository
-        self.password_service = password_service
         self.settings = settings
 
     def build_authorization_url(self, state_token: str | None = None) -> str:
@@ -121,12 +110,24 @@ class GoogleOAuthService:
                 "User repository is not available",
             )
 
-        user = await self._get_or_create_user(email=email, claims=claims)
+        user = await self._get_existing_user(email)
 
-        if user is None or not user.is_active:
+        if user is None:
             raise GoogleOAuthError(
                 "user_not_found",
-                "Google account is not linked to an active local user",
+                "Google account is not linked to a local user",
+            )
+
+        if not user.is_active:
+            raise GoogleOAuthError(
+                "account_inactive",
+                "Google account is linked to an inactive local user",
+            )
+
+        if user.must_change_password or not user.is_verified:
+            raise GoogleOAuthError(
+                "account_activation_required",
+                "Local user must complete account activation before using Google login",
             )
 
         if self.refresh_token_repository is None:
@@ -138,7 +139,7 @@ class GoogleOAuthService:
         auth_service = AuthService(
             user_repository=self.user_repository,
             refresh_token_repository=self.refresh_token_repository,
-            password_service=self.password_service or PasswordService(),
+            password_service=PasswordService(),
             token_service=self.token_service,
         )
         token_response = await auth_service.create_session_for_user(user)
@@ -243,57 +244,12 @@ class GoogleOAuthService:
                 "Google OAuth state is invalid",
             ) from exc
 
-    async def _get_or_create_user(
-        self,
-        email: str,
-        claims: dict[str, Any],
-    ) -> User | None:
+    async def _get_existing_user(self, email: str) -> User | None:
         if self.user_repository is None:
             raise GoogleOAuthError(
                 "server_unavailable",
                 "User repository is not available",
             )
-
-        user = await self.user_repository.get_user_by_email(email)
-
-        if user is not None:
-            return user
-
-        if (
-            self.role_repository is None
-            or self.user_role_repository is None
-            or self.password_service is None
-        ):
-            raise GoogleOAuthError(
-                "server_unavailable",
-                "Google OAuth user provisioning is not configured",
-            )
-
-        student_role = await self.role_repository.get_role_by_name("Estudiante")
-
-        if student_role is None:
-            raise GoogleOAuthError(
-                "server_unavailable",
-                "Student role is not available",
-            )
-
-        first_name, last_name = self._profile_names(email=email, claims=claims)
-        user = User(
-            email=email,
-            password_hash=self.password_service.hash_password(
-                secrets.token_urlsafe(32)
-            ),
-            first_name=first_name,
-            last_name=last_name,
-            rut=self._synthetic_rut(claims),
-            is_active=True,
-            is_verified=True,
-        )
-
-        user = await self.user_repository.create_user(user)
-        await self.user_role_repository.assign_role(
-            UserRole(user_id=user.id, role_id=student_role.id)
-        )
 
         return await self.user_repository.get_user_by_email(email)
 
@@ -330,35 +286,3 @@ class GoogleOAuthService:
             return value
 
         return str(value).lower() == "true"
-
-    def _profile_names(
-        self,
-        email: str,
-        claims: dict[str, Any],
-    ) -> tuple[str, str]:
-        given_name = str(claims.get("given_name") or "").strip()
-        family_name = str(claims.get("family_name") or "").strip()
-
-        if given_name:
-            return given_name, family_name or "Google"
-
-        full_name = str(claims.get("name") or "").strip()
-
-        if full_name:
-            parts = full_name.split(maxsplit=1)
-            return parts[0], parts[1] if len(parts) > 1 else "Google"
-
-        local_part = email.split("@", 1)[0].replace(".", " ").strip()
-        return local_part or "Usuario", "Google"
-
-    def _synthetic_rut(self, claims: dict[str, Any]) -> str:
-        google_sub = str(claims.get("sub") or "").strip()
-
-        if not google_sub:
-            raise GoogleOAuthError(
-                "invalid_callback",
-                "Google OAuth id_token is missing subject",
-            )
-
-        digest = hashlib.sha256(google_sub.encode("utf-8")).hexdigest()[:32]
-        return f"google:{digest}"

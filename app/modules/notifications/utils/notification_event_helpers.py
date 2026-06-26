@@ -476,6 +476,133 @@ def build_document_status_changed_notification(
     )
 
 
+def build_supervisor_evaluation_invitation_notification(
+    recipient_email: str | None,
+    internship_id: int,
+    org_name: str,
+    student_name: str,
+    supervisor_name: str | None,
+    internship_type: object | None,
+    invitation_url: str,
+    expires_at: datetime,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye la invitacion publica para evaluacion de supervisor."""
+
+    request_type = _format_internship_request_type(internship_type)
+
+    return Notification(
+        recipient_user_id=None,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Evaluación de práctica pendiente",
+        content=_build_email_body(
+            title="Evaluación de práctica pendiente",
+            intro=(
+                f"Se solicitó su evaluación como supervisor/a de {request_type}. "
+                "Use el enlace para completar el formulario público de evaluación."
+            ),
+            details=[
+                ("Estudiante", student_name),
+                ("Supervisor/a", supervisor_name),
+                ("Organización", org_name),
+                ("Tipo de práctica", request_type.capitalize()),
+                ("N° de práctica", f"#{internship_id}"),
+                ("Vencimiento", expires_at.strftime("%Y-%m-%d %H:%M")),
+            ],
+            action_label="Evaluar práctica",
+            action_url=invitation_url,
+            footer_note=(
+                "Este enlace es personal y de un solo uso. Si usted no reconoce "
+                "esta solicitud, contacte al equipo administrativo."
+            ),
+        ),
+        status=status,
+        payload={
+            "internship_id": internship_id,
+            "event": "supervisor_evaluation_invitation",
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+
+
+def build_self_evaluation_submitted_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    internship_id: int,
+    org_name: str,
+    self_evaluation_id: int,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye la confirmacion al estudiante por autoevaluacion enviada."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Autoevaluación enviada",
+        content=_build_email_body(
+            title="Autoevaluación enviada",
+            intro=(
+                "Tu autoevaluación de práctica fue registrada correctamente. "
+                "El proceso continuará con la revisión correspondiente."
+            ),
+            details=[
+                ("Organización", org_name),
+                ("N° de práctica", f"#{internship_id}"),
+                ("ID autoevaluación", self_evaluation_id),
+            ],
+            action_label="Ver seguimiento",
+        ),
+        status=status,
+        payload={
+            "event": "self_evaluation_submitted",
+            "internship_id": internship_id,
+            "self_evaluation_id": self_evaluation_id,
+        },
+    )
+
+
+def build_self_evaluation_submitted_admin_notification(
+    recipient_user_id: int,
+    recipient_email: str | None,
+    internship_id: int,
+    org_name: str,
+    student_user_id: int,
+    self_evaluation_id: int,
+    status: NotificationStatusEnum = NotificationStatusEnum.simulated,
+) -> Notification:
+    """Construye aviso administrativo por autoevaluacion enviada."""
+
+    return Notification(
+        recipient_user_id=recipient_user_id,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Autoevaluación de estudiante enviada",
+        content=_build_email_body(
+            title="Autoevaluación de estudiante enviada",
+            intro=(
+                "Un estudiante envió su autoevaluación de práctica. Revise el "
+                "avance del proceso desde el panel administrativo."
+            ),
+            details=[
+                ("Organización", org_name),
+                ("N° de práctica", f"#{internship_id}"),
+                ("ID estudiante", student_user_id),
+                ("ID autoevaluación", self_evaluation_id),
+            ],
+            action_label="Revisar proceso",
+        ),
+        status=status,
+        payload={
+            "event": "self_evaluation_submitted_admin",
+            "internship_id": internship_id,
+            "self_evaluation_id": self_evaluation_id,
+            "student_id": student_user_id,
+        },
+    )
+
+
 def build_user_activation_notification(
     recipient_user_id: int,
     recipient_email: str,
@@ -637,4 +764,3 @@ def build_presentation_approved_notification(
             "evaluator_role": evaluator_role,
         },
     )
-
