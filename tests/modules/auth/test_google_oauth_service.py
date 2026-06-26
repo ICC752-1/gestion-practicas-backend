@@ -136,11 +136,15 @@ def _settings(
 def _user(
     email: str = "claudio.navarro@ufrontera.cl",
     is_active: bool = True,
+    is_verified: bool = True,
+    must_change_password: bool = False,
 ):
     return SimpleNamespace(
         id=2,
         email=email,
         is_active=is_active,
+        is_verified=is_verified,
+        must_change_password=must_change_password,
         roles=[
             SimpleNamespace(role=SimpleNamespace(name="Director de carrera")),
         ],
@@ -264,20 +268,12 @@ async def test_authenticate_callback_rejects_unauthorized_domain() -> None:
     assert exc_info.value.code == "unauthorized_domain"
 
 
-async def test_authenticate_callback_creates_student_for_allowed_domain() -> None:
-    token_service = FakeTokenService()
+async def test_authenticate_callback_rejects_missing_local_user() -> None:
     repository = FakeUserRepository(user=None)
-    refresh_token_repository = FakeRefreshTokenRepository()
-    role_repository = FakeRoleRepository()
-    user_role_repository = FakeUserRoleRepository(user_repository=repository)
-    password_service = FakePasswordService()
     service = GoogleOAuthService(
-        token_service=token_service,
+        token_service=FakeTokenService(),
         user_repository=repository,
-        refresh_token_repository=refresh_token_repository,
-        role_repository=role_repository,
-        user_role_repository=user_role_repository,
-        password_service=password_service,
+        refresh_token_repository=FakeRefreshTokenRepository(),
         settings=_settings(),
     )
 
@@ -293,28 +289,70 @@ async def test_authenticate_callback_creates_student_for_allowed_domain() -> Non
         "sub": "google-sub-new-user",
     }
 
-    response = await service.authenticate_callback(
-        code="google-code",
-        state="state-token",
+    with pytest.raises(GoogleOAuthError) as exc_info:
+        await service.authenticate_callback(
+            code="google-code",
+            state="state-token",
+        )
+
+    assert exc_info.value.code == "user_not_found"
+    assert repository.created_user is None
+
+
+async def test_authenticate_callback_rejects_inactive_local_user() -> None:
+    service = GoogleOAuthService(
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(user=_user(is_active=False)),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        settings=_settings(),
     )
 
-    assert response.access_token == "access-token"
-    assert repository.created_user.email == "nuevo.estudiante@ufromail.cl"
-    assert repository.created_user.first_name == "Nuevo"
-    assert repository.created_user.last_name == "Estudiante"
-    assert repository.created_user.password_hash == "hashed-google-password"
-    assert repository.created_user.rut.startswith("google:")
-    assert repository.created_user.is_active is True
-    assert repository.created_user.is_verified is True
-    assert role_repository.requested_name == "Estudiante"
-    assert user_role_repository.assigned_role.user_id == 3
-    assert user_role_repository.assigned_role.role_id == 1
-    assert token_service.access_payload == {
-        "subject": "3",
-        "email": "nuevo.estudiante@ufromail.cl",
-        "roles": ["Estudiante"],
+    async def exchange_authorization_code(code: str):
+        return {"id_token": "id-token"}
+
+    service.exchange_authorization_code = exchange_authorization_code
+    service.verify_id_token = lambda id_token: {
+        "email": "claudio.navarro@ufrontera.cl",
+        "email_verified": True,
+        "sub": "google-sub-existing-user",
     }
-    assert refresh_token_repository.created_refresh_token.user_id == 3
+
+    with pytest.raises(GoogleOAuthError) as exc_info:
+        await service.authenticate_callback(
+            code="google-code",
+            state="state-token",
+        )
+
+    assert exc_info.value.code == "account_inactive"
+
+
+async def test_authenticate_callback_rejects_pending_activation() -> None:
+    service = GoogleOAuthService(
+        token_service=FakeTokenService(),
+        user_repository=FakeUserRepository(
+            user=_user(is_verified=False, must_change_password=True)
+        ),
+        refresh_token_repository=FakeRefreshTokenRepository(),
+        settings=_settings(),
+    )
+
+    async def exchange_authorization_code(code: str):
+        return {"id_token": "id-token"}
+
+    service.exchange_authorization_code = exchange_authorization_code
+    service.verify_id_token = lambda id_token: {
+        "email": "claudio.navarro@ufrontera.cl",
+        "email_verified": True,
+        "sub": "google-sub-existing-user",
+    }
+
+    with pytest.raises(GoogleOAuthError) as exc_info:
+        await service.authenticate_callback(
+            code="google-code",
+            state="state-token",
+        )
+
+    assert exc_info.value.code == "account_activation_required"
 
 
 async def test_exchange_authorization_code_rejects_invalid_code(monkeypatch) -> None:
