@@ -1,166 +1,96 @@
+<h1 align="center"><em>Gestión de Prácticas Backend</em></h1>
+
 <div align="center">
-  <h2><i>Gestión de Prácticas DCI</i></h2>
   <p>
-    <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-0.136.1+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"></a>
-    <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.14+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
-    <a href="https://www.docker.com"><img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"></a>
-    <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/uv-Astral-2E71FF?style=for-the-badge" alt="uv"></a>
-    <a href="https://github.com/ICC752-1/gestion-practicas-backend/actions/workflows/ci.yml"><img src="https://github.com/ICC752-1/gestion-practicas-backend/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  </p>
-  <p>
-    <a href="#contexto">Contexto</a> ·
-    <a href="#funcionalidades">Funcionalidades</a> ·
-    <a href="#setup">Setup</a> ·
-    <a href="#documentacion">Documentación</a> ·
-    <a href="#endpoints-disponibles">Endpoints Disponibles</a> ·
+    <a href="https://python.org">
+      <img src="https://img.shields.io/badge/Python-3.14+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+    </a>
+    <a href="https://fastapi.tiangolo.com">
+      <img src="https://img.shields.io/badge/FastAPI-0.136+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
+    </a>
+    <a href="https://www.postgresql.org">
+      <img src="https://img.shields.io/badge/PostgreSQL-15-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
+    </a>
+    <a href="https://www.docker.com">
+      <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Compose">
+    </a>
+    <a href="https://github.com/astral-sh/uv">
+      <img src="https://img.shields.io/badge/uv-Astral-2E71FF?style=for-the-badge" alt="uv">
+    </a>
   </p>
 </div>
 
----
-### Contexto 
-Este repositorio contiene el backend del sistema de gestión del proceso de inscripción de práctica de estudios. Su objetivo es centralizar la lógica de negocio, la gestión de datos y la exposición de servicios API necesarios para apoyar el flujo administrativo entre estudiantes, encargados de práctica, directores de carrera, secretaría y otros actores involucrados.
+## Descripción
 
-El backend sigue una arquitectura monolito modular con separación por capas como patrón arquitectónico, lo cual permite organizar el sistema por módulos funcionales, mantener bajo acoplamiento entre componentes y facilitar su evolución conforme aumenten los requerimientos del proyecto.
+Backend del sistema de gestión de prácticas. Expone una API REST construida con FastAPI para apoyar el flujo administrativo y académico de prácticas, incluyendo estudiantes, roles administrativos, solicitudes, documentos, evaluaciones, agenda, notificaciones y exportación de datos.
 
----
-### Funcionalidades
-La siguiente tabla resume las capacidades principales consideradas en el
-sistema propuesto.
+## Funcionalidades Principales
 
-> Leyenda de estado: ⬤ implementado, ◐ parcial, ◯ no implementado.
+- Autenticación local y Google OAuth.
+- Gestión de usuarios, roles y permisos.
+- Solicitudes de práctica e inducción.
+- Seguimiento, aprobación, rechazo, excepciones y cierre de prácticas.
+- Gestión documental, paquetes DIRAE y exportación CSV.
+- Generación de cartas de presentación.
+- Agenda de entrevistas y presentaciones.
+- Autoevaluación y evaluación de supervisor.
+- Notificaciones persistentes y envío por SMTP.
+- Portabilidad de datos.
 
-| Capacidad | Estado |
-| --- | --- |
-| Autenticación con emisión de tokens | ◐ |
-| Consulta del usuario autenticado | ◐ |
-| Gestión de estudiantes | ◯ |
-| Gestión de prácticas | ◐ |
-| Inicialización de base de datos con datos base | ⬤ |
-| Validación de credenciales y estado de usuario | ◐ |
-| Logging y auditoría de acciones | ◯ |
+## Requisitos
 
-### Setup 
-#### 1. Clonar el repositorio.
+- Python 3.14+
+- uv
+- Docker y Docker Compose
+- PostgreSQL, si la base de datos se ejecuta fuera de Docker
+- LibreOffice, si se generan cartas PDF fuera del contenedor
 
-```bash
-git clone git@github.com:ICC752-1/gestion-practicas-backend.git
-cd gestion-practicas-backend
-```
+## Ejecución con Docker Compose
 
-#### 2. Crear el archivo `.env` a partir de `.env.example`.
+La forma principal de levantar el backend en local es usando Docker Compose, ya que inicia la API y PostgreSQL con la configuración del proyecto.
 
 ```bash
 cp .env.example .env
+docker compose up -d --build
 ```
 
-> [!CAUTION]
-> Antes de continuar, debes completar las variables de entorno del archivo `.env`.
+Este comando inicia:
 
-#### 3. Levantar la base de datos con Docker Compose.
+- Backend: `http://localhost:8000`
+- PostgreSQL: `localhost:5432`
 
-```bash
-docker compose up -d --build db
-```
-
-#### 4. Abrir la documentación interactiva en:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-#### 5. Verificación local (lint + tests)
-
-```bash
-uv sync --dev
-uv run ruff check .
-uv run pytest --tb=short
-```
-
-### Documentación
-Esta sección reúne documentación propia del funcionamiento interno del sistema.
-
-> Para un alcance mayor y otros dominios, revise el repositorio de documentación.
-
-- [Logging](docs/logging.md)
-- [Almacenamiento y privacidad documental](docs/documents-privacy.md)
-- [Notificaciones](docs/notifications.md)
-
-### CI/CD
-El repositorio cuenta con workflows automatizados:
-
-- **CI**: ejecuta lint y tests en cada push y pull request.
-- **CD**: esta configurado para ejecutarse al hacer push a `main`, construyendo
-  la imagen y desplegando en la VPS.
-
-En la verificacion de Sprint 10.22, el workflow de CD existe en ramas de
-desarrollo, pero debe ser aceptado o mergeado hacia `main` para que el despliegue
-productivo quede activo desde la rama de liberacion.
-
-La imagen de produccion no se publica en un registry. El workflow:
-
-1. Construye `gestion-practicas-backend:<commit_sha>`.
-2. Exporta la imagen con `docker save`.
-3. Copia el archivo comprimido a `/srv/team-b/releases` en la VPS.
-4. Carga la imagen con `sudo docker load`.
-5. La etiqueta como `gestion-practicas-backend:deploy`.
-6. Reinicia el servicio `backend` del stack compartido.
-
-Para que el CD sea efectivo, el workflow debe estar presente en `main`, los
-secrets `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_SSH_KEY` y, preferentemente,
-`VPS_KNOWN_HOSTS` deben existir en GitHub Actions, y los scripts del repositorio
-`gestion-practicas-deployment` deben estar disponibles en `/srv/team-b/app`.
-
-#### Despliegue en producción
-El stack de produccion vive en el repositorio `gestion-practicas-deployment` y
-se espera en la VPS bajo:
-
-```text
-/srv/team-b/app
-```
-
-El archivo `app/core/database/init.sql` se copia a
-`/srv/team-b/app/init.sql` durante el despliegue para inicializar PostgreSQL en
-el primer arranque del volumen.
-
-#### Reproducir CI localmente
-```bash
-uv sync --dev
-uv run ruff check .
-uv run pytest --tb=short
-```
-
-### Notas de uso
-- Para detener la base de datos:
+Para detener los servicios:
 
 ```bash
 docker compose down
 ```
 
-- Para acceder al contenedor de PostgreSQL:
+## Ejecución Local con PostgreSQL en Docker
+
+Esta alternativa permite ejecutar el backend directamente con `uv`, manteniendo PostgreSQL en Docker.
 
 ```bash
-docker exec -it internship_db psql -U <usuario> -d internship_db
+cp .env.example .env
+uv sync --dev
+docker compose up -d --build db
+uv run uvicorn app.main:app --reload
 ```
 
-> [!NOTE] 
-> El contenedor carga automáticamente `app/core/database/init.sql` al iniciar.
+Cuando el backend se ejecuta fuera de Docker y la base de datos se levanta con Docker Compose, `POSTGRES_HOST` debe apuntar a `localhost` en el archivo `.env`.
 
-> [!NOTE]
-> El script de inicialización inserta un usuario base para pruebas de autenticación.
-> La contraseña asociada es `my_secure_password`.
+## Probar en Local
 
-### Endpoints disponibles
-#### Autenticación
+Con el backend iniciado, los recursos locales quedan disponibles en:
 
-- `POST /auth/login`
-- `GET /auth/me`
-- `POST /auth/logout`
+- API: `http://localhost:8000`
+- Swagger UI: `http://localhost:8000/docs`
+- OpenAPI JSON: `http://localhost:8000/openapi.json`
+- PostgreSQL Docker: `localhost:5432`
 
-#### Gestión de prácticas
+Swagger UI es la vía recomendada para explorar y probar los endpoints disponibles durante el desarrollo local.
 
-- `POST /internships`: crea una práctica asociada al estudiante autenticado. Requiere token Bearer y rol `Estudiante`.
-- `GET /internships/me`: lista las prácticas registradas por el usuario autenticado.
-- `GET /internships/{internship_id}`: obtiene el detalle de una práctica por identificador. Permite acceso al estudiante propietario o a roles con permisos de revisión.
+## Documentación
 
-> [!NOTE]
-> La gestión de prácticas se encuentra en estado parcial: actualmente permite crear prácticas, listar las prácticas propias y consultar el detalle de una práctica existente. Aún quedan pendientes flujos como actualización de estado, revisión, aprobación/rechazo, documentos asociados e integración completa con los demás módulos del proceso.
+La documentación técnica y funcional del backend se mantiene en el repositorio de documentación del proyecto: `gestion-practicas-docs`.
+
+Ahí se documentan los módulos de autenticación, prácticas, documentos, notificaciones, administración, agenda, cartas de presentación, autoevaluaciones, evaluaciones de supervisor, portabilidad de datos y estrategia de tests backend.

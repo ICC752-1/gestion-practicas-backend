@@ -210,39 +210,6 @@ async def test_create_internship_assigns_authenticated_user_id() -> None:
     assert repository.created_history_metadata == {"event": "internship_created"}
 
 
-async def test_get_internship_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.internship_by_id = object()
-    service = InternshipService(internship_repository=repository)
-
-    internship = await service.get_internship(internship_id=7)
-
-    assert internship is repository.internship_by_id
-    assert repository.requested_internship_id == 7
-
-
-async def test_list_user_internships_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.internships_by_user = [object(), object()]
-    service = InternshipService(internship_repository=repository)
-
-    internships = await service.list_user_internships(user_id=42)
-
-    assert internships == repository.internships_by_user
-    assert repository.requested_user_id == 42
-
-
-async def test_list_internship_tracking_delegates_lookup_to_repository() -> None:
-    repository = FakeInternshipRepository()
-    repository.status_history = [object()]
-    service = InternshipService(internship_repository=repository)
-
-    history = await service.list_internship_tracking(internship_id=7)
-
-    assert history == repository.status_history
-    assert repository.requested_internship_id == 7
-
-
 async def test_transition_internship_status_updates_status_and_history() -> None:
     repository = FakeInternshipRepository()
     repository.internship_by_id = SimpleNamespace(

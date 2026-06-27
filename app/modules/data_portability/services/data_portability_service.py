@@ -29,6 +29,10 @@ def _role_names(user: User) -> set[str]:
     return {user_role.role.name for user_role in user.roles}
 
 
+def _enum_value(value):
+    return value.value if hasattr(value, "value") else value
+
+
 class DataPortabilityExport:
     """Archivo generado para descarga."""
 
@@ -171,18 +175,20 @@ class DataPortabilityService:
                 "internship_id": document.internship_id,
                 "type": document.document_type.name if document.document_type else None,
                 "file_name": document.file_name,
-                "extension": document.extension.value,
-                "status": document.status.value,
+                "extension": _enum_value(document.extension),
+                "status": _enum_value(document.status),
                 "size_bytes": document.size_bytes,
                 "upload_date": _iso(document.upload_date),
                 "reviewed_at": _iso(document.reviewed_at),
                 "review_comment": document.review_comment,
-                "included_in_zip": include_documents,
+                "included_in_zip": False,
                 "export_path": export_path if include_documents else None,
             }
             document_payload.append(metadata)
             if include_documents:
-                document_files.append((metadata, self._resolve_document_path(document.file_path)))
+                file_path = self._resolve_document_path(document.file_path)
+                metadata["included_in_zip"] = file_path.is_file()
+                document_files.append((metadata, file_path))
 
         payload = {
             "generated_at": _iso(_utc_now()),
@@ -245,11 +251,11 @@ def _internship_payload(internship) -> dict:
         "schedule": internship.schedule,
         "days": internship.days,
         "modality": internship.modality,
-        "internship_period": internship.internship_period.value,
-        "internship_type": internship.internship_type.value,
+        "internship_period": _enum_value(internship.internship_period),
+        "internship_type": _enum_value(internship.internship_type),
         "status": internship.status.title if internship.status else None,
-        "completion_status": internship.completion_status.value,
-        "final_result": internship.final_result.value,
+        "completion_status": _enum_value(internship.completion_status),
+        "final_result": _enum_value(internship.final_result),
         "is_cancelled": internship.is_cancelled,
         "cancellation_reason": internship.cancellation_reason,
         "upload_date": _iso(internship.upload_date),
@@ -272,7 +278,7 @@ def _exception_payload(exception) -> dict:
     return {
         "id": exception.id,
         "internship_id": exception.internship_id,
-        "rule": exception.rule.value,
+        "rule": _enum_value(exception.rule),
         "reason": exception.reason,
         "authorized_at": _iso(exception.authorized_at),
     }
@@ -285,7 +291,7 @@ def _self_evaluation_payload(evaluation) -> dict:
         "form_version": evaluation.form_version,
         "responses": evaluation.responses,
         "observations": evaluation.observations,
-        "status": evaluation.status.value,
+        "status": _enum_value(evaluation.status),
         "submitted_at": _iso(evaluation.submitted_at),
         "reopened_at": _iso(evaluation.reopened_at),
         "reopen_reason": evaluation.reopen_reason,

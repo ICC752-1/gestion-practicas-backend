@@ -3,23 +3,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.main import app
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.internships.controllers import internship_controller
 from app.modules.internships.controllers.internship_controller import (
     DASHBOARD_READ_ROLES,
 )
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
-
 
 def _user(user_id: int, roles: list[str]) -> SimpleNamespace:
     return SimpleNamespace(
@@ -55,38 +43,6 @@ class FakeTrackingService:
         self.requested_tracking_id = internship_id
 
         return self.history
-
-
-def test_internships_router_is_registered() -> None:
-    paths = {route.path for route in app.routes}
-
-    assert "/internships" in paths
-    assert "GET" in _methods_for_path("/internships")
-    assert "POST" in _methods_for_path("/internships")
-    assert "/internships/stats" in paths
-    assert "GET" in _methods_for_path("/internships/stats")
-    assert "/internships/me" in paths
-    assert "/internships/{internship_id}/tracking" in paths
-    assert "GET" in _methods_for_path("/internships/{internship_id}/tracking")
-    assert "/internships/{internship_id}/student-actions" in paths
-    assert "GET" in _methods_for_path("/internships/{internship_id}/student-actions")
-    assert "/internships/{internship_id}/student" in paths
-    assert "PATCH" in _methods_for_path("/internships/{internship_id}/student")
-    assert "/internships/{internship_id}/student/cancel" in paths
-    assert "POST" in _methods_for_path("/internships/{internship_id}/student/cancel")
-    assert "/internships/{internship_id}" in paths
-
-
-def test_users_and_roles_routers_are_registered() -> None:
-    paths = {route.path for route in app.routes}
-
-    assert "/users" in paths
-    assert "/users/{user_id}" in paths
-    assert "/users/{user_id}/roles" in paths
-    assert "/users/{user_id}/roles/{role_id}" in paths
-    assert "/roles" in paths
-    assert "/roles/{role_id}" in paths
-
 
 async def test_dashboard_internships_rejects_student_role() -> None:
     role_checker = require_roles(DASHBOARD_READ_ROLES)

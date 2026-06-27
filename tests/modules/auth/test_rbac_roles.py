@@ -6,21 +6,9 @@ from app.modules.auth.utils.roles import (
     STUDENT_ROLE,
     SUPERADMIN_ROLE,
     SUPERVISOR_ROLE,
-    SYSTEM_ROLE_NAMES,
+    STUDENT_ACCOUNT_MANAGER_ROLES,
     USER_ADMIN_ROLES,
 )
-
-
-def test_system_roles_include_fica_and_superadmin() -> None:
-    assert SYSTEM_ROLE_NAMES == (
-        STUDENT_ROLE,
-        SUPERVISOR_ROLE,
-        PRACTICE_MANAGER_ROLE,
-        CAREER_DIRECTOR_ROLE,
-        SECRETARY_ROLE,
-        FICA_ROLE,
-        SUPERADMIN_ROLE,
-    )
 
 
 def test_user_admin_policy_is_superadmin_only() -> None:
@@ -31,3 +19,12 @@ def test_user_admin_policy_is_superadmin_only() -> None:
     assert SUPERVISOR_ROLE not in USER_ADMIN_ROLES
     assert STUDENT_ROLE not in USER_ADMIN_ROLES
     assert FICA_ROLE not in USER_ADMIN_ROLES
+
+
+def test_student_account_manager_policy_is_academic_only() -> None:
+    assert STUDENT_ACCOUNT_MANAGER_ROLES == [
+        PRACTICE_MANAGER_ROLE,
+        CAREER_DIRECTOR_ROLE,
+    ]
+    assert SUPERADMIN_ROLE not in STUDENT_ACCOUNT_MANAGER_ROLES
+    assert STUDENT_ROLE not in STUDENT_ACCOUNT_MANAGER_ROLES

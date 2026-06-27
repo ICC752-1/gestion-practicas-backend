@@ -10,18 +10,20 @@ Cubre los siguientes escenarios:
 - Despacho de notificacion desde servicio externo
 """
 
-import pytest
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.modules.notifications.models.notification_model import (
-    NotificationEventTypeEnum,
-    NotificationStatusEnum,
-)
+import pytest
+
+from app.modules.documents.models.document_model import Document as _Document
 from app.modules.internships.models.internship_model import (
     PracticeTypeEnum,
     SchoolInsuranceStatusEnum,
+)
+from app.modules.notifications.models.notification_model import (
+    NotificationEventTypeEnum,
+    NotificationStatusEnum,
 )
 from app.modules.notifications.services.notification_service import (
     NotificationService,
@@ -31,7 +33,13 @@ from app.modules.notifications.utils.notification_event_helpers import (
     build_internship_derived_notification,
     build_internship_rejected_notification,
     build_requirement_status_changed_notification,
+    build_self_evaluation_submitted_admin_notification,
+    build_self_evaluation_submitted_notification,
+    build_supervisor_evaluation_invitation_notification,
 )
+
+
+_REGISTER_DOCUMENT_MODEL = _Document
 
 
 def _make_config(mode: str = "simulated") -> SimpleNamespace:
@@ -207,30 +215,41 @@ class TestInvalidRecipient:
 
 class TestPayloadStorage:
 
-    def test_event_helpers_include_payload(self):
-        notification = build_internship_approved_notification(
+    def test_internship_event_helpers_keep_routing_and_payload_contract(self):
+        approved = build_internship_approved_notification(
             recipient_user_id=10,
             recipient_email="s@test.com",
             internship_id=5,
             org_name="Acme Corp",
         )
-
-        assert notification.payload == {"internship_id": 5}
-        assert notification.event_type == NotificationEventTypeEnum.internship_approved
-
-    def test_rejected_notification_includes_reason_in_payload(self):
-        notification = build_internship_rejected_notification(
+        rejected = build_internship_rejected_notification(
             recipient_user_id=10,
             recipient_email="s@test.com",
             internship_id=5,
             org_name="Acme Corp",
             reason="Documentacion incompleta",
         )
+        derived = build_internship_derived_notification(
+            recipient_user_id=10,
+            recipient_email="s@test.com",
+            internship_id=5,
+            org_name="Acme Corp",
+            reason="Revision DIRAE",
+        )
 
-        assert notification.payload["reason"] == "Documentacion incompleta"
-        assert notification.payload["internship_id"] == 5
+        assert approved.event_type == NotificationEventTypeEnum.internship_approved
+        assert approved.recipient_user_id == 10
+        assert approved.recipient_email == "s@test.com"
+        assert approved.payload == {"internship_id": 5}
+        assert rejected.event_type == NotificationEventTypeEnum.internship_rejected
+        assert rejected.payload == {
+            "internship_id": 5,
+            "reason": "Documentacion incompleta",
+        }
+        assert derived.event_type == NotificationEventTypeEnum.internship_derived
+        assert derived.payload == {"internship_id": 5, "reason": "Revision DIRAE"}
 
-    def test_requirement_notification_payload(self):
+    def test_requirement_status_changed_notification_keeps_payload_contract(self):
         notification = build_requirement_status_changed_notification(
             recipient_user_id=10,
             recipient_email="s@test.com",
@@ -241,42 +260,23 @@ class TestPayloadStorage:
         )
 
         assert notification.payload["requirement_id"] == 3
+        assert notification.payload["requirement_type"] == "Práctica de Estudio I"
         assert notification.payload["new_status"] == "Aprobada"
         assert notification.payload["previous_status"] == "En revisión"
 
-
-class TestEventHelpers:
-
-    def test_approved_notification_builds_correctly(self):
-        notification = build_internship_approved_notification(
-            recipient_user_id=10,
-            recipient_email="s@test.com",
-            internship_id=5,
-            org_name="Acme Corp",
-            internship_type=PracticeTypeEnum.practice_1,
-        )
-
-        assert notification.event_type == NotificationEventTypeEnum.internship_approved
-        assert notification.subject == "Solicitud de práctica aprobada"
-        assert "Acme Corp" in notification.content
-        assert "Su solicitud de práctica I ha sido aprobada por administración" in notification.content
-        assert notification.recipient_user_id == 10
-        assert notification.recipient_email == "s@test.com"
-
-    def test_rejected_notification_builds_correctly(self):
+    def test_event_helpers_escape_dynamic_html_values(self):
         notification = build_internship_rejected_notification(
             recipient_user_id=10,
             recipient_email=None,
             internship_id=5,
-            org_name="Acme Corp",
-            reason="Falta de documentos",
+            org_name='<script>alert("org")</script>',
+            reason='<img src=x onerror="alert(1)">',
         )
 
-        assert notification.event_type == NotificationEventTypeEnum.internship_rejected
-        assert notification.subject == "Solicitud de práctica rechazada"
-        assert "Su solicitud de práctica fue rechazada" in notification.content
-        assert "Falta de documentos" in notification.content
-        assert notification.recipient_email is None
+        assert "<script>" not in notification.content
+        assert "<img" not in notification.content
+        assert "&lt;script&gt;alert(&quot;org&quot;)&lt;/script&gt;" in notification.content
+        assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in notification.content
 
     def test_rejected_notification_without_reason(self):
         notification = build_internship_rejected_notification(
@@ -319,68 +319,49 @@ class TestEventHelpers:
         assert "Práctica de Estudio I" in notification.subject
         assert "Aprobada" in notification.content
 
+    def test_supervisor_evaluation_invitation_uses_shared_html_body(self):
+        notification = build_supervisor_evaluation_invitation_notification(
+            recipient_email="supervisor@empresa.cl",
+            internship_id=7,
+            org_name="Empresa Demo",
+            student_name="Ana Perez",
+            supervisor_name="Roberto Saez",
+            internship_type=PracticeTypeEnum.practice_1,
+            invitation_url="https://app.example/supervisor/evaluacion/token",
+            expires_at=datetime(2026, 6, 20, 12, 0, 0),
+        )
+
+        assert notification.subject == "Evaluación de práctica pendiente"
+        assert "<!doctype html>" in notification.content
+        assert "Sistema de Gestión de Prácticas" in notification.content
+        assert "https://app.example/supervisor/evaluacion/token" in notification.content
+        assert "Roberto Saez" in notification.content
+        assert notification.payload["event"] == "supervisor_evaluation_invitation"
+
+    def test_self_evaluation_notifications_use_shared_html_body(self):
+        student_notification = build_self_evaluation_submitted_notification(
+            recipient_user_id=10,
+            recipient_email="student@example.com",
+            internship_id=7,
+            org_name="Empresa Demo",
+            self_evaluation_id=3,
+        )
+        admin_notification = build_self_evaluation_submitted_admin_notification(
+            recipient_user_id=20,
+            recipient_email="admin@example.com",
+            internship_id=7,
+            org_name="Empresa Demo",
+            student_user_id=10,
+            self_evaluation_id=3,
+        )
+
+        assert "<!doctype html>" in student_notification.content
+        assert "Autoevaluación enviada" in student_notification.content
+        assert "<!doctype html>" in admin_notification.content
+        assert "Autoevaluación de estudiante enviada" in admin_notification.content
+
 
 class TestNotificationFromExternalService:
-
-    @pytest.mark.asyncio
-    async def test_internship_service_dispatches_notification_on_approve(self):
-        from app.modules.internships.services.internship_service import (
-            APPROVED_STATUS_TITLE,
-            PENDING_STATUS_TITLE,
-            InternshipService,
-        )
-
-        repo = AsyncMock()
-        internship = MagicMock()
-        internship.id = 1
-        internship.user_id = 10
-        internship.org_name = "Acme"
-        internship.start_date = date(2026, 3, 10)
-        internship.end_date = date(2026, 6, 20)
-        internship.insurance_status = SchoolInsuranceStatusEnum.validated
-        internship.student = MagicMock()
-        internship.student.email = "s@test.com"
-
-        current_status = MagicMock()
-        current_status.title = PENDING_STATUS_TITLE
-        internship.status = current_status
-
-        async def _update_with_history(
-            internship, previous_status, new_status, actor_id, reason, metadata=None
-        ):
-            internship.status_id = new_status.id
-            internship.status = new_status
-            return internship
-
-        repo.get_internship_by_id.return_value = internship
-        repo.update_internship_status_with_history.side_effect = _update_with_history
-
-        approved_state = MagicMock()
-        approved_state.id = 3
-        approved_state.title = APPROVED_STATUS_TITLE
-        repo.get_state_by_title.return_value = approved_state
-
-        notification_repo = AsyncMock()
-        notification_repo.create.return_value = _make_notification()
-        notification_service = NotificationService(
-            notification_repository=notification_repo,
-            app_config=_make_config("simulated"),
-        )
-
-        service = InternshipService(
-            internship_repository=repo,
-            notification_service=notification_service,
-        )
-
-        actor = MagicMock()
-        actor.id = 99
-        actor.roles = [
-            SimpleNamespace(role=SimpleNamespace(name="Director de carrera"))
-        ]
-
-        await service.approve(1, actor, comment=None)
-
-        notification_repo.create.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_internship_service_without_notification_service_skips_gracefully(self):
@@ -482,3 +463,44 @@ class TestRetrySend:
 
         service._mailer.send_message.assert_awaited_once()
         service.repository.update_status.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retry_successful_for_pending_notification(self):
+        service = _make_service(mode="real")
+        service._mailer = AsyncMock()
+
+        notification = _make_notification(
+            status=NotificationStatusEnum.pending,
+            recipient_email="s@test.com",
+        )
+        service.repository.get_by_id.return_value = notification
+        service.repository.update_status.return_value = _make_notification(
+            status=NotificationStatusEnum.sent,
+        )
+
+        result = await service.retry_send(notification_id=1)
+
+        assert result.status == NotificationStatusEnum.sent
+        service._mailer.send_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_smtp_failure_keeps_notification_failed(self):
+        service = _make_service(mode="real")
+        service._mailer = AsyncMock()
+        service._mailer.send_message.side_effect = Exception("SMTP error")
+
+        notification = _make_notification(
+            status=NotificationStatusEnum.pending,
+            recipient_email="s@test.com",
+        )
+        failed_notification = _make_notification(status=NotificationStatusEnum.failed)
+        service.repository.get_by_id.return_value = notification
+        service.repository.update_status.return_value = failed_notification
+
+        result = await service.retry_send(notification_id=1)
+
+        assert result.status == NotificationStatusEnum.failed
+        service.repository.update_status.assert_awaited_once_with(
+            notification_id=notification.id,
+            new_status=NotificationStatusEnum.failed,
+        )

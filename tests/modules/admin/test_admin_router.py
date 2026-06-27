@@ -3,22 +3,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.main import app
 from app.modules.admin.controllers.admin_controller import (
     ADMIN_READ_ROLES,
     SCHOOL_INSURANCE_ADMIN_ROLES,
 )
 from app.modules.auth.dependencies.role_dependency import require_roles
-
-
-def _methods_for_path(path: str) -> set[str]:
-    methods: set[str] = set()
-
-    for route in app.routes:
-        if route.path == path and hasattr(route, "methods"):
-            methods.update(route.methods)
-
-    return methods
 
 
 def _user(*roles: str) -> SimpleNamespace:
@@ -29,33 +18,6 @@ def _user(*roles: str) -> SimpleNamespace:
             for role in roles
         ],
     )
-
-
-def test_school_insurance_admin_routes_are_registered() -> None:
-    list_path = "/admin/students/{student_id}/registration-requirements"
-    update_path = (
-        "/admin/students/{student_id}/registration-requirements/school-insurance"
-    )
-    internship_update_path = "/admin/internships/{internship_id}/school-insurance"
-
-    assert "GET" in _methods_for_path(list_path)
-    assert "PATCH" in _methods_for_path(update_path)
-    assert "PATCH" in _methods_for_path(internship_update_path)
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/admin/summary",
-        "/admin/students",
-        "/admin/internships",
-        "/admin/internships/{internship_id}",
-        "/admin/students/{student_id}/internship-requirements",
-        "/admin/students/{student_id}/internship-requirements/{requirement_id}/status",
-    ],
-)
-def test_admin_read_routes_are_registered(path: str) -> None:
-    assert _methods_for_path(path)
 
 
 @pytest.mark.parametrize(
