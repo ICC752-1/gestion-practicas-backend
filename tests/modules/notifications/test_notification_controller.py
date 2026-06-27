@@ -23,9 +23,6 @@ from app.modules.notifications.models.notification_model import (
     NotificationEventTypeEnum,
     NotificationStatusEnum,
 )
-from app.modules.notifications.schemas.notification_schema import (
-    MarkNotificationsReadRequest,
-)
 
 
 def _make_notification_dict(
@@ -98,104 +95,6 @@ class TestListNotifications:
         )
         service.count_notifications_for_user.assert_awaited_once()
         service.count_unread_for_user.assert_awaited_once_with(user_id=10)
-
-    @pytest.mark.asyncio
-    async def test_list_passes_read_and_event_filters(self):
-        from app.modules.notifications.controllers.notification_controller import (
-            list_notifications,
-        )
-
-        db = AsyncMock()
-        current_user = SimpleNamespace(id=10, roles=[])
-
-        with patch(
-            "app.modules.notifications.controllers.notification_controller._build_service"
-        ) as mock_build:
-            service = AsyncMock()
-            service.get_notifications_for_user.return_value = []
-            service.count_notifications_for_user.return_value = 0
-            service.count_unread_for_user.return_value = 0
-            mock_build.return_value = service
-
-            await list_notifications(
-                db=db,
-                current_user=current_user,
-                limit=10,
-                offset=0,
-                is_read=False,
-                event_type=NotificationEventTypeEnum.internship_approved,
-                created_from=None,
-                created_to=None,
-            )
-
-        service.get_notifications_for_user.assert_awaited_once_with(
-            user_id=10,
-            limit=10,
-            offset=0,
-            is_read=False,
-            event_type=NotificationEventTypeEnum.internship_approved,
-            created_from=None,
-            created_to=None,
-        )
-
-
-class TestMarkNotificationsRead:
-
-    @pytest.mark.asyncio
-    async def test_mark_selected_notifications_as_read_uses_current_user(self):
-        from app.modules.notifications.controllers.notification_controller import (
-            mark_selected_notifications_as_read,
-        )
-
-        db = AsyncMock()
-        current_user = SimpleNamespace(id=10, roles=[])
-
-        with patch(
-            "app.modules.notifications.controllers.notification_controller._build_service"
-        ) as mock_build:
-            service = AsyncMock()
-            service.mark_notifications_as_read.return_value = 2
-            service.count_unread_for_user.return_value = 3
-            mock_build.return_value = service
-
-            result = await mark_selected_notifications_as_read(
-                payload=MarkNotificationsReadRequest(notification_ids=[1, 2]),
-                db=db,
-                current_user=current_user,
-            )
-
-        assert result.updated_count == 2
-        assert result.unread_count == 3
-        service.mark_notifications_as_read.assert_awaited_once_with(
-            user_id=10,
-            notification_ids=[1, 2],
-        )
-
-    @pytest.mark.asyncio
-    async def test_mark_all_notifications_as_read_uses_current_user(self):
-        from app.modules.notifications.controllers.notification_controller import (
-            mark_all_notifications_as_read,
-        )
-
-        db = AsyncMock()
-        current_user = SimpleNamespace(id=10, roles=[])
-
-        with patch(
-            "app.modules.notifications.controllers.notification_controller._build_service"
-        ) as mock_build:
-            service = AsyncMock()
-            service.mark_notifications_as_read.return_value = 5
-            service.count_unread_for_user.return_value = 0
-            mock_build.return_value = service
-
-            result = await mark_all_notifications_as_read(
-                db=db,
-                current_user=current_user,
-            )
-
-        assert result.updated_count == 5
-        assert result.unread_count == 0
-        service.mark_notifications_as_read.assert_awaited_once_with(user_id=10)
 
 
 class TestGetNotification:

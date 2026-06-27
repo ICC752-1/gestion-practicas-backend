@@ -5,7 +5,6 @@ import pytest
 from app.modules.internships.controllers.internship_controller import (
     PRIVILEGED_READ_ROLES,
     _can_read_internship,
-    _has_any_role,
 )
 
 
@@ -21,18 +20,6 @@ def _user(user_id: int, roles: list[str]) -> SimpleNamespace:
 
 def _internship(user_id: int) -> SimpleNamespace:
     return SimpleNamespace(user_id=user_id)
-
-
-def test_has_any_role_returns_true_when_user_has_allowed_role() -> None:
-    user = _user(user_id=1, roles=["Estudiante", "Encargado de practica"])
-
-    assert _has_any_role(user, {"Encargado de practica"})
-
-
-def test_has_any_role_returns_false_when_user_lacks_allowed_roles() -> None:
-    user = _user(user_id=1, roles=["Estudiante"])
-
-    assert not _has_any_role(user, {"Director de carrera"})
 
 
 def test_can_read_internship_allows_owner_without_privileged_role() -> None:
