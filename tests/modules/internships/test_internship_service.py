@@ -140,7 +140,11 @@ class FakeInternshipRepository:
     async def get_active_induction_content(self):
         return None
 
-    async def get_passed_induction_attempt(self, user_id: int):
+    async def get_passed_induction_attempt(
+        self,
+        user_id: int,
+        content_version_id: int | None = None,
+    ):
         return None
 
 

@@ -241,7 +241,11 @@ class FakeInternshipRepository:
     async def is_internship_applications_disabled(self) -> bool:
         return False
 
-    async def get_passed_induction_attempt(self, user_id: int):
+    async def get_passed_induction_attempt(
+        self,
+        user_id: int,
+        content_version_id: int | None = None,
+    ):
         return self._passed_induction_for_user.get(user_id)
 
     async def get_active_induction_content(self):
