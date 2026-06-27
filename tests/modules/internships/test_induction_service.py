@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.modules.documents.models.document_model import Document as _Document  # noqa: F401
 from app.modules.internships.models.internship_model import (
     PracticePeriodEnum,
     PracticeTypeEnum,
