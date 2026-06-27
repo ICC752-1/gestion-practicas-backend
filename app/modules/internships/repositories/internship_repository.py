@@ -807,21 +807,28 @@ class InternshipRepository:
     async def get_passed_induction_attempt(
         self,
         user_id: int,
+        content_version_id: int | None = None,
     ) -> InductionAttempt | None:
         """Obtiene el último intento aprobado de inducción de un estudiante.
 
         Args:
             user_id: Identificador del estudiante.
+            content_version_id: Versión de contenido específica, si se debe
+                validar cumplimiento contra la versión activa.
 
         Returns:
             El intento aprobado más reciente, o ``None``.
         """
+        filters = [
+            InductionAttempt.user_id == user_id,
+            InductionAttempt.passed.is_(True),
+        ]
+        if content_version_id is not None:
+            filters.append(InductionAttempt.content_version_id == content_version_id)
+
         result = await self.db.execute(
             select(InductionAttempt)
-            .where(
-                InductionAttempt.user_id == user_id,
-                InductionAttempt.passed.is_(True),
-            )
+            .where(*filters)
             .order_by(InductionAttempt.attempted_at.desc())
             .limit(1)
         )

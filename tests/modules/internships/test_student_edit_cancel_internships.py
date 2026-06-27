@@ -10,6 +10,7 @@ from app.modules.internships.models.internship_model import PracticeTypeEnum
 from app.modules.internships.schemas.internship_schema import (
     StudentInternshipUpdateRequest,
 )
+from app.modules.internships.services import internship_service as internship_service_module
 from app.modules.internships.services.internship_service import InternshipService
 
 
@@ -32,6 +33,7 @@ def _internship(
     status_title: str = "Pendiente",
     hours_old: int = 1,
     is_cancelled: bool = False,
+    upload_date: datetime | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         id=7,
@@ -40,7 +42,8 @@ def _internship(
         status=_state(status_title),
         is_cancelled=is_cancelled,
         blocks_new_registration=True,
-        upload_date=datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours_old),
+        upload_date=upload_date
+        or datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours_old),
         start_date=date(2026, 1, 1),
         end_date=date(2026, 2, 1),
         city="Temuco",
@@ -119,6 +122,31 @@ async def test_student_actions_available_for_owner_pending_within_window() -> No
     assert availability.editable_until is not None
 
 
+async def test_student_actions_expire_at_24_hour_deadline(monkeypatch) -> None:
+    fixed_now = datetime(2026, 6, 24, 12, 0, 0)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return fixed_now
+            return fixed_now.replace(tzinfo=tz)
+
+    monkeypatch.setattr(internship_service_module, "datetime", FixedDateTime)
+    service, _ = _service(
+        _internship(upload_date=fixed_now - timedelta(hours=24)),
+    )
+
+    availability = await service.get_student_action_availability(
+        internship_id=7,
+        actor=_user(),
+    )
+
+    assert availability.can_update is False
+    assert availability.can_cancel is False
+    assert "window_expired" in availability.reasons
+
+
 async def test_student_update_records_reason_action_and_changed_fields() -> None:
     service, repository = _service(_internship())
     payload = StudentInternshipUpdateRequest(
@@ -153,6 +181,53 @@ async def test_student_cancel_records_student_cancel_action() -> None:
     assert repository.cancelled_kwargs["actor_id"] == 10
     assert repository.cancelled_kwargs["reason"] == "Me equivoque de empresa"
     assert repository.cancelled_kwargs["action"] == "student_cancel"
+
+
+async def test_student_cancel_rejects_non_owner() -> None:
+    service, repository = _service(_internship(user_id=99))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.cancel_by_student(
+            internship_id=7,
+            actor=_user(user_id=10),
+            reason="Me equivoque",
+        )
+
+    assert exc_info.value.status_code == 403
+    assert repository.cancelled_kwargs is None
+
+
+async def test_student_cancel_rejects_expired_window() -> None:
+    service, repository = _service(_internship(hours_old=25))
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.cancel_by_student(
+            internship_id=7,
+            actor=_user(),
+            reason="Me equivoque",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "window_expired" in exc_info.value.detail["reasons"]
+    assert repository.cancelled_kwargs is None
+
+
+async def test_student_cancel_rejects_after_administrative_action() -> None:
+    service, repository = _service(
+        _internship(),
+        history=[_history(), _history("admin_update")],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.cancel_by_student(
+            internship_id=7,
+            actor=_user(),
+            reason="Me equivoque",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "administrative_action_exists" in exc_info.value.detail["reasons"]
+    assert repository.cancelled_kwargs is None
 
 
 async def test_student_update_rejects_non_owner() -> None:

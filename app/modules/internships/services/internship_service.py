@@ -1910,7 +1910,7 @@ class InternshipService:
 
         if (
             editable_until is not None
-            and datetime.now(UTC).replace(tzinfo=None) > editable_until
+            and datetime.now(UTC).replace(tzinfo=None) >= editable_until
         ):
             reasons.append("window_expired")
 
@@ -2460,9 +2460,10 @@ class InternshipService:
     ) -> bool:
         """Verifica si un estudiante ha aprobado la inducción obligatoria.
 
-        Primero consulta ``StudentRegistrationRequirement``; si no existe
-        o está marcado como no completado, consulta el último intento
-        aprobado en ``InductionAttempt``.
+        Cuando la versión activa exige repetición, solo cuenta un requisito
+        registrado después de publicar esa versión o un intento aprobado contra
+        esa misma versión. En caso contrario, se mantiene el comportamiento
+        histórico: cualquier requisito o intento aprobado basta.
 
         Args:
             user_id: Identificador del estudiante.
@@ -2479,15 +2480,37 @@ class InternshipService:
         ):
             active_content = await self.internship_repository.get_active_induction_content()
 
+        requires_retake = bool(getattr(active_content, "requires_retake", False))
         req = await self.internship_repository.get_student_requirement(
             user_id=user_id,
             requirement="induction",
         )
         if req is not None and req.is_completed:
+            if not requires_retake:
+                return True
+
+            active_published_at = getattr(active_content, "published_at", None)
+            completed_at = getattr(req, "completed_at", None)
+            if (
+                active_published_at is not None
+                and completed_at is not None
+                and completed_at >= active_published_at
+            ):
+                return True
+
+        content_version_id = (
+            getattr(active_content, "id", None)
+            if requires_retake and active_content is not None
+            else None
+        )
+        passed_attempt = await self.internship_repository.get_passed_induction_attempt(
+            user_id=user_id,
+            content_version_id=content_version_id,
+        )
+        if passed_attempt is not None:
             return True
 
-        passed_attempt = await self.internship_repository.get_passed_induction_attempt(user_id=user_id)
-        return passed_attempt is not None
+        return False
 
     async def get_registration_eligibility(
         self,
@@ -2517,6 +2540,9 @@ class InternshipService:
         has_insurance = insurance_req is not None and insurance_req.is_completed
 
         active_induction_content = await self.internship_repository.get_active_induction_content()
+        requires_retake = bool(
+            getattr(active_induction_content, "requires_retake", False)
+        )
         has_induction = await self._has_passed_induction(
             user_id,
             active_content=active_induction_content,
@@ -2586,15 +2612,22 @@ class InternshipService:
                 "o contar con una excepción antes de aprobar la práctica estival."
             )
         elif induction_blocked:
-            next_step = (
-                "Debe completar la inducción obligatoria y aprobar el cuestionario "
-                "antes de crear la solicitud de práctica."
-            )
+            if requires_retake:
+                next_step = (
+                    "Debe repetir la inducción obligatoria vigente y aprobar el "
+                    "cuestionario antes de crear la solicitud de práctica."
+                )
+            else:
+                next_step = (
+                    "Debe completar la inducción obligatoria y aprobar el cuestionario "
+                    "antes de crear la solicitud de práctica."
+                )
 
         return RegistrationEligibilityResponse(
             has_school_insurance=has_insurance,
             insurance_status=insurance_status,
             has_induction=has_induction,
+            requires_retake=requires_retake,
             has_school_insurance_exception=has_school_insurance_exception,
             has_approved_practice_1=has_approved_practice_1,
             sequentiality_blocked=sequentiality_blocked,
