@@ -69,6 +69,12 @@ class FakeInternship:
         self.city = "Temuco"
         self.org_phone = "+56912345678"
         self.web = "https://acme.example"
+        self.supervisor_name = "Maria Supervisora"
+        self.supervisor_profession = "Ingeniera Civil Informatica"
+        self.supervisor_position = "Jefa de Desarrollo"
+        self.supervisor_department = "Tecnologia"
+        self.supervisor_email = "maria.supervisora@acme.example"
+        self.supervisor_phone = "+56987654321"
         self.start_date = date(2026, 6, 1)
         self.end_date = date(2026, 8, 31)
         self.schedule = "09:00-18:00"
@@ -81,6 +87,8 @@ class FakeInternship:
         self.upload_date = datetime(2026, 5, 15, 10, 0, tzinfo=UTC)
         self.status_id = None if status is None else status.id
         self.user_id = None if student is None else student.id
+        self.internship_period = "Semestre"
+        self.internship_type = "Práctica de Estudio I"
         self.student = student
         self.status = status
         self.is_cancelled = is_cancelled
@@ -547,6 +555,11 @@ async def test_get_internship_detail_returns_detail() -> None:
     assert internship.student.first_name == "Juan"
     assert internship.status is not None
     assert internship.status.title == "Aprobada"
+    assert internship.internship_type == "Práctica de Estudio I"
+    assert internship.internship_period == "Semestre"
+    assert internship.supervisor_name == "Maria Supervisora"
+    assert internship.supervisor_email == "maria.supervisora@acme.example"
+    assert "dirae_status" not in internship.model_dump()
     assert internship.is_cancelled is False
     assert internship.cancelled_at is None
     assert internship.cancellation_reason is None
