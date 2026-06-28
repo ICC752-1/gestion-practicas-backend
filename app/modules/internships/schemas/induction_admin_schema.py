@@ -16,7 +16,9 @@ class InductionAdminVideoPayload(BaseModel):
     @classmethod
     def validate_video_url(cls, value: str) -> str:
         if not value.startswith(("http://", "https://")):
-            raise ValueError("video_url must be an absolute HTTP(S) URL")
+            raise ValueError(
+                "La URL del video debe ser completa y comenzar con http:// o https://."
+            )
         return value
 
 
@@ -31,14 +33,14 @@ class InductionAdminQuestionPayload(BaseModel):
     @model_validator(mode="after")
     def validate_question(self) -> "InductionAdminQuestionPayload":
         if len(self.options) < 2:
-            raise ValueError("Each question must have at least two options")
+            raise ValueError("Cada pregunta debe tener al menos dos opciones.")
 
         blank_options = [key for key, value in self.options.items() if not value.strip()]
         if blank_options:
-            raise ValueError("Question options cannot be blank")
+            raise ValueError("Las opciones de respuesta no pueden estar vacias.")
 
         if self.correct_answer not in self.options:
-            raise ValueError("correct_answer must match one option key")
+            raise ValueError("La respuesta correcta debe coincidir con una opcion.")
 
         return self
 
@@ -57,14 +59,16 @@ class InductionAdminVersionPayload(BaseModel):
     def validate_version(self) -> "InductionAdminVersionPayload":
         video_orders = [video.order for video in self.videos]
         if len(video_orders) != len(set(video_orders)):
-            raise ValueError("Video order values must be unique")
+            raise ValueError("El orden de los videos no puede repetirse.")
 
         question_orders = [question.order for question in self.questions]
         if len(question_orders) != len(set(question_orders)):
-            raise ValueError("Question order values must be unique")
+            raise ValueError("El orden de las preguntas no puede repetirse.")
 
         if self.min_score > len(self.questions):
-            raise ValueError("min_score cannot exceed the number of questions")
+            raise ValueError(
+                "El puntaje minimo no puede superar el total de preguntas."
+            )
 
         return self
 

@@ -756,7 +756,7 @@ class InternshipRepository:
         self,
         version: InductionContentVersion,
     ) -> InductionContentVersion:
-        """Publica una version y desactiva las demas para nuevos intentos."""
+        """Publica o reactiva una version y desactiva las demas para nuevos intentos."""
 
         active_versions = await self.db.execute(
             select(InductionContentVersion).where(
@@ -768,7 +768,8 @@ class InternshipRepository:
 
         version.status = ContentStatusEnum.published
         version.is_active = True
-        version.published_at = datetime.now(UTC).replace(tzinfo=None)
+        if version.published_at is None:
+            version.published_at = datetime.now(UTC).replace(tzinfo=None)
         await self.db.commit()
         await self.db.refresh(version)
         loaded = await self.get_induction_content_version_by_id(version.id)

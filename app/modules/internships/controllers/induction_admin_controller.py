@@ -119,7 +119,7 @@ async def publish_induction_version(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
 ) -> InductionAdminVersionDetailResponse:
-    """Publica una version y la deja como unica activa."""
+    """Publica o activa una version y la deja como unica activa."""
 
     service = _build_service(db)
     version = await service.publish(version_id)

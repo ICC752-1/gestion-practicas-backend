@@ -32,7 +32,7 @@ class InductionAdminService:
         if version is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Induction version not found",
+                detail="No se encontro la version de induccion solicitada.",
             )
         return version
 
@@ -84,10 +84,9 @@ class InductionAdminService:
         await self.repository.delete_induction_content_version(version)
 
     async def publish(self, version_id: int) -> InductionContentVersion:
-        """Publica una version de induccion y la deja como unica activa."""
+        """Publica o reactiva una version y la deja como unica activa."""
 
         version = await self.get_version(version_id)
-        self._ensure_draft(version)
         self._ensure_publishable(version)
 
         return await self.repository.publish_induction_content_version(version)
@@ -96,7 +95,7 @@ class InductionAdminService:
         if version.status != ContentStatusEnum.draft:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Published induction versions cannot be modified",
+                detail="Las versiones publicadas de induccion no se pueden modificar.",
             )
 
     def _ensure_publishable(self, version: InductionContentVersion) -> None:
@@ -104,12 +103,12 @@ class InductionAdminService:
         if question_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Induction version must include at least one question",
+                detail="La version de induccion debe incluir al menos una pregunta.",
             )
         if version.min_score > question_count:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="min_score cannot exceed question count",
+                detail="El puntaje minimo no puede superar el total de preguntas.",
             )
 
     def _build_children(self, payload: InductionAdminVersionPayload):

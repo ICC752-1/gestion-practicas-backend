@@ -629,6 +629,9 @@ BEGIN
         WHEN 'presentation' THEN 'Presentación'::"enumEntity"
         WHEN 'self_evaluations' THEN 'Autoevaluación'::"enumEntity"
         WHEN 'data_portability_requests' THEN 'Portabilidad'::"enumEntity"
+        WHEN 'induction_content_versions' THEN 'Configuración'::"enumEntity"
+        WHEN 'induction_videos' THEN 'Configuración'::"enumEntity"
+        WHEN 'induction_questions' THEN 'Configuración'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
         WHEN 'currentstate' THEN 'Estado'::"enumEntity"
         ELSE NULL
@@ -671,6 +674,9 @@ CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Present
 CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_self_evaluations AFTER INSERT OR UPDATE OR DELETE ON self_evaluations FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_data_portability_requests AFTER INSERT OR UPDATE OR DELETE ON data_portability_requests FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_content_versions AFTER INSERT OR UPDATE OR DELETE ON induction_content_versions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_videos AFTER INSERT OR UPDATE OR DELETE ON induction_videos FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_questions AFTER INSERT OR UPDATE OR DELETE ON induction_questions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 
 -- 5. Migraciones idempotentes para refinamiento del sistema de agendamiento.
 -- Re-ejecutables sobre entornos ya desplegados; no afectan instalaciones nuevas
