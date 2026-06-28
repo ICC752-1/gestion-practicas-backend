@@ -3,6 +3,10 @@
 Uso local/Docker:
     DEMO_SEED_PASSWORD=demo-password uv run python scripts/seed_demo.py
     DEMO_SEED_PASSWORD=demo-password uv run python scripts/seed_demo.py --clean
+    DEMO_SEED_PASSWORD=demo-password uv run python scripts/seed_demo.py --only users --only induction
+    DEMO_SEED_PASSWORD=demo-password uv run python scripts/seed_demo.py --bulk-students 250
+    DEMO_SEED_PASSWORD=demo-password uv run python scripts/seed_demo.py --realista
+    uv run python scripts/seed_demo.py --reset-admin-only
 """
 
 # ruff: noqa: E402
@@ -12,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import secrets
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -22,7 +27,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import SessionLocal
@@ -83,6 +88,98 @@ LEGACY_DEMO_EMAILS = ("estudiante.demo@correo.cl", "estudiante.otro@correo.cl")
 INDUCTION_OPTIONS = {"accept": "Entiendo y acepto", "reject": "No acepto"}
 INDUCTION_CORRECT_ANSWER = "accept"
 DEMO_INDUCTION_TITLE = "Induccion demo QA publicada"
+DEFAULT_ADMIN_EMAIL = "superadmin@ufrontera.cl"
+BULK_STUDENT_EMAIL_PREFIX = "qa.estudiante."
+REALISTIC_STUDENT_EMAIL_PREFIX = "realista.estudiante."
+DEFAULT_REALISTIC_STUDENT_COUNT = 120
+DEFAULT_SCENARIOS = {
+    "users",
+    "induction",
+    "requirements",
+    "internships",
+    "notifications",
+}
+VALID_SCENARIOS = {"base", *DEFAULT_SCENARIOS, "all"}
+BASE_STATES = (
+    (
+        "Pendiente",
+        "La solicitud de práctica existe como estado del proceso, pero aún no inicia su tramitación en el sistema.",
+    ),
+    (
+        "En revisión DIRAE",
+        "La solicitud de práctica presenta observaciones en sus plazos y fue derivada a la Dirección de Registro Académico y Estudiantil.",
+    ),
+    (
+        "En revisión",
+        "La solicitud de práctica fue registrada y se encuentra en revisión administrativa.",
+    ),
+    (
+        "Aprobada",
+        "La solicitud de práctica fue aprobada durante la revisión administrativa.",
+    ),
+    (
+        "Rechazada",
+        "La solicitud de práctica fue rechazada durante la revisión administrativa.",
+    ),
+)
+BASE_DOCUMENT_TYPES = (
+    (
+        "Formulario de inscripción",
+        "Formulario de inscripción de práctica firmado o respaldado.",
+        False,
+        "Académico",
+        False,
+    ),
+    (
+        "Carta de aceptación",
+        "Documento emitido por la organización receptora.",
+        False,
+        "Administrativo",
+        False,
+    ),
+    (
+        "Seguro escolar",
+        "Respaldo administrativo de cobertura cuando corresponda.",
+        False,
+        "Administrativo",
+        True,
+    ),
+    (
+        "Documento complementario",
+        "Documento adicional requerido para regularizar o respaldar el caso.",
+        False,
+        "Administrativo",
+        False,
+    ),
+    (
+        "Diapositivas de Presentación",
+        "Material de apoyo o diapositivas para la presentación final.",
+        False,
+        "Académico",
+        False,
+    ),
+)
+ROLE_DESCRIPTIONS = {
+    STUDENT_ROLE: "Rol correspondiente a estudiantes en practicas",
+    SUPERVISOR_ROLE: "Rol correspondiente al supervisor externo de practicas",
+    PRACTICE_MANAGER_ROLE: "Rol correspondiente al encargado de practicas",
+    CAREER_DIRECTOR_ROLE: "Rol correspondiente al director de carrera",
+    SECRETARY_ROLE: "Rol correspondiente a secretaria de carrera",
+    FICA_ROLE: "Rol institucional de consulta agregada transversal",
+    SUPERADMIN_ROLE: "Rol tecnico para administracion de usuarios y roles",
+}
+LONG_DEMO_NOTIFICATION_SUBJECT = (
+    "Notificacion de prueba con asunto muy largo para validar la visualizacion "
+    "completa en la campana de notificaciones del estudiante"
+)
+LONG_DEMO_NOTIFICATION_CONTENT = (
+    "Este mensaje fue generado por seed_demo.py para validar que la campana de "
+    "notificaciones pueda mostrar textos extensos sin perder informacion relevante. "
+    "Debe permitir al estudiante comprender el contexto completo de la solicitud de "
+    "practica, incluyendo que la notificacion puede contener instrucciones largas, "
+    "fechas importantes, responsabilidades del estudiante y referencias al flujo de "
+    "seguimiento dentro de la plataforma."
+)
 DEMO_ACADEMIC_REQUIREMENTS = {
     STUDENT_DEMO_EMAIL: {
         PracticeTypeEnum.practice_1.value: "Aprobada",
@@ -170,7 +267,7 @@ DEMO_USERS = [
         "role": FICA_ROLE,
     },
     {
-        "email": "superadmin@ufrontera.cl",
+        "email": DEFAULT_ADMIN_EMAIL,
         "rut": "21000008-1",
         "first_name": "Superadmin",
         "last_name": "Plataforma",
@@ -196,22 +293,52 @@ class DemoSeeder:
         self.password_hash = PasswordService().hash_password(password)
         self.stats: Counter[str] = Counter()
 
-    async def run(self) -> None:
+    async def run(
+        self,
+        scenarios: set[str] | None = None,
+        *,
+        bulk_students: int = 0,
+        realista: bool = False,
+        realistic_students: int = DEFAULT_REALISTIC_STUDENT_COUNT,
+    ) -> None:
+        selected = set(DEFAULT_SCENARIOS if scenarios is None else scenarios)
+        if "all" in selected:
+            selected = set(DEFAULT_SCENARIOS)
+        selected.discard("base")
+
         await self._ensure_role_enum_values()
         roles = await self._ensure_roles()
-        users = await self._ensure_users(roles)
-        states = await self._get_states()
+        states = await self._ensure_current_states()
+        await self._ensure_document_types()
+
+        needs_demo_users = bool(selected & DEFAULT_SCENARIOS) or realista
+        users: dict[str, User] = {}
+        if needs_demo_users:
+            users = await self._ensure_users(roles)
+        if bulk_students > 0:
+            await self._ensure_bulk_students(roles, bulk_students)
+
+        if not needs_demo_users:
+            await self.session.commit()
+            return
+
         context = SeedContext(
             users=users,
             roles=roles,
             states=states,
             password_hash=self.password_hash,
         )
-        await self._ensure_induction(context)
-        await self._ensure_registration_requirements(context)
-        await self._ensure_academic_requirements(context)
-        await self._ensure_internships(context)
-        await self._ensure_notifications(context)
+        if "induction" in selected:
+            await self._ensure_induction(context)
+        if "requirements" in selected:
+            await self._ensure_registration_requirements(context)
+            await self._ensure_academic_requirements(context)
+        if "internships" in selected:
+            await self._ensure_internships(context)
+        if "notifications" in selected:
+            await self._ensure_notifications(context)
+        if realista:
+            await self._ensure_realistic_dataset(context, realistic_students)
         await self.session.commit()
 
     async def clean(self) -> None:
@@ -294,8 +421,103 @@ class DemoSeeder:
             await self.session.execute(delete(UserRole).where(UserRole.user_id.in_(user_ids)))
             await self.session.execute(delete(User).where(User.id.in_(user_ids)))
 
+        await self._delete_demo_induction()
         await self.session.commit()
         self.stats["deleted"] += len(user_ids)
+
+    async def _delete_demo_induction(self) -> None:
+        result = await self.session.execute(
+            select(InductionContentVersion).where(
+                InductionContentVersion.title == DEMO_INDUCTION_TITLE
+            )
+        )
+        contents = list(result.scalars().all())
+        if not contents:
+            return
+        await self.session.execute(
+            delete(InductionContentVersion).where(
+                InductionContentVersion.id.in_([content.id for content in contents])
+            )
+        )
+        self.stats["deleted"] += len(contents)
+
+    async def reset_admin_only(
+        self,
+        *,
+        admin_email: str,
+        admin_password: str,
+    ) -> None:
+        await self._truncate_seeded_runtime_data()
+        await self._ensure_role_enum_values()
+        roles = await self._ensure_roles()
+        await self._ensure_current_states()
+        await self._ensure_document_types()
+        admin = await self._get_user_by_email(admin_email)
+        if admin is None:
+            admin = User(
+                email=admin_email,
+                password_hash=self.password_hash,
+                first_name="Superadmin",
+                last_name="Plataforma",
+                rut=self._make_rut(29000000),
+                sexo="No definido",
+                is_active=True,
+                is_verified=True,
+                must_change_password=False,
+            )
+            self.session.add(admin)
+            await self.session.flush()
+            self.stats["created"] += 1
+        else:
+            admin.password_hash = PasswordService().hash_password(admin_password)
+            admin.first_name = admin.first_name or "Superadmin"
+            admin.last_name = admin.last_name or "Plataforma"
+            admin.sexo = admin.sexo or "No definido"
+            admin.is_active = True
+            admin.is_verified = True
+            admin.must_change_password = False
+            self.stats["updated"] += 1
+
+        await self._ensure_user_role(admin, roles[SUPERADMIN_ROLE])
+        await self.session.flush()
+        await self.session.execute(text("TRUNCATE TABLE logaction RESTART IDENTITY"))
+        await self.session.commit()
+
+    async def _truncate_seeded_runtime_data(self) -> None:
+        await self.session.execute(
+            text(
+                """
+                TRUNCATE TABLE
+                    account_activation_tokens,
+                    refresh_tokens,
+                    notification,
+                    supervisor_evaluations,
+                    supervisor_evaluation_invitations,
+                    self_evaluations,
+                    data_portability_requests,
+                    presentation_letter,
+                    scheduling_config,
+                    scheduling_request,
+                    presentation,
+                    document,
+                    internship_status_history,
+                    internship_dirae_status_history,
+                    internship_exceptions,
+                    internship,
+                    induction_attempts,
+                    induction_questions,
+                    induction_videos,
+                    induction_content_versions,
+                    student_registration_requirements,
+                    studentinternshiprequirement,
+                    logaction,
+                    user_roles,
+                    users
+                RESTART IDENTITY CASCADE
+                """
+            )
+        )
+        self.stats["deleted"] += 1
 
     async def _ensure_role_enum_values(self) -> None:
         for role_name in (FICA_ROLE, SUPERADMIN_ROLE):
@@ -305,30 +527,72 @@ class DemoSeeder:
         await self.session.commit()
 
     async def _ensure_roles(self) -> dict[str, Role]:
-        descriptions = {
-            STUDENT_ROLE: "Rol correspondiente a estudiantes en practicas",
-            SUPERVISOR_ROLE: "Rol correspondiente al supervisor externo de practicas",
-            PRACTICE_MANAGER_ROLE: "Rol correspondiente al encargado de practicas",
-            CAREER_DIRECTOR_ROLE: "Rol correspondiente al director de carrera",
-            SECRETARY_ROLE: "Rol correspondiente a secretaria de carrera",
-            FICA_ROLE: "Rol institucional de consulta agregada transversal",
-            SUPERADMIN_ROLE: "Rol tecnico para administracion de usuarios y roles",
-        }
         roles: dict[str, Role] = {}
         for role_name in SYSTEM_ROLE_NAMES:
             role = await self._get_role(role_name)
             if role is None:
-                role = Role(name=role_name, description=descriptions[role_name])
+                role = Role(name=role_name, description=ROLE_DESCRIPTIONS[role_name])
                 self.session.add(role)
                 await self.session.flush()
                 self.stats["created"] += 1
-            elif role.description != descriptions[role_name]:
-                role.description = descriptions[role_name]
+            elif role.description != ROLE_DESCRIPTIONS[role_name]:
+                role.description = ROLE_DESCRIPTIONS[role_name]
                 self.stats["updated"] += 1
             else:
                 self.stats["reused"] += 1
             roles[role_name] = role
         return roles
+
+    async def _ensure_current_states(self) -> dict[str, CurrentState]:
+        states: dict[str, CurrentState] = {}
+        for title, description in BASE_STATES:
+            query = select(CurrentState).where(CurrentState.title == title)
+            state = (await self.session.execute(query)).scalar_one_or_none()
+            if state is None:
+                state = CurrentState(title=title, description=description)
+                self.session.add(state)
+                await self.session.flush()
+                self.stats["created"] += 1
+            elif state.description != description:
+                state.description = description
+                self.stats["updated"] += 1
+            else:
+                self.stats["reused"] += 1
+            states[title] = state
+        return states
+
+    async def _ensure_document_types(self) -> None:
+        for name, description, is_required, category, is_sensitive in BASE_DOCUMENT_TYPES:
+            query = select(DocumentType).where(DocumentType.name == name)
+            document_type = (await self.session.execute(query)).scalar_one_or_none()
+            if document_type is None:
+                self.session.add(
+                    DocumentType(
+                        name=name,
+                        description=description,
+                        is_required=is_required,
+                        category=category,
+                        is_sensitive=is_sensitive,
+                    )
+                )
+                await self.session.flush()
+                self.stats["created"] += 1
+                continue
+
+            changed = False
+            for field_name, next_value in (
+                ("description", description),
+                ("is_required", is_required),
+                ("category", category),
+                ("is_sensitive", is_sensitive),
+            ):
+                if getattr(document_type, field_name) != next_value:
+                    setattr(document_type, field_name, next_value)
+                    changed = True
+            if not document_type.is_active:
+                document_type.is_active = True
+                changed = True
+            self.stats["updated" if changed else "reused"] += 1
 
     async def _ensure_users(self, roles: dict[str, Role]) -> dict[str, User]:
         users: dict[str, User] = {}
@@ -369,6 +633,262 @@ class DemoSeeder:
             await self._ensure_user_role(user, roles[data["role"]])
             users[data["email"]] = user
         return users
+
+    async def _ensure_bulk_students(self, roles: dict[str, Role], count: int) -> None:
+        if count < 0:
+            raise ValueError("--bulk-students must be zero or greater")
+        student_role = roles[STUDENT_ROLE]
+        for index in range(1, count + 1):
+            email = f"{BULK_STUDENT_EMAIL_PREFIX}{index:04d}@ufromail.cl"
+            rut = self._make_rut(22000000 + index)
+            user = await self._get_user_by_email_or_rut(email, rut)
+            if user is None:
+                user = User(
+                    email=email,
+                    password_hash=self.password_hash,
+                    first_name="Estudiante",
+                    last_name=f"QA {index:04d}",
+                    rut=rut,
+                    degree="Ingenieria Civil Informatica",
+                    cod_degree="ICI",
+                    admission_year=2022,
+                    sexo="No definido",
+                    is_active=True,
+                    is_verified=True,
+                )
+                self.session.add(user)
+                await self.session.flush()
+                self.stats["created"] += 1
+            else:
+                changed = False
+                for field_name, next_value in (
+                    ("email", email),
+                    ("first_name", "Estudiante"),
+                    ("last_name", f"QA {index:04d}"),
+                    ("degree", "Ingenieria Civil Informatica"),
+                    ("cod_degree", "ICI"),
+                    ("admission_year", 2022),
+                    ("sexo", "No definido"),
+                ):
+                    if getattr(user, field_name) != next_value:
+                        setattr(user, field_name, next_value)
+                        changed = True
+                if not user.is_active or not user.is_verified:
+                    user.is_active = True
+                    user.is_verified = True
+                    changed = True
+                self.stats["updated" if changed else "reused"] += 1
+            await self._ensure_user_role(user, student_role)
+
+    async def _ensure_realistic_dataset(
+        self,
+        context: SeedContext,
+        count: int,
+    ) -> None:
+        if count < 20:
+            raise ValueError("--realistic-students must be at least 20")
+
+        today = date.today()
+        practice_types = (
+            PracticeTypeEnum.practice_1,
+            PracticeTypeEnum.practice_2,
+            PracticeTypeEnum.controlled_practice,
+            PracticeTypeEnum.thesis,
+        )
+        periods = (
+            PracticePeriodEnum.semester,
+            PracticePeriodEnum.summer,
+            PracticePeriodEnum.winter,
+        )
+        status_names = ("Pendiente", "En revisión", "Aprobada", "Rechazada")
+
+        for index in range(1, count + 1):
+            user = await self._ensure_realistic_student(
+                context.roles[STUDENT_ROLE],
+                index,
+            )
+            await self._ensure_realistic_requirements(user, index)
+
+            if index % 6 == 0:
+                continue
+
+            status_name = status_names[index % len(status_names)]
+            practice_type = practice_types[index % len(practice_types)]
+            completion_status, final_result = self._realistic_completion(index, status_name)
+            status = context.states[status_name]
+            start_date = today - timedelta(days=45 + (index % 90))
+            end_date = (
+                today - timedelta(days=index % 30)
+                if completion_status == CompletionStatusEnum.finalized
+                else today + timedelta(days=15 + (index % 75))
+            )
+            internship = await self._ensure_internship(
+                owner=user,
+                status=status,
+                org_name=f"Realista QA {index:04d} {practice_type.value}",
+                internship_type=practice_type,
+                period=periods[index % len(periods)],
+                has_school_insurance=index % 5 != 0,
+                with_documents=status_name == "Aprobada" and index % 3 != 0,
+                start_date=start_date,
+                end_date=end_date,
+                completion_status=completion_status,
+                final_result=final_result,
+                blocks_new_registration=(
+                    status_name != "Rechazada" and final_result != FinalResultEnum.failed
+                ),
+            )
+            if completion_status in {
+                CompletionStatusEnum.pending_evaluations,
+                CompletionStatusEnum.pending_presentation,
+                CompletionStatusEnum.finalized,
+            }:
+                await self._ensure_self_evaluation(internship, user)
+            if completion_status in {
+                CompletionStatusEnum.pending_presentation,
+                CompletionStatusEnum.finalized,
+            }:
+                await self._ensure_supervisor_evaluation(internship)
+
+            if index % 9 == 0:
+                await self._ensure_completed_previous_level(
+                    context,
+                    user,
+                    PracticeTypeEnum.practice_1,
+                    index,
+                    today,
+                )
+            if index % 14 == 0:
+                await self._ensure_completed_previous_level(
+                    context,
+                    user,
+                    PracticeTypeEnum.practice_2,
+                    index,
+                    today,
+                )
+
+    async def _ensure_realistic_student(self, student_role: Role, index: int) -> User:
+        current_year = date.today().year
+        active = index % 7 != 0
+        admission_year = (
+            current_year - (index % 3)
+            if active
+            else current_year - (3 + (index % 5))
+        )
+        email = f"{REALISTIC_STUDENT_EMAIL_PREFIX}{index:04d}@ufromail.cl"
+        rut = self._make_rut(23000000 + index)
+        user = await self._get_user_by_email_or_rut(email, rut)
+        if user is None:
+            user = User(
+                email=email,
+                password_hash=self.password_hash,
+                first_name="Estudiante",
+                last_name=f"Realista {index:04d}",
+                rut=rut,
+                degree="Ingenieria Civil Informatica",
+                cod_degree="ICI",
+                admission_year=admission_year,
+                sexo="No definido",
+                is_active=active,
+                is_verified=active,
+                must_change_password=False,
+            )
+            self.session.add(user)
+            await self.session.flush()
+            self.stats["created"] += 1
+        else:
+            changed = False
+            for field_name, next_value in (
+                ("email", email),
+                ("first_name", "Estudiante"),
+                ("last_name", f"Realista {index:04d}"),
+                ("degree", "Ingenieria Civil Informatica"),
+                ("cod_degree", "ICI"),
+                ("admission_year", admission_year),
+                ("sexo", "No definido"),
+                ("is_active", active),
+                ("is_verified", active),
+                ("must_change_password", False),
+            ):
+                if getattr(user, field_name) != next_value:
+                    setattr(user, field_name, next_value)
+                    changed = True
+            self.stats["updated" if changed else "reused"] += 1
+
+        await self._ensure_user_role(user, student_role)
+        return user
+
+    async def _ensure_realistic_requirements(self, user: User, index: int) -> None:
+        active = bool(user.is_active)
+        await self._ensure_requirement(
+            user,
+            RegistrationRequirementType.INDUCTION,
+            active and index % 4 != 0,
+        )
+        await self._ensure_requirement(
+            user,
+            RegistrationRequirementType.SCHOOL_INSURANCE,
+            active and index % 5 != 0,
+        )
+
+        practice_1 = "Aprobada" if index % 3 != 0 else "Habilitada"
+        practice_2 = "Aprobada" if index % 8 == 0 else ("Habilitada" if practice_1 == "Aprobada" else "Pendiente")
+        thesis = "Habilitada" if index % 13 == 0 else "Pendiente"
+        controlled = "Aprobada" if index % 17 == 0 else ("Habilitada" if active and index % 5 == 0 else "Pendiente")
+        if not active:
+            practice_1 = "Aprobada" if index % 2 == 0 else "Pendiente"
+            practice_2 = "Aprobada" if index % 4 == 0 else "Pendiente"
+            thesis = "Pendiente"
+            controlled = "Pendiente"
+
+        for practice_type, status in (
+            (PracticeTypeEnum.practice_1.value, practice_1),
+            (PracticeTypeEnum.practice_2.value, practice_2),
+            (PracticeTypeEnum.thesis.value, thesis),
+            (PracticeTypeEnum.controlled_practice.value, controlled),
+        ):
+            await self._ensure_academic_requirement(user, practice_type, status)
+
+    @staticmethod
+    def _realistic_completion(
+        index: int,
+        status_name: str,
+    ) -> tuple[CompletionStatusEnum, FinalResultEnum]:
+        if status_name != "Aprobada":
+            return CompletionStatusEnum.not_started, FinalResultEnum.pending
+        variants = (
+            (CompletionStatusEnum.in_progress, FinalResultEnum.pending),
+            (CompletionStatusEnum.pending_evaluations, FinalResultEnum.pending),
+            (CompletionStatusEnum.pending_presentation, FinalResultEnum.pending),
+            (CompletionStatusEnum.finalized, FinalResultEnum.passed),
+            (CompletionStatusEnum.finalized, FinalResultEnum.failed),
+        )
+        return variants[index % len(variants)]
+
+    async def _ensure_completed_previous_level(
+        self,
+        context: SeedContext,
+        user: User,
+        practice_type: PracticeTypeEnum,
+        index: int,
+        today: date,
+    ) -> None:
+        internship = await self._ensure_internship(
+            owner=user,
+            status=context.states["Aprobada"],
+            org_name=f"Realista QA historial {index:04d} {practice_type.value}",
+            internship_type=practice_type,
+            period=PracticePeriodEnum.semester,
+            has_school_insurance=True,
+            with_documents=True,
+            start_date=today - timedelta(days=240 + (index % 60)),
+            end_date=today - timedelta(days=150 + (index % 45)),
+            completion_status=CompletionStatusEnum.finalized,
+            final_result=FinalResultEnum.passed,
+            blocks_new_registration=False,
+        )
+        await self._ensure_self_evaluation(internship, user)
+        await self._ensure_supervisor_evaluation(internship)
 
     async def _ensure_user_role(self, user: User, role: Role) -> None:
         query = select(UserRole).where(UserRole.user_id == user.id, UserRole.role_id == role.id)
@@ -766,6 +1286,7 @@ class DemoSeeder:
         end_date: date | None = None,
         completion_status: CompletionStatusEnum = CompletionStatusEnum.not_started,
         final_result: FinalResultEnum = FinalResultEnum.pending,
+        blocks_new_registration: bool = True,
     ) -> Internship:
         query = select(Internship).where(
             Internship.user_id == owner.id,
@@ -800,6 +1321,7 @@ class DemoSeeder:
                 internship_period=period,
                 internship_type=internship_type,
                 has_school_insurance=has_school_insurance,
+                blocks_new_registration=blocks_new_registration,
                 insurance_status=(
                     SchoolInsuranceStatusEnum.validated
                     if has_school_insurance
@@ -813,7 +1335,10 @@ class DemoSeeder:
             self.stats["created"] += 1
         else:
             internship.status_id = status.id
+            internship.internship_period = period
+            internship.internship_type = internship_type
             internship.has_school_insurance = has_school_insurance
+            internship.blocks_new_registration = blocks_new_registration
             internship.insurance_status = (
                 SchoolInsuranceStatusEnum.validated
                 if has_school_insurance
@@ -888,26 +1413,50 @@ class DemoSeeder:
             ("Demo notificacion no leida", NotificationEventTypeEnum.custom),
             ("Demo documento observado", NotificationEventTypeEnum.requirement_status_changed),
         ):
-            query = select(Notification).where(
-                Notification.recipient_user_id == recipient.id,
-                Notification.subject == subject,
+            await self._ensure_notification(
+                recipient=recipient,
+                subject=subject,
+                content="Notificacion demo generada por seed_demo.py",
+                event_type=event_type,
             )
-            notification = (await self.session.execute(query)).scalar_one_or_none()
-            if notification is None:
-                self.session.add(
-                    Notification(
-                        recipient_user_id=recipient.id,
-                        recipient_email=recipient.email,
-                        event_type=event_type,
-                        subject=subject,
-                        content="Notificacion demo generada por seed_demo.py",
-                        status=NotificationStatusEnum.simulated,
-                        payload={"demo_seed": True},
-                    )
+
+        await self._ensure_notification(
+            recipient=context.users[STUDENT_DEMO_EMAIL],
+            subject=LONG_DEMO_NOTIFICATION_SUBJECT,
+            content=LONG_DEMO_NOTIFICATION_CONTENT,
+            event_type=NotificationEventTypeEnum.custom,
+        )
+
+    async def _ensure_notification(
+        self,
+        *,
+        recipient: User,
+        subject: str,
+        content: str,
+        event_type: NotificationEventTypeEnum,
+    ) -> None:
+        query = select(Notification).where(
+            Notification.recipient_user_id == recipient.id,
+            Notification.subject == subject,
+        )
+        notification = (await self.session.execute(query)).scalar_one_or_none()
+        if notification is None:
+            self.session.add(
+                Notification(
+                    recipient_user_id=recipient.id,
+                    recipient_email=recipient.email,
+                    event_type=event_type,
+                    subject=subject,
+                    content=content,
+                    status=NotificationStatusEnum.simulated,
+                    payload={"demo_seed": True},
                 )
-                self.stats["created"] += 1
-            else:
-                self.stats["reused"] += 1
+            )
+            self.stats["created"] += 1
+        else:
+            notification.content = content
+            notification.event_type = event_type
+            self.stats["updated"] += 1
 
     async def _get_role(self, name: str) -> Role | None:
         return (await self.session.execute(select(Role).where(Role.name == name))).scalar_one_or_none()
@@ -923,7 +1472,15 @@ class DemoSeeder:
         ).scalar_one_or_none()
 
     async def _get_demo_users(self) -> list[User]:
-        result = await self.session.execute(select(User).where(User.email.in_(DEMO_EMAILS)))
+        result = await self.session.execute(
+            select(User).where(
+                or_(
+                    User.email.in_(DEMO_EMAILS),
+                    User.email.like(f"{BULK_STUDENT_EMAIL_PREFIX}%@ufromail.cl"),
+                    User.email.like(f"{REALISTIC_STUDENT_EMAIL_PREFIX}%@ufromail.cl"),
+                )
+            )
+        )
         return list(result.scalars().all())
 
     async def _get_demo_internship_ids(self, user_ids: list[int]) -> list[int]:
@@ -935,6 +1492,22 @@ class DemoSeeder:
             )
         )
         return list(result.scalars().all())
+
+    @staticmethod
+    def _make_rut(body: int) -> str:
+        reversed_digits = map(int, reversed(str(body)))
+        factors = (2, 3, 4, 5, 6, 7)
+        total = 0
+        for index, digit in enumerate(reversed_digits):
+            total += digit * factors[index % len(factors)]
+        value = 11 - (total % 11)
+        if value == 11:
+            dv = "0"
+        elif value == 10:
+            dv = "K"
+        else:
+            dv = str(value)
+        return f"{body}-{dv}"
 
     def print_summary(self) -> None:
         for key in ("created", "updated", "reused", "skipped", "deleted"):
@@ -949,8 +1522,8 @@ def _ensure_not_production() -> None:
         raise RuntimeError("seed_demo.py is disabled in production environments")
 
 
-def _get_demo_password() -> str:
-    password = os.getenv("DEMO_SEED_PASSWORD")
+def _get_demo_password(explicit_password: str | None = None) -> str:
+    password = explicit_password or os.getenv("DEMO_SEED_PASSWORD")
     if not password:
         raise RuntimeError("DEMO_SEED_PASSWORD is required")
     if len(password) < 8:
@@ -958,20 +1531,116 @@ def _get_demo_password() -> str:
     return password
 
 
+def _generate_password() -> str:
+    return secrets.token_urlsafe(18)
+
+
+def _parse_scenarios(raw_values: list[str] | None) -> set[str] | None:
+    if not raw_values:
+        return None
+    selected = set(raw_values)
+    unknown = selected - VALID_SCENARIOS
+    if unknown:
+        raise RuntimeError(f"Unknown seed scenario(s): {', '.join(sorted(unknown))}")
+    if "all" in selected:
+        return set(DEFAULT_SCENARIOS)
+    return selected
+
+
 async def _main() -> None:
     parser = argparse.ArgumentParser(description="Seed demo QA data")
     parser.add_argument("--clean", action="store_true", help="Remove demo data created by this script")
+    parser.add_argument(
+        "--only",
+        action="append",
+        choices=sorted(VALID_SCENARIOS),
+        help=(
+            "Seed only a scenario. Can be repeated. Options: base, users, "
+            "induction, requirements, internships, notifications, all."
+        ),
+    )
+    parser.add_argument(
+        "--bulk-students",
+        type=int,
+        default=0,
+        help="Create N additional QA student users for pagination/load checks",
+    )
+    parser.add_argument(
+        "--realista",
+        action="store_true",
+        help="Seed a larger realistic QA dataset with active/inactive students and varied internship states",
+    )
+    parser.add_argument(
+        "--realistic-students",
+        type=int,
+        default=DEFAULT_REALISTIC_STUDENT_COUNT,
+        help="Number of students created by --realista",
+    )
+    parser.add_argument(
+        "--reset-admin-only",
+        action="store_true",
+        help="Delete runtime/seeded data and leave only one active Superadmin user",
+    )
+    parser.add_argument(
+        "--admin-email",
+        default=DEFAULT_ADMIN_EMAIL,
+        help="Email used by --reset-admin-only",
+    )
+    parser.add_argument(
+        "--admin-password",
+        help="Optional password for --reset-admin-only. If omitted, a random one is printed.",
+    )
+    parser.add_argument(
+        "--password",
+        help="Password for normal demo users. Defaults to DEMO_SEED_PASSWORD.",
+    )
     args = parser.parse_args()
 
     _ensure_not_production()
-    password = _get_demo_password()
+    if args.clean and args.reset_admin_only:
+        raise RuntimeError("--clean and --reset-admin-only cannot be used together")
+    if args.clean and (args.only or args.bulk_students or args.realista):
+        raise RuntimeError("--clean cannot be combined with --only, --bulk-students or --realista")
+    if not args.realista and args.realistic_students != DEFAULT_REALISTIC_STUDENT_COUNT:
+        raise RuntimeError("--realistic-students can only be used with --realista")
+
+    scenarios = _parse_scenarios(args.only)
+    needs_demo_password = (
+        not args.clean
+        and not args.reset_admin_only
+        and (
+            scenarios is None
+            or bool(scenarios & DEFAULT_SCENARIOS)
+            or args.bulk_students > 0
+            or args.realista
+        )
+    )
 
     async with SessionLocal() as session:
+        admin_password = args.admin_password or _generate_password()
+        if args.reset_admin_only:
+            password = admin_password
+        elif needs_demo_password:
+            password = _get_demo_password(args.password)
+        else:
+            password = args.password or os.getenv("DEMO_SEED_PASSWORD") or _generate_password()
         seeder = DemoSeeder(session, password)
         if args.clean:
             await seeder.clean()
+        elif args.reset_admin_only:
+            await seeder.reset_admin_only(
+                admin_email=args.admin_email,
+                admin_password=admin_password,
+            )
+            print("admin_email:", args.admin_email)
+            print("admin_password:", admin_password)
         else:
-            await seeder.run()
+            await seeder.run(
+                scenarios,
+                bulk_students=args.bulk_students,
+                realista=args.realista,
+                realistic_students=args.realistic_students,
+            )
         seeder.print_summary()
 
 

@@ -598,7 +598,8 @@ AFTER INSERT ON user_roles
 FOR EACH ROW
 EXECUTE FUNCTION fn_create_student_internship_requirements();
 
--- 3. Insercion de datos iniciales minimos para testear autenticacion y autorizacion
+-- 3. Datos base requeridos por el sistema.
+-- Los usuarios, inducciones y escenarios de prueba se crean con scripts/seed_demo.py.
 INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en practicas');
 INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol correspondiente al director de la carrera perteneciente a FICA');
 INSERT INTO Roles (name, description) VALUES ('Supervisor de practica', 'Rol correspondiente al supervisor externo de practicas');
@@ -606,66 +607,6 @@ INSERT INTO Roles (name, description) VALUES ('Encargado de practica', 'Rol corr
 INSERT INTO Roles (name, description) VALUES ('Secretaria de Carrera', 'Rol correspondiente a secretaria de carrera');
 INSERT INTO Roles (name, description) VALUES ('FICA', 'Rol institucional de consulta agregada transversal');
 INSERT INTO Roles (name, description) VALUES ('Superadmin', 'Rol tecnico para administracion de usuarios y roles');
-
--- Nota: La contrasena hash corresponde a "my_secure_password".
-INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone, is_active, is_verified, must_change_password)
-VALUES
-    ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432', TRUE, TRUE, FALSE),
-    ('Claudio', 'Navarro', 'claudio.navarro@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '14.283.070-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Estudiante', 'Demo', 'estudiante.demo@ufromail.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000001-1', 'Ingenieria Civil Informatica', 'ICI', 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Estudiante', 'Otro', 'estudiante.otro@ufromail.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000002-1', 'Ingenieria Civil Informatica', 'ICI', 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Encargado', 'Practicas', 'encargado.practicas@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000003-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Director', 'Carrera', 'director.carrera@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000004-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Secretaria', 'Carrera', 'secretaria.carrera@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000005-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Supervisor', 'Demo', 'supervisor.demo@empresa.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000006-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('FICA', 'Reportes', 'fica.reportes@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000007-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Superadmin', 'Plataforma', 'superadmin@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000008-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE);
-
-INSERT INTO user_roles(user_id, role_id)
-SELECT users.id, roles.id
-FROM (VALUES
-    ('juan.perez@correo.cl', 'Estudiante'),
-    ('claudio.navarro@ufrontera.cl', 'Director de carrera'),
-    ('estudiante.demo@ufromail.cl', 'Estudiante'),
-    ('estudiante.otro@ufromail.cl', 'Estudiante'),
-    ('encargado.practicas@ufrontera.cl', 'Encargado de practica'),
-    ('director.carrera@ufrontera.cl', 'Director de carrera'),
-    ('secretaria.carrera@ufrontera.cl', 'Secretaria de Carrera'),
-    ('supervisor.demo@empresa.cl', 'Supervisor de practica'),
-    ('fica.reportes@ufrontera.cl', 'FICA'),
-    ('superadmin@ufrontera.cl', 'Superadmin')
-) AS assignments(email, role_name)
-JOIN Users users ON users.email = assignments.email
-JOIN Roles roles ON roles.name = assignments.role_name::"enumRole";
-
--- Contenido minimo de induccion para flujos demo/Insomnia.
--- Permite que el estudiante complete el prerrequisito inexceptuable antes
--- de aprobar una Practica de Estudio I.
-INSERT INTO induction_content_versions (title, description, status, is_active, min_score, requires_retake, published_at)
-VALUES (
-    'Induccion obligatoria demo',
-    'Contenido minimo para validar el flujo de induccion en ambiente local.',
-    'published',
-    TRUE,
-    1,
-    FALSE,
-    CURRENT_TIMESTAMP
-);
-
-INSERT INTO induction_videos (content_version_id, title, video_url, "order")
-SELECT id, 'Video introductorio demo', 'https://example.com/induccion-demo', 1
-FROM induction_content_versions
-WHERE title = 'Induccion obligatoria demo';
-
-INSERT INTO induction_questions (content_version_id, question_text, options, correct_answer, "order")
-SELECT
-    id,
-    'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
-    'accept',
-    1
-FROM induction_content_versions
-WHERE title = 'Induccion obligatoria demo';
 
 -- 4. Función del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
