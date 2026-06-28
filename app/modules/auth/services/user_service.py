@@ -62,6 +62,7 @@ class UserService:
             first_name=payload.first_name,
             last_name=payload.last_name,
             rut=normalize_rut(payload.rut),
+            enrollment=payload.enrollment,
             degree=payload.degree,
             cod_degree=payload.cod_degree,
             admission_year=payload.admission_year,
@@ -146,6 +147,9 @@ class UserService:
         """
 
         update_data = payload.model_dump(exclude_unset=True, exclude_none=True)
+        if payload.enrollment is not None:
+            update_data["rut"] = payload.rut
+            update_data["admission_year"] = payload.admission_year
 
         updated_fields = list(update_data.keys())
 

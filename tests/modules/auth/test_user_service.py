@@ -88,6 +88,26 @@ async def test_create_user_generates_internal_password_when_missing(
     assert user.is_verified is False
 
 
+async def test_create_student_persists_enrollment_and_derived_identity() -> None:
+    repository = FakeUserRepository()
+    service = UserService(
+        user_repository=repository,
+        password_service=FakePasswordService(),
+    )
+    payload = UserCreateRequest(
+        email="student@example.com",
+        first_name="Ana",
+        last_name="Perez",
+        enrollment="12345678523",
+    )
+
+    user = await service.create_user(payload)
+
+    assert user.enrollment == "12345678523"
+    assert user.rut == "12345678-5"
+    assert user.admission_year == 2023
+
+
 async def test_update_user_normalizes_fields() -> None:
     repository = FakeUserRepository()
     service = UserService(

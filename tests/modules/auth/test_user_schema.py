@@ -37,6 +37,37 @@ def test_user_create_request_accepts_missing_password() -> None:
     assert user.password is None
 
 
+def test_user_create_request_derives_student_identity_from_enrollment() -> None:
+    payload = _base_payload()
+    payload.pop("rut")
+    payload.pop("admission_year")
+    payload["enrollment"] = "12345678523"
+
+    user = UserCreateRequest(**payload)
+
+    assert user.enrollment == "12345678523"
+    assert user.rut == "12345678-5"
+    assert user.admission_year == 2023
+
+
+@pytest.mark.parametrize(
+    "enrollment",
+    [
+        "12.345.678-5-23",
+        "12345678423",
+        "12345678514",
+    ],
+)
+def test_user_create_request_rejects_invalid_enrollment(enrollment: str) -> None:
+    payload = _base_payload()
+    payload.pop("rut")
+    payload.pop("admission_year")
+    payload["enrollment"] = enrollment
+
+    with pytest.raises(ValidationError):
+        UserCreateRequest(**payload)
+
+
 def test_user_update_request_normalizes_rut_and_phone() -> None:
     payload = {
         "rut": "12.345.678-5",

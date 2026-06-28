@@ -225,6 +225,8 @@ def _user_payload(user: User) -> dict:
         "first_name": user.first_name,
         "last_name": user.last_name,
         "rut": user.rut,
+        "enrollment": getattr(user, "enrollment", None),
+        "admission_year": getattr(user, "admission_year", None),
         "degree": user.degree,
         "cod_degree": user.cod_degree,
         "sexo": user.sexo,

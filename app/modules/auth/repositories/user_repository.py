@@ -20,6 +20,7 @@ USER_SORT_COLUMNS = {
     "last_name": User.last_name,
     "email": User.email,
     "rut": User.rut,
+    "enrollment": User.enrollment,
     "admission_year": User.admission_year,
     "is_active": User.is_active,
 }
@@ -71,6 +72,14 @@ class UserRepository:
         """
 
         query = select(User).where(User.rut == rut)
+        result = await self.db.execute(query)
+
+        return result.scalar_one_or_none()
+
+    async def get_user_by_enrollment(self, enrollment: str) -> User | None:
+        """Obtiene un usuario por su matrícula institucional."""
+
+        query = select(User).where(User.enrollment == enrollment)
         result = await self.db.execute(query)
 
         return result.scalar_one_or_none()
@@ -150,6 +159,7 @@ class UserRepository:
                     User.last_name.ilike(pattern),
                     User.email.ilike(pattern),
                     User.rut.ilike(pattern),
+                    User.enrollment.ilike(pattern),
                 )
             )
 
@@ -194,6 +204,7 @@ class UserRepository:
                     User.last_name.ilike(pattern),
                     User.email.ilike(pattern),
                     User.rut.ilike(pattern),
+                    User.enrollment.ilike(pattern),
                 )
             )
 

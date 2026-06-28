@@ -129,6 +129,20 @@ async def _ensure_unique_user_identity(
             detail="RUT already exists",
         )
 
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment:
+            logger.warning(
+                "Create user failed: enrollment already exists",
+                extra={"actor_id": actor_id},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
+            )
+
 
 async def _ensure_can_remove_superadmin_access(
     *,
@@ -259,6 +273,13 @@ async def create_user(
             )
         roles_to_assign.append(role)
 
+    if any(role.name == STUDENT_ROLE for role in roles_to_assign):
+        if not payload.enrollment:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Enrollment is required for student accounts",
+            )
+
     service = _build_service(db)
     user = await service.create_user(payload)
 
@@ -308,6 +329,7 @@ async def list_student_accounts(
         "last_name",
         "email",
         "rut",
+        "enrollment",
         "admission_year",
         "is_active",
     ] = Query(default="created_at"),
@@ -360,6 +382,12 @@ async def create_student_account(
         extra={"actor_id": current_user.id},
     )
     user_repository = UserRepository(db)
+    if not payload.enrollment:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enrollment is required for student accounts",
+        )
+
     await _ensure_unique_user_identity(
         payload=payload,
         user_repository=user_repository,
@@ -430,6 +458,15 @@ async def update_student_account(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="RUT already exists",
             )
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment and existing_enrollment.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
+            )
 
     service = _build_service(db)
     user = await service.update_user(user, payload)
@@ -463,6 +500,7 @@ async def list_users(
         "last_name",
         "email",
         "rut",
+        "enrollment",
         "admission_year",
         "is_active",
     ] = Query(default="created_at"),
@@ -614,6 +652,15 @@ async def update_user(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="RUT already exists",
+            )
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment and existing_enrollment.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
             )
 
     if payload.is_active is False and user.is_active:

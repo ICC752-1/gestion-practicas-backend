@@ -59,6 +59,7 @@ CREATE TABLE Users (
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     rut VARCHAR(100) UNIQUE NOT NULL,
+    enrollment VARCHAR(32),
     degree VARCHAR(255),
     cod_degree VARCHAR(100),
     admission_year INTEGER,
@@ -717,3 +718,15 @@ ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS document_id INTEGER REFE
 
 -- Migración para firma administrada en cartas de presentación
 ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS signature_image_path VARCHAR(255);
+
+-- Migración para matrícula institucional persistida
+ALTER TABLE Users ADD COLUMN IF NOT EXISTS enrollment VARCHAR(32);
+UPDATE Users
+SET enrollment = regexp_replace(rut, '[^0-9]', '', 'g')
+    || RIGHT(admission_year::text, 2)
+WHERE enrollment IS NULL
+  AND admission_year >= 2015
+  AND regexp_replace(rut, '[^0-9Kk]', '', 'g') ~ '^[0-9]+$';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_enrollment
+ON Users(enrollment)
+WHERE enrollment IS NOT NULL;

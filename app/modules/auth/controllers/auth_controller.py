@@ -46,6 +46,7 @@ from app.modules.auth.services.google_oauth_service import (
 )
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.token_service import TokenService
+from app.modules.auth.utils.enrollment import build_student_enrollment
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 logger = logging.getLogger(__name__)
@@ -201,7 +202,8 @@ async def activate_account(
         await auth_service.activate_account(
             token=payload.token,
             new_password=payload.new_password,
-            admission_year=payload.admission_year,
+            phone=payload.phone,
+            sexo=payload.sexo,
         )
     except AccountActivationError as exc:
         raise HTTPException(
@@ -405,7 +407,9 @@ async def get_me(
         email=current_user.email,
         first_name=current_user.first_name,
         last_name=current_user.last_name,
-        roles=[user_role.role.name for user_role in current_user.roles]
+        roles=[user_role.role.name for user_role in current_user.roles],
+        enrollment=build_student_enrollment(current_user),
+        admission_year=getattr(current_user, "admission_year", None),
     )
 
 

@@ -53,9 +53,10 @@ class FakeAuthService:
         self,
         token: str,
         new_password: str,
-        admission_year: int | None = None,
+        phone: str | None = None,
+        sexo: str | None = None,
     ):
-        self.__class__.activation_calls.append((token, new_password, admission_year))
+        self.__class__.activation_calls.append((token, new_password, phone, sexo))
         if self.activation_error is not None:
             raise self.activation_error
 
@@ -67,7 +68,10 @@ class FakeAuthService:
             "first_name": "Ana",
             "last_name": "Perez",
             "roles": ["Estudiante"],
+            "enrollment": "12345678524",
             "admission_year": 2024,
+            "phone": None,
+            "sexo": "No definido",
         }
 
 
@@ -267,13 +271,16 @@ async def test_activate_account_delegates_and_maps_activation_errors() -> None:
         payload=ActivateAccountRequest(
             token="x" * 32,
             new_password="new-password",
-            admission_year=2024,
+            phone="912345678",
+            sexo="Femenino",
         ),
         db=object(),
     )
 
     assert response.status_code == 204
-    assert FakeAuthService.activation_calls == [("x" * 32, "new-password", 2024)]
+    assert FakeAuthService.activation_calls == [
+        ("x" * 32, "new-password", "+56912345678", "Femenino")
+    ]
 
     FakeAuthService.activation_error = AccountActivationError("Invalid or expired")
     with pytest.raises(HTTPException) as exc_info:

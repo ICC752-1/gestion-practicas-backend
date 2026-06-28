@@ -4,7 +4,11 @@ Este módulo agrupa modelos de entrada usados por los endpoints de autenticació
 y gestión de sesión (login, refresh, logout y operaciones de contraseña).
 """
 
-from pydantic import BaseModel, EmailStr, Field
+from typing import Literal
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.modules.auth.utils.normalization import normalize_phone
 
 class LoginRequest(BaseModel):
     """Payload de solicitud para iniciar sesión.
@@ -32,7 +36,15 @@ class ActivateAccountRequest(BaseModel):
 
     token: str = Field(min_length=32, max_length=512)
     new_password: str = Field(min_length=8, max_length=128)
-    admission_year: int | None = Field(default=None, ge=1900, le=2100)
+    phone: str | None = Field(default=None, max_length=100)
+    sexo: Literal["Femenino", "Masculino", "Otro", "No definido"] | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _normalize_optional_phone(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return normalize_phone(value)
 
 
 class ActivationAccountInfoResponse(BaseModel):
@@ -42,7 +54,10 @@ class ActivationAccountInfoResponse(BaseModel):
     first_name: str
     last_name: str
     roles: list[str]
+    enrollment: str | None = None
     admission_year: int | None = None
+    phone: str | None = None
+    sexo: str | None = None
 
 class RefreshTokenRequest(BaseModel):
     """Payload de solicitud para renovar tokens de acceso.
