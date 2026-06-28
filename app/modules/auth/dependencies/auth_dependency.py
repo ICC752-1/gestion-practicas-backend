@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models.user_model import User
@@ -97,5 +98,10 @@ async def get_current_user(
     if not user.is_active:
         logger.warning("Inactive user attempted to access a protected endpoint")
         raise _credentials_exception("Inactive user")
+
+    await db.execute(
+        text("SELECT set_config('app.current_user_id', :user_id, true)"),
+        {"user_id": str(user.id)},
+    )
     
     return user

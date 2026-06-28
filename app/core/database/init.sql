@@ -425,6 +425,12 @@ entity_id INTEGER NOT NULL,
 user_id INTEGER REFERENCES Users(id)
 );
 
+CREATE INDEX IF NOT EXISTS ix_logaction_timestamp ON LogAction(timestamp);
+CREATE INDEX IF NOT EXISTS ix_logaction_entity ON LogAction(entity);
+CREATE INDEX IF NOT EXISTS ix_logaction_action ON LogAction(action);
+CREATE INDEX IF NOT EXISTS ix_logaction_user_id ON LogAction(user_id);
+CREATE INDEX IF NOT EXISTS ix_logaction_entity_entity_id ON LogAction(entity, entity_id);
+
 CREATE TABLE notification (
 id SERIAL PRIMARY KEY,
 recipient_user_id INTEGER REFERENCES Users(id),
