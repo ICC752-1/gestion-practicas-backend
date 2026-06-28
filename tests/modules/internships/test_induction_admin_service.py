@@ -233,15 +233,39 @@ async def test_create_draft_persists_structured_content() -> None:
     assert version.questions[0].correct_answer == "a"
 
 
-async def test_update_published_version_is_rejected() -> None:
+async def test_update_published_version_is_allowed() -> None:
     repository = FakeRepository()
     repository.version.status = ContentStatusEnum.published
     service = InductionAdminService(repository)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.update_draft(1, _payload())
+    version = await service.update_version(1, _payload())
 
-    assert exc_info.value.status_code == 409
+    assert repository.updated is version
+    assert version.title == "Induccion nueva"
+    assert version.status == ContentStatusEnum.published
+
+
+async def test_update_active_version_preserves_active_state() -> None:
+    repository = FakeRepository()
+    repository.version.status = ContentStatusEnum.published
+    repository.version.is_active = True
+    service = InductionAdminService(repository)
+
+    version = await service.update_version(1, _payload())
+
+    assert repository.updated is version
+    assert version.is_active is True
+
+
+async def test_delete_active_version_is_allowed() -> None:
+    repository = FakeRepository()
+    repository.version.status = ContentStatusEnum.published
+    repository.version.is_active = True
+    service = InductionAdminService(repository)
+
+    await service.delete_version(1)
+
+    assert repository.deleted is repository.version
 
 
 async def test_publish_marks_version_active() -> None:

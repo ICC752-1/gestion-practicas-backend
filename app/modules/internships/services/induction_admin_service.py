@@ -53,25 +53,6 @@ class InductionAdminService:
             videos=videos,
             questions=questions,
         )
-        return version
-
-    async def create_draft(
-        self,
-        payload: InductionAdminVersionPayload,
-    ) -> InductionContentVersion:
-        """Crea una nueva version en estado borrador."""
-
-        videos, questions = self._build_children(payload)
-        version = InductionContentVersion(
-            title=payload.title,
-            description=payload.description,
-            min_score=payload.min_score,
-            requires_retake=payload.requires_retake,
-            status=ContentStatusEnum.draft,
-            is_active=False,
-            videos=videos,
-            questions=questions,
-        )
 
         return await self.repository.create_induction_content_version(version)
 
