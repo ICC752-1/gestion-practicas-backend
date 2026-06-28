@@ -32,7 +32,9 @@ def _user(user_id: int, *roles: str) -> SimpleNamespace:
 
 
 def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
+    is_controlled = practice_type == "Práctica Controlada"
     suffix = "II" if practice_type.endswith("II") else "I"
+    practice_label = "Controlada" if is_controlled else f"de Estudios {suffix}"
     base_intro = (
         "Reciba un cordial saludo de parte de la Dirección de la Carrera de "
         "Ingeniería Civil Informática de la Universidad de La Frontera, una "
@@ -43,11 +45,11 @@ def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
         "Por medio de la presente, nos dirigimos a usted con el propósito de "
         "presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, "
         "quien es estudiante regular de nuestra carrera y quien cumple todos los "
-        f"requisitos para realizar su Práctica de Estudios {suffix} en una "
+        f"requisitos para realizar su Práctica {practice_label} en una "
         "organización de reconocido prestigio como la suya."
     )
     practice_description = (
-        f"La Práctica de Estudios {suffix} permite a los/as estudiantes aplicar "
+        f"La Práctica {practice_label} permite a los/as estudiantes aplicar "
         "los conocimientos adquiridos en el aula en un entorno real, fortaleciendo "
         "sus competencias mientras contribuyen al cumplimiento de los objetivos "
         "de las empresas y organizaciones que los reciben."
@@ -69,10 +71,10 @@ def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
         ],
     }
     return SimpleNamespace(
-        id=1 if suffix == "I" else 2,
+        id=3 if is_controlled else (1 if suffix == "I" else 2),
         practice_type=practice_type,
         title="Carta de Presentación",
-        subtitle=f"Estudiante en Práctica de Estudios {suffix}",
+        subtitle=f"Estudiante en Práctica {practice_label}",
         base_intro=base_intro,
         student_presentation_template=student_presentation,
         practice_description=practice_description,
@@ -145,6 +147,7 @@ class FakePresentationLetterRepository:
         self.templates = {
             "Práctica de Estudio I": _template("Práctica de Estudio I"),
             "Práctica de Estudio II": _template("Práctica de Estudio II"),
+            "Práctica Controlada": _template("Práctica Controlada"),
         }
         self.letters: dict[int, SimpleNamespace] = {}
         self.saved_template = None
@@ -235,6 +238,7 @@ async def test_director_can_list_templates(tmp_path):
     assert {template.practice_type for template in templates} == {
         "Práctica de Estudio I",
         "Práctica de Estudio II",
+        "Práctica Controlada",
     }
 
 

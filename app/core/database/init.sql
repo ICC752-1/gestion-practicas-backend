@@ -412,6 +412,27 @@ INSERT INTO presentation_letter_template (
     'Claudio Andrés Navarro Cruces',
     'Director de carrera',
     'Universidad de La Frontera'
+),
+(
+    'Práctica Controlada',
+    'Carta de Presentación',
+    'Estudiante en Práctica Controlada',
+    'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
+    'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple los requisitos para realizar su Práctica Controlada en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
+    'La Práctica Controlada permite a los/as estudiantes aplicar y consolidar los conocimientos adquiridos durante su formación en un entorno real, desarrollando actividades supervisadas y vinculadas con su especialidad. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    168,
+    '[
+        "Aplicar conocimientos y herramientas de la especialidad en actividades propias de un entorno laboral real.",
+        "Integrarse responsablemente a un equipo de trabajo, comunicándose de manera efectiva con las personas de la organización.",
+        "Desarrollar las actividades asignadas bajo supervisión, respetando los procedimientos y normas de la organización.",
+        "Mantener una conducta responsable en prevención de riesgos, cuidado del entorno y cumplimiento de los compromisos adquiridos.",
+        "Actuar de manera ética y profesional durante su permanencia en la organización."
+    ]'::jsonb,
+    'Por último, le informamos que durante el periodo de práctica el/la estudiante se encuentra protegido/a ante eventuales accidentes con el seguro escolar, el cual se encuentra al alero del artículo 3° de la Ley 16.744, según DS N°313 Ministerio del Trabajo y Previsión Social.',
+    'Agradeciendo de antemano su atención y colaboración, quedamos atentos a sus comentarios.',
+    'Claudio Andrés Navarro Cruces',
+    'Director de carrera',
+    'Universidad de La Frontera'
 );
 
 CREATE TABLE LogAction (

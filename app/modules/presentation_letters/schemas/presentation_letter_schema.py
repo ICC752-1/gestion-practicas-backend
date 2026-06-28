@@ -9,8 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 PRACTICE_TYPE_VALUES = (
     "Práctica de Estudio I",
     "Práctica de Estudio II",
+    "Práctica Controlada",
 )
-PracticeType = Literal["Práctica de Estudio I", "Práctica de Estudio II"]
+PracticeType = Literal[
+    "Práctica de Estudio I",
+    "Práctica de Estudio II",
+    "Práctica Controlada",
+]
 
 
 class PresentationLetterTemplateUpdateRequest(BaseModel):
