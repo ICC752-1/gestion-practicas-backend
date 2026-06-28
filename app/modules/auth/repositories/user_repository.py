@@ -13,6 +13,16 @@ from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.auth.models.role_model import Role
 
+USER_SORT_COLUMNS = {
+    "id": User.id,
+    "created_at": User.created_at,
+    "first_name": User.first_name,
+    "last_name": User.last_name,
+    "email": User.email,
+    "rut": User.rut,
+    "is_active": User.is_active,
+}
+
 
 class UserRepository:
     """Implementa operaciones de lectura y escritura sobre usuarios.
@@ -110,6 +120,8 @@ class UserRepository:
         role_name: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -143,7 +155,11 @@ class UserRepository:
         if role_name:
             query = query.join(UserRole).join(Role).where(Role.name == role_name)
 
-        query = query.order_by(User.id)
+        sort_column = USER_SORT_COLUMNS.get(sort_by, User.created_at)
+        if sort_dir == "asc":
+            query = query.order_by(sort_column.asc(), User.id.asc())
+        else:
+            query = query.order_by(sort_column.desc(), User.id.desc())
 
         if limit is not None:
             query = query.limit(limit).offset(offset)

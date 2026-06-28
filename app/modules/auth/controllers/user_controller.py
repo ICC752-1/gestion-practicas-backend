@@ -7,7 +7,7 @@ consulta y actualizacion de usuarios.
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -301,6 +301,16 @@ async def list_student_accounts(
     search: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal[
+        "id",
+        "created_at",
+        "first_name",
+        "last_name",
+        "email",
+        "rut",
+        "is_active",
+    ] = Query(default="created_at"),
+    sort_dir: Literal["asc", "desc"] = Query(default="desc"),
 ) -> UserListResponse:
     """Lista cuentas de estudiantes para gestion academica acotada."""
 
@@ -315,6 +325,8 @@ async def list_student_accounts(
         role_name=STUDENT_ROLE,
         limit=limit,
         offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     total = await service.count_users(
         is_active=is_active,
@@ -443,6 +455,16 @@ async def list_users(
     role: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal[
+        "id",
+        "created_at",
+        "first_name",
+        "last_name",
+        "email",
+        "rut",
+        "is_active",
+    ] = Query(default="created_at"),
+    sort_dir: Literal["asc", "desc"] = Query(default="desc"),
 ) -> UserListResponse:
     """Lista usuarios con filtros opcionales.
 
@@ -463,6 +485,8 @@ async def list_users(
             "actor_id": current_user.id,
             "is_active_filter": is_active,
             "has_email_filter": bool(email),
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
         },
     )
     service = _build_service(db)
@@ -473,6 +497,8 @@ async def list_users(
         role_name=role,
         limit=limit,
         offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     total = await service.count_users(
         is_active=is_active,

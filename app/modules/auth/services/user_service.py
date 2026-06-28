@@ -92,6 +92,8 @@ class UserService:
         role_name: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -110,6 +112,8 @@ class UserService:
             role_name=role_name,
             limit=limit,
             offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
 
     async def count_users(
