@@ -20,6 +20,7 @@ USER_SORT_COLUMNS = {
     "last_name": User.last_name,
     "email": User.email,
     "rut": User.rut,
+    "admission_year": User.admission_year,
     "is_active": User.is_active,
 }
 
