@@ -23,8 +23,9 @@ def _user(user_id: int, *roles: str) -> SimpleNamespace:
         email=f"user{user_id}@ufrontera.cl",
         first_name="Nombre",
         last_name="Apellido",
-        rut=f"rut-{user_id}",
+        rut=f"1234567{user_id % 10}-{user_id % 10}",
         cod_degree=f"INF-{user_id:03d}",
+        admission_year=2020,
         roles=[_role(role_name) for role_name in roles],
         is_active=True,
     )
@@ -277,7 +278,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     service = _service(tmp_path, repository, notifications)
     _patch_pdf_conversion(
         monkeypatch,
-        b"%PDF-1.7\nconverted-from-docx\nNombre Apellido\nINF-010",
+        b"%PDF-1.7\nconverted-from-docx\nNombre Apellido\n12345670020",
     )
 
     letter = await service.generate_letter(
@@ -297,7 +298,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     assert content.startswith(b"%PDF-1.7")
     assert b"converted-from-docx" in content
     assert b"Nombre Apellido" in content
-    assert b"INF-010" in content
+    assert b"12345670020" in content
 
     document = service._build_letter_document(
         template=repository.templates["Práctica de Estudio I"],
@@ -321,7 +322,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     assert "Estudiante en Práctica de Estudios I" in text
     assert "Dirección de la Carrera de Ingeniería Civil Informática" in normalized_text
     assert "Nombre Apellido" in normalized_text
-    assert "INF-010" in context["student_presentation"]
+    assert "12345670020" in context["student_presentation"]
     assert "168 horas cronológicas" in normalized_text
     assert "Ley 16.744" in normalized_text
     assert "DS N°313" in normalized_text
@@ -388,7 +389,7 @@ def test_docx_context_uses_textual_template_fields(tmp_path):
     assert context["subtitle"] == "Estudiante en Práctica de Estudios I"
     assert context["base_intro"].startswith("Reciba un cordial saludo")
     assert "Nombre Apellido" in context["student_presentation"]
-    assert "INF-010" in context["student_presentation"]
+    assert "12345670020" in context["student_presentation"]
     assert "168 horas cronológicas" in context["minimum_hours_clause"]
     assert "Claudio Andrés Navarro Cruces" == context["signature_name"]
 

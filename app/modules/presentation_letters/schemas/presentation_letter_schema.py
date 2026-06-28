@@ -79,6 +79,7 @@ class PresentationLetterTemplateResponse(BaseModel):
     signature_name: str
     signature_role: str
     signature_institution: str
+    signature_image_uploaded: bool = False
     is_active: bool
     created_by: int | None
     updated_by: int | None

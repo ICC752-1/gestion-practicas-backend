@@ -13,6 +13,7 @@ from fastapi import HTTPException, status
 
 from app.core.config import config
 from app.modules.auth.models.user_model import User
+from app.modules.auth.utils.enrollment import build_student_enrollment
 from app.modules.documents.models.document_model import (
     Document,
     DocumentCategoryEnum,
@@ -1059,40 +1060,7 @@ class DocumentService:
         return "; ".join(parts)
 
     def _build_student_enrollment(self, student: object | None) -> str | None:
-        if student is None:
-            return None
-
-        rut = getattr(student, "rut", None)
-        admission_year = self._get_student_admission_year(student)
-        if rut is None or admission_year is None:
-            return None
-
-        rut_value = "".join(
-            character
-            for character in str(rut).upper()
-            if character.isdigit() or character == "K"
-        )
-        year_value = "".join(
-            character
-            for character in str(admission_year)
-            if character.isdigit()
-        )
-        if not rut_value or len(year_value) < 2:
-            return None
-
-        return f"{rut_value}{year_value[-2:]}"
-
-    def _get_student_admission_year(self, student: object) -> object | None:
-        for field_name in (
-            "admission_year",
-            "entry_year",
-            "enrollment_year",
-        ):
-            value = getattr(student, field_name, None)
-            if value is not None:
-                return value
-
-        return None
+        return build_student_enrollment(student)
 
     async def _get_internship_approval_date(self, internship_id: int) -> datetime | None:
         if not hasattr(self.repository, "db"):

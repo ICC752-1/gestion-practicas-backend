@@ -323,6 +323,7 @@ CREATE TABLE presentation_letter_template (
     signature_name VARCHAR(255) NOT NULL,
     signature_role VARCHAR(255) NOT NULL,
     signature_institution VARCHAR(255) NOT NULL,
+    signature_image_path VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_by INTEGER REFERENCES Users(id),
     updated_by INTEGER REFERENCES Users(id),
@@ -692,3 +693,6 @@ ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS is_confirmed BOOLEAN NOT NULL 
 ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP;
 ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;
 ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;
+
+-- Migración para firma administrada en cartas de presentación
+ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS signature_image_path VARCHAR(255);

@@ -32,6 +32,7 @@ class PresentationLetterTemplate(Base):
     signature_name: Mapped[str] = mapped_column(String(255), nullable=False)
     signature_role: Mapped[str] = mapped_column(String(255), nullable=False)
     signature_institution: Mapped[str] = mapped_column(String(255), nullable=False)
+    signature_image_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_by: Mapped[int | None] = mapped_column(
         Integer,
@@ -57,6 +58,12 @@ class PresentationLetterTemplate(Base):
 
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
+
+    @property
+    def signature_image_uploaded(self) -> bool:
+        """Indica si la plantilla tiene una imagen de firma administrada."""
+
+        return bool(self.signature_image_path)
 
     __table_args__ = (
         Index(
