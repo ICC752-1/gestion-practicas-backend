@@ -53,18 +53,36 @@ class InductionAdminService:
             videos=videos,
             questions=questions,
         )
+        return version
+
+    async def create_draft(
+        self,
+        payload: InductionAdminVersionPayload,
+    ) -> InductionContentVersion:
+        """Crea una nueva version en estado borrador."""
+
+        videos, questions = self._build_children(payload)
+        version = InductionContentVersion(
+            title=payload.title,
+            description=payload.description,
+            min_score=payload.min_score,
+            requires_retake=payload.requires_retake,
+            status=ContentStatusEnum.draft,
+            is_active=False,
+            videos=videos,
+            questions=questions,
+        )
 
         return await self.repository.create_induction_content_version(version)
 
-    async def update_draft(
+    async def update_version(
         self,
         version_id: int,
         payload: InductionAdminVersionPayload,
     ) -> InductionContentVersion:
-        """Actualiza una version solo si sigue en borrador."""
+        """Actualiza una version."""
 
         version = await self.get_version(version_id)
-        self._ensure_draft(version)
         videos, questions = self._build_children(payload)
 
         version.title = payload.title
@@ -76,11 +94,10 @@ class InductionAdminService:
 
         return await self.repository.update_induction_content_version(version)
 
-    async def discard_draft(self, version_id: int) -> None:
-        """Descarta una version en borrador."""
+    async def delete_version(self, version_id: int) -> None:
+        """Elimina una version."""
 
         version = await self.get_version(version_id)
-        self._ensure_draft(version)
         await self.repository.delete_induction_content_version(version)
 
     async def publish(self, version_id: int) -> InductionContentVersion:
@@ -90,13 +107,6 @@ class InductionAdminService:
         self._ensure_publishable(version)
 
         return await self.repository.publish_induction_content_version(version)
-
-    def _ensure_draft(self, version: InductionContentVersion) -> None:
-        if version.status != ContentStatusEnum.draft:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Las versiones publicadas de induccion no se pueden modificar.",
-            )
 
     def _ensure_publishable(self, version: InductionContentVersion) -> None:
         question_count = len(version.questions or [])
