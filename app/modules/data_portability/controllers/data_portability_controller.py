@@ -24,7 +24,10 @@ router = APIRouter(prefix="/data-portability", tags=["Data portability"])
 async def export_my_data(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
-    export_format: Annotated[Literal["json", "zip"], Query(alias="format")] = "zip",
+    export_format: Annotated[
+        Literal["json", "pdf", "zip"],
+        Query(alias="format"),
+    ] = "zip",
     include_documents: bool = True,
 ) -> Response:
     service = DataPortabilityService(
