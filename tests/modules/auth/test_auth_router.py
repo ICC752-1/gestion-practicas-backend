@@ -106,6 +106,8 @@ def _user():
         email="user@example.com",
         first_name="Ana",
         last_name="Perez",
+        degree="Ingenieria Civil Informatica",
+        cod_degree="ICI",
         password_hash="secret-hash",
         refresh_tokens=[object()],
         roles=[SimpleNamespace(role=SimpleNamespace(name="Estudiante"))],
@@ -262,6 +264,8 @@ async def test_get_me_returns_current_user_without_sensitive_fields() -> None:
     assert response.id == current_user.id
     assert response.email == current_user.email
     assert response.roles == ["Estudiante"]
+    assert response.degree == "Ingenieria Civil Informatica"
+    assert response.cod_degree == "ICI"
     assert not hasattr(response, "password_hash")
     assert not hasattr(response, "refresh_tokens")
 

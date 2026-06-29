@@ -408,6 +408,8 @@ async def get_me(
         first_name=current_user.first_name,
         last_name=current_user.last_name,
         roles=[user_role.role.name for user_role in current_user.roles],
+        degree=getattr(current_user, "degree", None),
+        cod_degree=getattr(current_user, "cod_degree", None),
         enrollment=build_student_enrollment(current_user),
         admission_year=getattr(current_user, "admission_year", None),
     )

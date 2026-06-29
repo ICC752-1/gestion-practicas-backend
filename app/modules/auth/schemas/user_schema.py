@@ -304,6 +304,8 @@ class CurrentUserResponse(BaseModel):
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
         roles: Lista de nombres de roles asociados.
+        degree: Carrera o grado academico del usuario.
+        cod_degree: Codigo interno de la carrera.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -313,5 +315,7 @@ class CurrentUserResponse(BaseModel):
     first_name: str
     last_name: str
     roles: list[str]
+    degree: str | None = None
+    cod_degree: str | None = None
     enrollment: str | None = None
     admission_year: int | None = None
