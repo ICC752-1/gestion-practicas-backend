@@ -12,6 +12,10 @@ from sqlalchemy.orm import selectinload
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.auth.models.role_model import Role
+from app.modules.internships.models.internship_model import Internship
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentInternshipRequirement,
+)
 
 USER_SORT_COLUMNS = {
     "id": User.id,
@@ -214,6 +218,51 @@ class UserRepository:
         result = await self.db.execute(query)
 
         return int(result.scalar_one())
+
+    async def list_student_requirements_for_users(
+        self,
+        user_ids: list[int],
+    ) -> list[StudentInternshipRequirement]:
+        """Lista requisitos académicos para un conjunto de estudiantes."""
+
+        if not user_ids:
+            return []
+
+        query = (
+            select(StudentInternshipRequirement)
+            .where(StudentInternshipRequirement.user_id.in_(user_ids))
+            .order_by(
+                StudentInternshipRequirement.user_id.asc(),
+                StudentInternshipRequirement.id.asc(),
+            )
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
+
+    async def list_student_internships_for_users(
+        self,
+        user_ids: list[int],
+    ) -> list[Internship]:
+        """Lista prácticas registradas para un conjunto de estudiantes."""
+
+        if not user_ids:
+            return []
+
+        query = (
+            select(Internship)
+            .where(Internship.user_id.in_(user_ids))
+            .options(selectinload(Internship.status))
+            .order_by(
+                Internship.user_id.asc(),
+                Internship.internship_type.asc(),
+                Internship.upload_date.desc(),
+                Internship.id.desc(),
+            )
+        )
+        result = await self.db.execute(query)
+
+        return list(result.scalars().all())
 
     async def count_active_users_with_role(
         self,

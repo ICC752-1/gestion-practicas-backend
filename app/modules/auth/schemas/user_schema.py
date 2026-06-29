@@ -17,6 +17,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.modules.internships.models.internship_model import PracticeTypeEnum
 from app.modules.auth.utils.enrollment import parse_student_enrollment
 from app.modules.auth.utils.normalization import normalize_phone, normalize_rut
 
@@ -251,10 +252,35 @@ class UserResponse(BaseModel):
     created_at: datetime
 
 
+class StudentPracticeProgressItem(BaseModel):
+    """Estado académico de un tipo de práctica para un estudiante."""
+
+    type: PracticeTypeEnum
+    requirement_status: str
+    display_status: str
+    internship_id: int | None = None
+    request_status: str | None = None
+    completion_status: str | None = None
+    final_result: str | None = None
+    is_current: bool = False
+    is_completed: bool = False
+
+
+class StudentAcademicProgressResponse(BaseModel):
+    """Resumen del avance académico de un estudiante en sus prácticas."""
+
+    completed_count: int
+    total_count: int
+    current_type: PracticeTypeEnum | None = None
+    current_status: str | None = None
+    items: list[StudentPracticeProgressItem]
+
+
 class UserAdminResponse(UserResponse):
     """Respuesta administrativa con roles actuales del usuario."""
 
     roles: list[str]
+    academic_progress: StudentAcademicProgressResponse | None = None
 
 
 class UserListResponse(BaseModel):
