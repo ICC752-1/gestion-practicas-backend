@@ -337,6 +337,16 @@ DEMO_USERS = [
 
 DEMO_EMAILS = [user["email"] for user in DEMO_USERS] + list(LEGACY_DEMO_EMAILS)
 DEMO_ORG_PREFIX = "Demo QA"
+REALISTIC_PRACTICE_REQUIREMENT_ORDER = (
+    PracticeTypeEnum.practice_1,
+    PracticeTypeEnum.practice_2,
+    PracticeTypeEnum.controlled_practice,
+    PracticeTypeEnum.thesis,
+)
+REALISTIC_FINAL_PRACTICE_OPTIONS = (
+    PracticeTypeEnum.controlled_practice,
+    PracticeTypeEnum.thesis,
+)
 
 
 @dataclass(frozen=True)
@@ -345,6 +355,161 @@ class SeedContext:
     roles: dict[str, Role]
     states: dict[str, CurrentState]
     password_hash: str
+
+
+@dataclass(frozen=True)
+class RealisticPracticePlan:
+    current_type: PracticeTypeEnum | None
+    current_state_name: str | None
+    completed_previous: tuple[PracticeTypeEnum, ...]
+    enabled_type: PracticeTypeEnum | None = None
+    next_after_completion: PracticeTypeEnum | None = None
+
+
+def _build_realistic_practice_plan(index: int, active: bool) -> RealisticPracticePlan:
+    """Define un avance demo que respeta el orden normal de prácticas."""
+
+    if not active:
+        inactive_history = (
+            (),
+            (PracticeTypeEnum.practice_1,),
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        )
+        return RealisticPracticePlan(
+            current_type=None,
+            current_state_name=None,
+            completed_previous=inactive_history[index % len(inactive_history)],
+        )
+
+    final_choice = (
+        PracticeTypeEnum.controlled_practice
+        if index % 2 == 0
+        else PracticeTypeEnum.thesis
+    )
+    profiles = (
+        RealisticPracticePlan(
+            current_type=None,
+            current_state_name=None,
+            completed_previous=(),
+            enabled_type=PracticeTypeEnum.practice_1,
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_1,
+            "Pendiente",
+            (),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_1,
+            "En revisión",
+            (),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_1,
+            "Aprobada",
+            (),
+            next_after_completion=PracticeTypeEnum.practice_2,
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_1,
+            "Rechazada",
+            (),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_2,
+            "Pendiente",
+            (PracticeTypeEnum.practice_1,),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_2,
+            "En revisión",
+            (PracticeTypeEnum.practice_1,),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_2,
+            "Aprobada",
+            (PracticeTypeEnum.practice_1,),
+            next_after_completion=final_choice,
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.practice_2,
+            "Rechazada",
+            (PracticeTypeEnum.practice_1,),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.controlled_practice,
+            "Pendiente",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.controlled_practice,
+            "Aprobada",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.controlled_practice,
+            "Rechazada",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.thesis,
+            "Pendiente",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.thesis,
+            "En revisión",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+        RealisticPracticePlan(
+            PracticeTypeEnum.thesis,
+            "Aprobada",
+            (PracticeTypeEnum.practice_1, PracticeTypeEnum.practice_2),
+        ),
+    )
+    return profiles[(index - 1) % len(profiles)]
+
+
+def _realistic_current_requirement_status(
+    plan: RealisticPracticePlan,
+    final_result: FinalResultEnum,
+) -> str:
+    if final_result == FinalResultEnum.passed:
+        return "Aprobada"
+    if plan.current_state_name == "Rechazada":
+        return "Rechazada"
+    if plan.current_state_name == "En revisión":
+        return "En revisión"
+    return "Habilitada"
+
+
+def _build_realistic_requirement_statuses(
+    plan: RealisticPracticePlan,
+    final_result: FinalResultEnum,
+) -> dict[PracticeTypeEnum, str]:
+    statuses = {
+        practice_type: "Pendiente"
+        for practice_type in REALISTIC_PRACTICE_REQUIREMENT_ORDER
+    }
+    for practice_type in plan.completed_previous:
+        statuses[practice_type] = "Aprobada"
+
+    if plan.enabled_type is not None:
+        statuses[plan.enabled_type] = "Habilitada"
+
+    if plan.current_type is not None:
+        statuses[plan.current_type] = _realistic_current_requirement_status(
+            plan,
+            final_result,
+        )
+
+    if (
+        final_result == FinalResultEnum.passed
+        and plan.next_after_completion is not None
+        and statuses[plan.next_after_completion] == "Pendiente"
+    ):
+        statuses[plan.next_after_completion] = "Habilitada"
+
+    return statuses
 
 
 class DemoSeeder:
@@ -955,33 +1120,46 @@ class DemoSeeder:
             raise ValueError("--realistic-students must be at least 20")
 
         today = date.today()
-        practice_types = (
-            PracticeTypeEnum.practice_1,
-            PracticeTypeEnum.practice_2,
-            PracticeTypeEnum.controlled_practice,
-            PracticeTypeEnum.thesis,
-        )
         periods = (
             PracticePeriodEnum.semester,
             PracticePeriodEnum.summer,
             PracticePeriodEnum.winter,
         )
-        status_names = ("Pendiente", "En revisión", "Aprobada", "Rechazada")
 
         for index in range(1, count + 1):
             user = await self._ensure_realistic_student(
                 context.roles[STUDENT_ROLE],
                 index,
             )
-            await self._ensure_realistic_requirements(user, index)
+            plan = _build_realistic_practice_plan(index, bool(user.is_active))
+            if plan.current_state_name is None:
+                completion_status = CompletionStatusEnum.not_started
+                final_result = FinalResultEnum.pending
+            else:
+                completion_status, final_result = self._realistic_completion(
+                    index,
+                    plan.current_state_name,
+                )
+            await self._ensure_realistic_requirements(
+                user,
+                index,
+                plan,
+                final_result,
+            )
 
-            if index % 6 == 0:
+            for previous_type in plan.completed_previous:
+                await self._ensure_completed_previous_level(
+                    context,
+                    user,
+                    previous_type,
+                    index,
+                    today,
+                )
+
+            if plan.current_type is None or plan.current_state_name is None:
                 continue
 
-            status_name = status_names[index % len(status_names)]
-            practice_type = practice_types[index % len(practice_types)]
-            completion_status, final_result = self._realistic_completion(index, status_name)
-            status = context.states[status_name]
+            status = context.states[plan.current_state_name]
             start_date = today - timedelta(days=45 + (index % 90))
             end_date = (
                 today - timedelta(days=index % 30)
@@ -991,17 +1169,18 @@ class DemoSeeder:
             internship = await self._ensure_internship(
                 owner=user,
                 status=status,
-                org_name=f"Realista QA {index:04d} {practice_type.value}",
-                internship_type=practice_type,
+                org_name=f"Realista QA {index:04d} {plan.current_type.value}",
+                internship_type=plan.current_type,
                 period=periods[index % len(periods)],
                 has_school_insurance=index % 5 != 0,
-                with_documents=status_name == "Aprobada" and index % 3 != 0,
+                with_documents=plan.current_state_name == "Aprobada" and index % 3 != 0,
                 start_date=start_date,
                 end_date=end_date,
                 completion_status=completion_status,
                 final_result=final_result,
                 blocks_new_registration=(
-                    status_name != "Rechazada" and final_result != FinalResultEnum.failed
+                    plan.current_state_name != "Rechazada"
+                    and final_result != FinalResultEnum.failed
                 ),
             )
             if completion_status in {
@@ -1015,23 +1194,6 @@ class DemoSeeder:
                 CompletionStatusEnum.finalized,
             }:
                 await self._ensure_supervisor_evaluation(internship)
-
-            if index % 9 == 0:
-                await self._ensure_completed_previous_level(
-                    context,
-                    user,
-                    PracticeTypeEnum.practice_1,
-                    index,
-                    today,
-                )
-            if index % 14 == 0:
-                await self._ensure_completed_previous_level(
-                    context,
-                    user,
-                    PracticeTypeEnum.practice_2,
-                    index,
-                    today,
-                )
 
     async def _ensure_realistic_student(self, student_role: Role, index: int) -> User:
         current_year = date.today().year
@@ -1087,7 +1249,13 @@ class DemoSeeder:
         await self._ensure_user_role(user, student_role)
         return user
 
-    async def _ensure_realistic_requirements(self, user: User, index: int) -> None:
+    async def _ensure_realistic_requirements(
+        self,
+        user: User,
+        index: int,
+        plan: RealisticPracticePlan,
+        final_result: FinalResultEnum,
+    ) -> None:
         active = bool(user.is_active)
         await self._ensure_requirement(
             user,
@@ -1100,23 +1268,16 @@ class DemoSeeder:
             active and index % 5 != 0,
         )
 
-        practice_1 = "Aprobada" if index % 3 != 0 else "Habilitada"
-        practice_2 = "Aprobada" if index % 8 == 0 else ("Habilitada" if practice_1 == "Aprobada" else "Pendiente")
-        thesis = "Habilitada" if index % 13 == 0 else "Pendiente"
-        controlled = "Aprobada" if index % 17 == 0 else ("Habilitada" if active and index % 5 == 0 else "Pendiente")
-        if not active:
-            practice_1 = "Aprobada" if index % 2 == 0 else "Pendiente"
-            practice_2 = "Aprobada" if index % 4 == 0 else "Pendiente"
-            thesis = "Pendiente"
-            controlled = "Pendiente"
-
-        for practice_type, status in (
-            (PracticeTypeEnum.practice_1.value, practice_1),
-            (PracticeTypeEnum.practice_2.value, practice_2),
-            (PracticeTypeEnum.thesis.value, thesis),
-            (PracticeTypeEnum.controlled_practice.value, controlled),
-        ):
-            await self._ensure_academic_requirement(user, practice_type, status)
+        requirement_statuses = _build_realistic_requirement_statuses(
+            plan,
+            final_result,
+        )
+        for practice_type in REALISTIC_PRACTICE_REQUIREMENT_ORDER:
+            await self._ensure_academic_requirement(
+                user,
+                practice_type.value,
+                requirement_statuses[practice_type],
+            )
 
     @staticmethod
     def _realistic_completion(
@@ -1142,6 +1303,16 @@ class DemoSeeder:
         index: int,
         today: date,
     ) -> None:
+        if practice_type == PracticeTypeEnum.practice_1:
+            start_offset = 420 + (index % 45)
+            end_offset = 330 + (index % 35)
+        elif practice_type == PracticeTypeEnum.practice_2:
+            start_offset = 260 + (index % 45)
+            end_offset = 170 + (index % 35)
+        else:
+            start_offset = 180 + (index % 30)
+            end_offset = 95 + (index % 25)
+
         internship = await self._ensure_internship(
             owner=user,
             status=context.states["Aprobada"],
@@ -1150,8 +1321,8 @@ class DemoSeeder:
             period=PracticePeriodEnum.semester,
             has_school_insurance=True,
             with_documents=True,
-            start_date=today - timedelta(days=240 + (index % 60)),
-            end_date=today - timedelta(days=150 + (index % 45)),
+            start_date=today - timedelta(days=start_offset),
+            end_date=today - timedelta(days=end_offset),
             completion_status=CompletionStatusEnum.finalized,
             final_result=FinalResultEnum.passed,
             blocks_new_registration=False,

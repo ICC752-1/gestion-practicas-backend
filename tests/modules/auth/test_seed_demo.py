@@ -7,12 +7,20 @@ from scripts.seed_demo import (
     DEMO_INDUCTION_TITLE,
     INDUCTION_CORRECT_ANSWER,
     INDUCTION_OPTIONS,
+    REALISTIC_FINAL_PRACTICE_OPTIONS,
+    REALISTIC_PRACTICE_REQUIREMENT_ORDER,
     STUDENT_DEMO_EMAIL,
     STUDENT_OTHER_EMAIL,
     UNSUPPORTED_DEMO_SCENARIOS,
+    _build_realistic_practice_plan,
+    _build_realistic_requirement_statuses,
     _ensure_not_production,
     _get_demo_password,
     _make_student_identity,
+)
+from app.modules.internships.models.internship_model import (
+    FinalResultEnum,
+    PracticeTypeEnum,
 )
 
 
@@ -104,6 +112,38 @@ def test_seed_demo_sets_coherent_academic_requirements() -> None:
         "Tesis": "Pendiente",
         "Práctica Controlada": "Pendiente",
     }
+
+
+def test_realistic_seed_practice_plans_follow_academic_order() -> None:
+    for index in range(1, 61):
+        plan = _build_realistic_practice_plan(index, active=index % 7 != 0)
+        completed_previous = set(plan.completed_previous)
+
+        if plan.current_type == PracticeTypeEnum.practice_2:
+            assert PracticeTypeEnum.practice_1 in completed_previous
+
+        if plan.current_type in REALISTIC_FINAL_PRACTICE_OPTIONS:
+            assert completed_previous == {
+                PracticeTypeEnum.practice_1,
+                PracticeTypeEnum.practice_2,
+            }
+
+
+def test_realistic_seed_marks_only_one_final_practice_option() -> None:
+    for index in range(1, 61):
+        plan = _build_realistic_practice_plan(index, active=True)
+        statuses = _build_realistic_requirement_statuses(
+            plan,
+            FinalResultEnum.passed,
+        )
+        selected_finals = [
+            practice_type
+            for practice_type in REALISTIC_FINAL_PRACTICE_OPTIONS
+            if statuses[practice_type] != "Pendiente"
+        ]
+
+        assert len(selected_finals) <= 1
+        assert list(statuses) == list(REALISTIC_PRACTICE_REQUIREMENT_ORDER)
 
 
 def test_seed_demo_declares_only_current_uncovered_edges() -> None:
