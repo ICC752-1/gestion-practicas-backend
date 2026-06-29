@@ -378,6 +378,7 @@ async def test_get_internships_maps_related_data() -> None:
     assert internships[0].student.email == "student@example.com"
     assert internships[0].student.degree == "Ingenieria Civil Informatica"
     assert internships[0].student.cod_degree == "ICI"
+    assert internships[0].internship_type == "Práctica de Estudio I"
     assert internships[0].status is not None
     assert internships[0].status.title == "En revision"
     assert internships[0].is_cancelled is False

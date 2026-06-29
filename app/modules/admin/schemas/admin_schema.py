@@ -127,6 +127,7 @@ class AdminInternshipListItem(BaseModel):
         end_date    : Fecha de termino de la practica.
         upload_date : Fecha de registro de la practica.
         user_id     : Identificador del estudiante propietario.
+        internship_type: Tipo de practica informado en la solicitud.
         student     : Informacion basica del estudiante asociado.
     status      : Estado actual de la practica, si existe.
     is_cancelled: Indica si la practica fue anulada logicamente.
@@ -143,6 +144,7 @@ class AdminInternshipListItem(BaseModel):
     end_date: date
     upload_date: datetime
     user_id: int | None
+    internship_type: PracticeTypeEnum
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
     is_cancelled: bool

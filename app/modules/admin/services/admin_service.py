@@ -478,6 +478,7 @@ class AdminService:
                 end_date=internship.end_date,
                 upload_date=internship.upload_date,
                 user_id=internship.user_id,
+                internship_type=internship.internship_type,
                 student=student_info,
                 status=status_info,
                 is_cancelled=internship.is_cancelled,
