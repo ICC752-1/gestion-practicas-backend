@@ -27,7 +27,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.database import SessionLocal
@@ -35,6 +35,10 @@ from app.modules.auth.models.role_model import Role
 from app.modules.auth.models.user_model import User
 from app.modules.auth.models.user_role_model import UserRole
 from app.modules.auth.services.password_service import PasswordService
+from app.modules.auth.utils.enrollment import (
+    StudentEnrollment,
+    parse_student_enrollment,
+)
 from app.modules.auth.utils.roles import (
     CAREER_DIRECTOR_ROLE,
     FICA_ROLE,
@@ -203,10 +207,58 @@ UNSUPPORTED_DEMO_SCENARIOS = (
     "paquete DIRAE no exportable y expediente observado",
 )
 
+
+def _make_rut(body: int) -> str:
+    reversed_digits = map(int, reversed(str(body)))
+    factors = (2, 3, 4, 5, 6, 7)
+    total = 0
+    for index, digit in enumerate(reversed_digits):
+        total += digit * factors[index % len(factors)]
+    value = 11 - (total % 11)
+    if value == 11:
+        dv = "0"
+    elif value == 10:
+        dv = "K"
+    else:
+        dv = str(value)
+    return f"{body}-{dv}"
+
+
+def _make_numeric_rut(body: int) -> str:
+    """Genera un RUT compatible con la matrícula, que solo admite dígitos."""
+
+    rut = _make_rut(body)
+    if not rut.endswith("-K"):
+        return rut
+
+    fallback_body = body + 4_000_000
+    while True:
+        rut = _make_rut(fallback_body)
+        if not rut.endswith("-K"):
+            return rut
+        fallback_body += 1
+
+
+def _make_student_identity(body: int, admission_year: int) -> StudentEnrollment:
+    rut = _make_numeric_rut(body)
+    rut_digits = rut.replace("-", "")
+    return parse_student_enrollment(f"{rut_digits}{admission_year % 100:02d}")
+
+
+DEMO_STUDENT_IDENTITIES = {
+    STUDENT_DEMO_EMAIL: _make_student_identity(21000001, 2021),
+    STUDENT_OTHER_EMAIL: _make_student_identity(21000010, 2022),
+    STUDENT_ACTIVE_EMAIL: _make_student_identity(21000009, 2020),
+}
+
 DEMO_USERS = [
     {
         "email": STUDENT_DEMO_EMAIL,
-        "rut": "21000001-1",
+        "rut": DEMO_STUDENT_IDENTITIES[STUDENT_DEMO_EMAIL].rut,
+        "enrollment": DEMO_STUDENT_IDENTITIES[STUDENT_DEMO_EMAIL].value,
+        "admission_year": DEMO_STUDENT_IDENTITIES[
+            STUDENT_DEMO_EMAIL
+        ].admission_year,
         "first_name": "Estudiante",
         "last_name": "Demo",
         "role": STUDENT_ROLE,
@@ -215,7 +267,11 @@ DEMO_USERS = [
     },
     {
         "email": STUDENT_OTHER_EMAIL,
-        "rut": "21000002-1",
+        "rut": DEMO_STUDENT_IDENTITIES[STUDENT_OTHER_EMAIL].rut,
+        "enrollment": DEMO_STUDENT_IDENTITIES[STUDENT_OTHER_EMAIL].value,
+        "admission_year": DEMO_STUDENT_IDENTITIES[
+            STUDENT_OTHER_EMAIL
+        ].admission_year,
         "first_name": "Estudiante",
         "last_name": "Otro",
         "role": STUDENT_ROLE,
@@ -224,7 +280,11 @@ DEMO_USERS = [
     },
     {
         "email": STUDENT_ACTIVE_EMAIL,
-        "rut": "21000009-1",
+        "rut": DEMO_STUDENT_IDENTITIES[STUDENT_ACTIVE_EMAIL].rut,
+        "enrollment": DEMO_STUDENT_IDENTITIES[STUDENT_ACTIVE_EMAIL].value,
+        "admission_year": DEMO_STUDENT_IDENTITIES[
+            STUDENT_ACTIVE_EMAIL
+        ].admission_year,
         "first_name": "Estudiante",
         "last_name": "Activo",
         "role": STUDENT_ROLE,
@@ -346,19 +406,155 @@ class DemoSeeder:
         user_ids = [user.id for user in users]
 
         internship_ids = await self._get_demo_internship_ids(user_ids)
+        if user_ids:
+            from app.modules.auth.models.account_activation_token_model import (
+                AccountActivationToken,
+            )
+            from app.modules.auth.models.refresh_token_model import RefreshToken
+            from app.modules.data_portability.models.data_portability_model import (
+                DataPortabilityRequest,
+            )
+            from app.modules.presentation_letters.models.presentation_letter_model import (
+                PresentationLetterTemplate,
+            )
+            from app.modules.scheduling.models.scheduling_config_model import (
+                SchedulingConfig,
+            )
+            from app.modules.scheduling.models.scheduling_request_model import (
+                SchedulingRequest,
+            )
+            from app.modules.self_evaluations.models.self_evaluation_model import (
+                SelfEvaluation,
+            )
+            from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
+                SupervisorEvaluationInvitation,
+            )
+
+            await self.session.execute(
+                update(InternshipStatusHistory)
+                .where(InternshipStatusHistory.actor_id.in_(user_ids))
+                .values(actor_id=None)
+            )
+            from app.modules.internships.models.internship_dirae_status_history_model import (
+                InternshipDiraeStatusHistory,
+            )
+
+            await self.session.execute(
+                update(InternshipDiraeStatusHistory)
+                .where(InternshipDiraeStatusHistory.actor_id.in_(user_ids))
+                .values(actor_id=None)
+            )
+            await self.session.execute(
+                update(InternshipException)
+                .where(InternshipException.authorized_by.in_(user_ids))
+                .values(authorized_by=None)
+            )
+            await self.session.execute(
+                update(Internship)
+                .where(Internship.cancelled_by.in_(user_ids))
+                .values(cancelled_by=None)
+            )
+            await self.session.execute(
+                update(Internship)
+                .where(Internship.insurance_validated_by.in_(user_ids))
+                .values(insurance_validated_by=None)
+            )
+            await self.session.execute(
+                update(Document)
+                .where(Document.reviewed_by.in_(user_ids))
+                .values(reviewed_by=None)
+            )
+            await self.session.execute(
+                update(Document)
+                .where(Document.deleted_by.in_(user_ids))
+                .values(deleted_by=None)
+            )
+            await self.session.execute(
+                update(StudentInternshipRequirement)
+                .where(StudentInternshipRequirement.status_updated_by.in_(user_ids))
+                .values(status_updated_by=None)
+            )
+            await self.session.execute(
+                update(StudentRegistrationRequirement)
+                .where(StudentRegistrationRequirement.updated_by.in_(user_ids))
+                .values(updated_by=None)
+            )
+            await self.session.execute(
+                update(SelfEvaluation)
+                .where(SelfEvaluation.reopened_by.in_(user_ids))
+                .values(reopened_by=None)
+            )
+            await self.session.execute(
+                update(SupervisorEvaluationInvitation)
+                .where(SupervisorEvaluationInvitation.created_by.in_(user_ids))
+                .values(created_by=None)
+            )
+            await self.session.execute(
+                update(SchedulingRequest)
+                .where(SchedulingRequest.coordinator_id.in_(user_ids))
+                .values(coordinator_id=None)
+            )
+            await self.session.execute(
+                update(SchedulingRequest)
+                .where(SchedulingRequest.target_coordinator_id.in_(user_ids))
+                .values(target_coordinator_id=None)
+            )
+            await self.session.execute(
+                update(PresentationLetterTemplate)
+                .where(PresentationLetterTemplate.created_by.in_(user_ids))
+                .values(created_by=None)
+            )
+            await self.session.execute(
+                update(PresentationLetterTemplate)
+                .where(PresentationLetterTemplate.updated_by.in_(user_ids))
+                .values(updated_by=None)
+            )
+            await self.session.execute(
+                update(AccountActivationToken)
+                .where(AccountActivationToken.created_by_id.in_(user_ids))
+                .values(created_by_id=None)
+            )
+            await self.session.execute(
+                delete(RefreshToken).where(RefreshToken.user_id.in_(user_ids))
+            )
+            await self.session.execute(
+                delete(AccountActivationToken).where(
+                    AccountActivationToken.user_id.in_(user_ids)
+                )
+            )
+            await self.session.execute(
+                delete(DataPortabilityRequest).where(
+                    DataPortabilityRequest.user_id.in_(user_ids)
+                )
+            )
+            await self.session.execute(
+                delete(SchedulingConfig).where(
+                    SchedulingConfig.coordinator_id.in_(user_ids)
+                )
+            )
+
         if internship_ids:
-            from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
+            from app.modules.self_evaluations.models.self_evaluation_model import (
+                SelfEvaluation,
+            )
             from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
                 SupervisorEvaluation,
                 SupervisorEvaluationInvitation,
             )
             from app.modules.scheduling.models.presentation_model import Presentation
+            from app.modules.scheduling.models.scheduling_request_model import (
+                SchedulingRequest,
+            )
 
             await self.session.execute(
-                delete(SelfEvaluation).where(SelfEvaluation.internship_id.in_(internship_ids))
+                delete(SelfEvaluation).where(
+                    SelfEvaluation.internship_id.in_(internship_ids)
+                )
             )
             await self.session.execute(
-                delete(SupervisorEvaluation).where(SupervisorEvaluation.internship_id.in_(internship_ids))
+                delete(SupervisorEvaluation).where(
+                    SupervisorEvaluation.internship_id.in_(internship_ids)
+                )
             )
             await self.session.execute(
                 delete(SupervisorEvaluationInvitation).where(
@@ -366,7 +562,14 @@ class DemoSeeder:
                 )
             )
             await self.session.execute(
-                delete(Presentation).where(Presentation.internship_id.in_(internship_ids))
+                delete(SchedulingRequest).where(
+                    SchedulingRequest.internship_id.in_(internship_ids)
+                )
+            )
+            await self.session.execute(
+                delete(Presentation).where(
+                    Presentation.internship_id.in_(internship_ids)
+                )
             )
             await self.session.execute(
                 delete(Document).where(Document.internship_id.in_(internship_ids))
@@ -387,8 +590,41 @@ class DemoSeeder:
 
         if user_ids:
             from app.modules.scheduling.models.presentation_model import Presentation
-            from app.modules.presentation_letters.models.presentation_letter_model import PresentationLetter
+            from app.modules.scheduling.models.scheduling_request_model import (
+                SchedulingRequest,
+            )
+            from app.modules.presentation_letters.models.presentation_letter_model import (
+                PresentationLetter,
+            )
 
+            presentation_ids = select(Presentation.id).where(
+                Presentation.user_id.in_(user_ids)
+                | Presentation.owner_id.in_(user_ids)
+            )
+            document_ids = select(Document.id).where(Document.user_id.in_(user_ids))
+            await self.session.execute(
+                update(Presentation)
+                .where(Presentation.document_id.in_(document_ids))
+                .values(document_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                update(SchedulingRequest)
+                .where(SchedulingRequest.presentation_id.in_(presentation_ids))
+                .values(presentation_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                update(SchedulingRequest)
+                .where(SchedulingRequest.document_id.in_(document_ids))
+                .values(document_id=None)
+                .execution_options(synchronize_session=False)
+            )
+            await self.session.execute(
+                delete(SchedulingRequest).where(
+                    SchedulingRequest.student_id.in_(user_ids)
+                )
+            )
             await self.session.execute(
                 delete(Presentation).where(
                     Presentation.user_id.in_(user_ids)
@@ -396,14 +632,24 @@ class DemoSeeder:
                 )
             )
             await self.session.execute(
-                delete(PresentationLetter).where(PresentationLetter.student_id.in_(user_ids))
+                delete(PresentationLetter).where(
+                    PresentationLetter.student_id.in_(user_ids)
+                )
+            )
+            await self.session.execute(
+                delete(SelfEvaluation).where(SelfEvaluation.student_id.in_(user_ids))
+            )
+            await self.session.execute(
+                delete(Document).where(Document.user_id.in_(user_ids))
             )
             await self.session.execute(
                 text("DELETE FROM logaction WHERE user_id = ANY(:user_ids)"),
-                {"user_ids": user_ids}
+                {"user_ids": user_ids},
             )
             await self.session.execute(
-                delete(Notification).where(Notification.recipient_user_id.in_(user_ids))
+                delete(Notification).where(
+                    Notification.recipient_user_id.in_(user_ids)
+                )
             )
             await self.session.execute(
                 delete(InductionAttempt).where(InductionAttempt.user_id.in_(user_ids))
@@ -418,7 +664,9 @@ class DemoSeeder:
                     StudentInternshipRequirement.user_id.in_(user_ids)
                 )
             )
-            await self.session.execute(delete(UserRole).where(UserRole.user_id.in_(user_ids)))
+            await self.session.execute(
+                delete(UserRole).where(UserRole.user_id.in_(user_ids))
+            )
             await self.session.execute(delete(User).where(User.id.in_(user_ids)))
 
         await self._delete_demo_induction()
@@ -459,7 +707,7 @@ class DemoSeeder:
                 password_hash=self.password_hash,
                 first_name="Superadmin",
                 last_name="Plataforma",
-                rut=self._make_rut(29000000),
+                rut=_make_rut(29000000),
                 sexo="No definido",
                 is_active=True,
                 is_verified=True,
@@ -605,8 +853,10 @@ class DemoSeeder:
                     first_name=data["first_name"],
                     last_name=data["last_name"],
                     rut=data["rut"],
+                    enrollment=data.get("enrollment"),
                     degree=data.get("degree"),
                     cod_degree=data.get("cod_degree"),
+                    admission_year=data.get("admission_year"),
                     sexo="No definido",
                     is_active=True,
                     is_verified=True,
@@ -616,7 +866,20 @@ class DemoSeeder:
                 self.stats["created"] += 1
             else:
                 changed = False
-                for field_name in ("email", "first_name", "last_name", "rut", "degree", "cod_degree"):
+                field_names = [
+                    "email",
+                    "first_name",
+                    "last_name",
+                    "rut",
+                    "degree",
+                    "cod_degree",
+                ]
+                field_names.extend(
+                    field_name
+                    for field_name in ("enrollment", "admission_year")
+                    if field_name in data
+                )
+                for field_name in field_names:
                     next_value = data.get(field_name)
                     if getattr(user, field_name) != next_value:
                         setattr(user, field_name, next_value)
@@ -640,18 +903,19 @@ class DemoSeeder:
         student_role = roles[STUDENT_ROLE]
         for index in range(1, count + 1):
             email = f"{BULK_STUDENT_EMAIL_PREFIX}{index:04d}@ufromail.cl"
-            rut = self._make_rut(22000000 + index)
-            user = await self._get_user_by_email_or_rut(email, rut)
+            identity = _make_student_identity(22000000 + index, 2022)
+            user = await self._get_user_by_email_or_rut(email, identity.rut)
             if user is None:
                 user = User(
                     email=email,
                     password_hash=self.password_hash,
                     first_name="Estudiante",
                     last_name=f"QA {index:04d}",
-                    rut=rut,
+                    rut=identity.rut,
+                    enrollment=identity.value,
                     degree="Ingenieria Civil Informatica",
                     cod_degree="ICI",
-                    admission_year=2022,
+                    admission_year=identity.admission_year,
                     sexo="No definido",
                     is_active=True,
                     is_verified=True,
@@ -665,9 +929,11 @@ class DemoSeeder:
                     ("email", email),
                     ("first_name", "Estudiante"),
                     ("last_name", f"QA {index:04d}"),
+                    ("rut", identity.rut),
+                    ("enrollment", identity.value),
                     ("degree", "Ingenieria Civil Informatica"),
                     ("cod_degree", "ICI"),
-                    ("admission_year", 2022),
+                    ("admission_year", identity.admission_year),
                     ("sexo", "No definido"),
                 ):
                     if getattr(user, field_name) != next_value:
@@ -776,18 +1042,19 @@ class DemoSeeder:
             else current_year - (3 + (index % 5))
         )
         email = f"{REALISTIC_STUDENT_EMAIL_PREFIX}{index:04d}@ufromail.cl"
-        rut = self._make_rut(23000000 + index)
-        user = await self._get_user_by_email_or_rut(email, rut)
+        identity = _make_student_identity(23000000 + index, admission_year)
+        user = await self._get_user_by_email_or_rut(email, identity.rut)
         if user is None:
             user = User(
                 email=email,
                 password_hash=self.password_hash,
                 first_name="Estudiante",
                 last_name=f"Realista {index:04d}",
-                rut=rut,
+                rut=identity.rut,
+                enrollment=identity.value,
                 degree="Ingenieria Civil Informatica",
                 cod_degree="ICI",
-                admission_year=admission_year,
+                admission_year=identity.admission_year,
                 sexo="No definido",
                 is_active=active,
                 is_verified=active,
@@ -802,9 +1069,11 @@ class DemoSeeder:
                 ("email", email),
                 ("first_name", "Estudiante"),
                 ("last_name", f"Realista {index:04d}"),
+                ("rut", identity.rut),
+                ("enrollment", identity.value),
                 ("degree", "Ingenieria Civil Informatica"),
                 ("cod_degree", "ICI"),
-                ("admission_year", admission_year),
+                ("admission_year", identity.admission_year),
                 ("sexo", "No definido"),
                 ("is_active", active),
                 ("is_verified", active),
@@ -1492,22 +1761,6 @@ class DemoSeeder:
             )
         )
         return list(result.scalars().all())
-
-    @staticmethod
-    def _make_rut(body: int) -> str:
-        reversed_digits = map(int, reversed(str(body)))
-        factors = (2, 3, 4, 5, 6, 7)
-        total = 0
-        for index, digit in enumerate(reversed_digits):
-            total += digit * factors[index % len(factors)]
-        value = 11 - (total % 11)
-        if value == 11:
-            dv = "0"
-        elif value == 10:
-            dv = "K"
-        else:
-            dv = str(value)
-        return f"{body}-{dv}"
 
     def print_summary(self) -> None:
         for key in ("created", "updated", "reused", "skipped", "deleted"):

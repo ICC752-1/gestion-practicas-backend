@@ -1,5 +1,6 @@
 import pytest
 
+from app.modules.auth.utils.enrollment import parse_student_enrollment
 from scripts.seed_demo import (
     DEMO_ACADEMIC_REQUIREMENTS,
     DEMO_USERS,
@@ -11,6 +12,7 @@ from scripts.seed_demo import (
     UNSUPPORTED_DEMO_SCENARIOS,
     _ensure_not_production,
     _get_demo_password,
+    _make_student_identity,
 )
 
 
@@ -53,6 +55,28 @@ def test_seed_demo_student_emails_use_institutional_domain() -> None:
         "estudiante.otro@ufromail.cl",
         "estudiante.activo@ufromail.cl",
     ]
+
+
+def test_seed_demo_students_have_valid_persisted_enrollment() -> None:
+    students = [
+        user
+        for user in DEMO_USERS
+        if user["first_name"] == "Estudiante"
+    ]
+
+    for student in students:
+        parsed = parse_student_enrollment(student["enrollment"])
+
+        assert parsed.rut == student["rut"]
+        assert parsed.admission_year == student["admission_year"]
+
+
+def test_seed_demo_generated_students_use_numeric_rut_in_enrollment() -> None:
+    identity = _make_student_identity(22000001, 2022)
+
+    assert identity.rut != "22000001-K"
+    assert identity.value.isdigit()
+    assert identity.value.endswith("22")
 
 
 def test_seed_demo_induction_uses_stable_answer_keys() -> None:
