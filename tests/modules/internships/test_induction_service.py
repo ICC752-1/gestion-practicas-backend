@@ -413,6 +413,63 @@ class TestInductionAttempt:
         assert repo._created_attempts[0].score == 1
         assert repo._created_attempts[0].passed is True
 
+    @pytest.mark.asyncio
+    async def test_get_latest_passed_attempt_returns_answer_feedback(self):
+        """2.f. El intento aprobado expone selección y corrección por pregunta."""
+        repo = FakeInductionRepository()
+        questions = [
+            _fake_question(1, "a", order=1),
+            _fake_question(2, "b", order=2),
+        ]
+        repo._active_induction_content = _fake_content(
+            questions=questions,
+            min_score=1,
+            content_id=7,
+        )
+        repo._passed_induction_for_user[10] = SimpleNamespace(
+            id=21,
+            content_version_id=7,
+            answers={"1": "a", "2": "a"},
+            score=1,
+            passed=True,
+            attempted_at=datetime(2026, 6, 15, 10, 30),
+        )
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_latest_passed_induction_feedback(user_id=10)
+
+        assert result is not None
+        assert result.id == 21
+        assert result.content_version_id == 7
+        assert result.answers[0].selected_answer == "a"
+        assert result.answers[0].is_correct is True
+        assert result.answers[1].selected_answer == "a"
+        assert result.answers[1].correct_answer == "b"
+        assert result.answers[1].is_correct is False
+
+    @pytest.mark.asyncio
+    async def test_get_latest_passed_attempt_ignores_previous_version(self):
+        """2.g. No expone respuestas de una versión anterior."""
+        repo = FakeInductionRepository()
+        repo._active_induction_content = _fake_content(
+            questions=[_fake_question(1, "a")],
+            min_score=1,
+            content_id=8,
+        )
+        repo._passed_induction_for_user[10] = SimpleNamespace(
+            id=20,
+            content_version_id=7,
+            answers={"1": "a"},
+            score=1,
+            passed=True,
+            attempted_at=datetime(2026, 6, 10, 9, 0),
+        )
+        service = InternshipService(internship_repository=repo)
+
+        result = await service.get_latest_passed_induction_feedback(user_id=10)
+
+        assert result is None
+
 
 # ── Tests: Reglas de Negocio Integradas ──────────────────────────────────────
 

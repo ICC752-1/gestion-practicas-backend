@@ -32,6 +32,8 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InductionAnswerFeedbackResponse,
+    InductionAttemptFeedbackResponse,
     InductionAttemptRequest,
     InductionAttemptResponse,
     InductionContentVersionResponse,
@@ -2452,6 +2454,48 @@ class InternshipService:
         )
         created = await self.internship_repository.create_induction_attempt(attempt)
         return InductionAttemptResponse.model_validate(created)
+
+    async def get_latest_passed_induction_feedback(
+        self,
+        user_id: int,
+    ) -> InductionAttemptFeedbackResponse | None:
+        """Obtiene feedback del último intento aprobado para la versión activa."""
+        content = await self.internship_repository.get_active_induction_content()
+        if content is None:
+            return None
+
+        attempt = await self.internship_repository.get_passed_induction_attempt(
+            user_id=user_id,
+            content_version_id=content.id,
+        )
+        if attempt is None:
+            return None
+
+        submitted_answers = {
+            str(question_id): answer
+            for question_id, answer in (attempt.answers or {}).items()
+        }
+        answer_feedback = [
+            InductionAnswerFeedbackResponse(
+                question_id=question.id,
+                selected_answer=submitted_answers.get(str(question.id)),
+                correct_answer=question.correct_answer,
+                is_correct=(
+                    submitted_answers.get(str(question.id))
+                    == question.correct_answer
+                ),
+            )
+            for question in sorted(content.questions, key=lambda item: item.order)
+        ]
+
+        return InductionAttemptFeedbackResponse(
+            id=attempt.id,
+            content_version_id=attempt.content_version_id,
+            score=attempt.score,
+            passed=attempt.passed,
+            attempted_at=attempt.attempted_at,
+            answers=answer_feedback,
+        )
 
     async def _has_passed_induction(
         self,

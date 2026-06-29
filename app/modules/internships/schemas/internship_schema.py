@@ -602,6 +602,26 @@ class InductionAttemptResponse(BaseModel):
     attempted_at: datetime
 
 
+class InductionAnswerFeedbackResponse(BaseModel):
+    """Feedback de una respuesta perteneciente a un intento aprobado."""
+
+    question_id: int
+    selected_answer: str | None
+    correct_answer: str
+    is_correct: bool
+
+
+class InductionAttemptFeedbackResponse(BaseModel):
+    """Detalle revisable del último intento aprobado para la versión activa."""
+
+    id: int
+    content_version_id: int
+    score: int
+    passed: bool
+    attempted_at: datetime
+    answers: list[InductionAnswerFeedbackResponse]
+
+
 # ──────────────────────────────────────────────
 # Schema de elegibilidad para formalizar una solicitud
 # ──────────────────────────────────────────────

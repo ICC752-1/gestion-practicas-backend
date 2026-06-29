@@ -27,6 +27,7 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InductionAttemptFeedbackResponse,
     InductionAttemptRequest,
     InductionAttemptResponse,
     InductionContentVersionResponse,
@@ -275,6 +276,23 @@ async def get_induction_content(
     if content is None:
         logger.info("No hay contenido de inducción activo publicado")
     return content
+
+
+@router.get(
+    "/induction/attempts/latest-passed",
+    response_model=InductionAttemptFeedbackResponse | None,
+)
+async def get_latest_passed_induction_feedback(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles([STUDENT_ROLE]))],
+) -> InductionAttemptFeedbackResponse | None:
+    """Retorna feedback del último intento aprobado de la versión activa."""
+    logger.info(
+        "HTTP GET /internships/induction/attempts/latest-passed - Usuario ID: %s",
+        current_user.id,
+    )
+    service = _build_service(db)
+    return await service.get_latest_passed_induction_feedback(current_user.id)
 
 
 @router.post(
