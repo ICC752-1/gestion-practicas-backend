@@ -139,3 +139,10 @@ class AdminReportCsvExport(BaseModel):
 
     filename: str
     content: str = Field(description="Contenido CSV UTF-8 sin datos personales.")
+
+
+class AdminReportPdfExport(BaseModel):
+    """PDF ejecutivo generado para descarga."""
+
+    filename: str
+    content: bytes = Field(description="Contenido PDF sin datos personales.")

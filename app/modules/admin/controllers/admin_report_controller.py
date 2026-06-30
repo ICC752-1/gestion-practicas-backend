@@ -123,3 +123,43 @@ async def export_admin_report_csv(
             "Content-Disposition": f'attachment; filename="{export.filename}"',
         },
     )
+
+
+@router.get("/export.pdf")
+async def export_admin_report_pdf(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(REPORT_ROLES))],
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    career: Annotated[str | None, Query()] = None,
+    career_code: Annotated[str | None, Query()] = None,
+    practice_type: Annotated[str | None, Query()] = None,
+    period: Annotated[str | None, Query()] = None,
+    status: Annotated[str | None, Query()] = None,
+    organization: Annotated[str | None, Query()] = None,
+    city: Annotated[str | None, Query()] = None,
+    timezone: Annotated[str, Query()] = "America/Santiago",
+) -> Response:
+    """Exporta un informe ejecutivo PDF sin datos personales."""
+
+    filters = _build_filters(
+        date_from=date_from,
+        date_to=date_to,
+        career=career,
+        career_code=career_code,
+        practice_type=practice_type,
+        period=period,
+        status=status,
+        organization=organization,
+        city=city,
+        timezone=timezone,
+    )
+    export = await _build_service(db).export_pdf(filters, current_user)
+
+    return Response(
+        content=export.content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{export.filename}"',
+        },
+    )

@@ -2,9 +2,23 @@
 
 import csv
 from datetime import UTC, date, datetime
-from io import StringIO
+from html import escape
+from io import BytesIO, StringIO
 
 from fastapi import HTTPException, status
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 from app.modules.admin.repositories.admin_report_repository import (
     APPROVED_STATUS,
@@ -19,6 +33,7 @@ from app.modules.admin.schemas.admin_report_schema import (
     AdminReportEvaluations,
     AdminReportFilters,
     AdminReportOrganizationItem,
+    AdminReportPdfExport,
     AdminReportRate,
     AdminReportResponse,
     AdminReportScope,
@@ -230,6 +245,22 @@ class AdminReportService:
             content=content,
         )
 
+    async def export_pdf(
+        self,
+        filters: AdminReportFilters,
+        actor: User,
+    ) -> AdminReportPdfExport:
+        """Genera un informe ejecutivo PDF con los datos agregados del dashboard."""
+
+        report = await self.get_dashboard(filters, actor)
+        content = self._build_pdf(report)
+        timestamp = report.generated_at.strftime("%Y%m%d_%H%M%S")
+
+        return AdminReportPdfExport(
+            filename=f"reporte_institucional_fica_{timestamp}.pdf",
+            content=content,
+        )
+
     async def _self_evaluation_counts(
         self,
         filters: AdminReportFilters,
@@ -407,6 +438,353 @@ class AdminReportService:
         )
 
         return output.getvalue()
+
+    def _build_pdf(self, report: AdminReportResponse) -> bytes:
+        buffer = BytesIO()
+        document = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=16 * mm,
+            leftMargin=16 * mm,
+            topMargin=14 * mm,
+            bottomMargin=14 * mm,
+            title="Reporte institucional de prácticas FICA",
+            author="Sistema de Gestión de Prácticas",
+        )
+        styles = getSampleStyleSheet()
+        styles.add(
+            ParagraphStyle(
+                name="ReportTitle",
+                parent=styles["Title"],
+                alignment=TA_CENTER,
+                fontName="Helvetica-Bold",
+                fontSize=18,
+                leading=22,
+                textColor=colors.HexColor("#111827"),
+                spaceAfter=6,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="ReportSubtitle",
+                parent=styles["Normal"],
+                alignment=TA_CENTER,
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#4B5563"),
+                spaceAfter=14,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="ReportSection",
+                parent=styles["Heading2"],
+                fontName="Helvetica-Bold",
+                fontSize=12,
+                leading=15,
+                textColor=colors.HexColor("#8B1D46"),
+                spaceBefore=10,
+                spaceAfter=6,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="ReportCell",
+                parent=styles["Normal"],
+                fontSize=8,
+                leading=10,
+                textColor=colors.HexColor("#111827"),
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="ReportMuted",
+                parent=styles["Normal"],
+                fontSize=8,
+                leading=10,
+                textColor=colors.HexColor("#6B7280"),
+            )
+        )
+
+        scope = (
+            "Todas las carreras"
+            if report.scope.is_cross_career
+            else f"Carrera {report.scope.career_code or 'no informada'}"
+        )
+        story: list[object] = [
+            Paragraph("Reporte institucional de prácticas FICA", styles["ReportTitle"]),
+            Paragraph(
+                (
+                    f"Generado el {self._pdf_datetime(report.generated_at)} · "
+                    f"Alcance: {escape(scope)}"
+                ),
+                styles["ReportSubtitle"],
+            ),
+            Paragraph("Resumen ejecutivo", styles["ReportSection"]),
+        ]
+
+        approval_rate = self._find_rate(report, "Tasa de aprobación administrativa")
+        completion_rate = self._find_rate(report, "Tasa de finalización")
+        summary_rows = [
+            [self._cell("Indicador", styles, bold=True), self._cell("Resultado", styles, bold=True)],
+            *[
+                [self._cell(item.label, styles), self._cell(str(item.value), styles)]
+                for item in report.totals[:2]
+            ],
+            [
+                self._cell("Tasa de aprobación", styles),
+                self._cell(self._pdf_percentage(approval_rate), styles),
+            ],
+            [
+                self._cell("Tasa de finalización", styles),
+                self._cell(self._pdf_percentage(completion_rate), styles),
+            ],
+        ]
+        story.append(self._pdf_table(summary_rows, [115 * mm, 45 * mm]))
+
+        story.extend(
+            [
+                Paragraph("Alertas prioritarias", styles["ReportSection"]),
+                self._pdf_table(
+                    [
+                        [
+                            self._cell("Alerta", styles, bold=True),
+                            self._cell("Casos", styles, bold=True),
+                            self._cell("Acción sugerida", styles, bold=True),
+                        ],
+                        [
+                            self._cell("Prácticas de verano sin seguro o excepción", styles),
+                            self._cell(
+                                str(report.compliance.summer_without_school_insurance),
+                                styles,
+                            ),
+                            self._cell("Revisar con Secretaría o Dirección", styles),
+                        ],
+                        [
+                            self._cell("Prácticas activas con etapas vencidas", styles),
+                            self._cell(
+                                str(report.compliance.overdue_active_internships),
+                                styles,
+                            ),
+                            self._cell("Solicitar actualización del seguimiento", styles),
+                        ],
+                        [
+                            self._cell("Evaluaciones de supervisor pendientes", styles),
+                            self._cell(str(report.evaluations.supervisor_pending), styles),
+                            self._cell("Gestionar envío con supervisores", styles),
+                        ],
+                    ],
+                    [80 * mm, 20 * mm, 60 * mm],
+                ),
+                Paragraph("Documentación y DIRAE", styles["ReportSection"]),
+            ]
+        )
+        required_document_types = next(
+            (
+                total.value
+                for total in report.totals
+                if total.label == "Tipos documentales requeridos"
+            ),
+            0,
+        )
+        if required_document_types == 0:
+            story.append(
+                Paragraph(
+                    (
+                        "No hay requisitos documentales configurados. Los tipos "
+                        "documentales activos están definidos como opcionales."
+                    ),
+                    styles["ReportMuted"],
+                )
+            )
+        else:
+            story.append(
+                self._pdf_table(
+                    [
+                        [
+                            self._cell("Paquetes completos", styles, bold=True),
+                            self._cell("Observados", styles, bold=True),
+                            self._cell("Con faltantes", styles, bold=True),
+                            self._cell("Listos para DIRAE", styles, bold=True),
+                        ],
+                        [
+                            self._cell(str(report.documents.complete_packages), styles),
+                            self._cell(str(report.documents.observed_packages), styles),
+                            self._cell(
+                                str(report.documents.missing_required_packages),
+                                styles,
+                            ),
+                            self._cell(str(report.documents.exportable_to_dirae), styles),
+                        ],
+                    ],
+                    [40 * mm] * 4,
+                )
+            )
+
+        distributions = (
+            ("Estado", report.by_status),
+            ("Carrera", report.by_career),
+            ("Tipo de práctica", report.by_practice_type),
+            ("Periodo académico", report.by_period),
+            ("Ciudad", report.by_city),
+        )
+        for title, rows in distributions:
+            story.append(Paragraph(f"Distribución por {title.lower()}", styles["ReportSection"]))
+            if not rows:
+                story.append(
+                    Paragraph(
+                        "Sin datos para los filtros aplicados.",
+                        styles["ReportMuted"],
+                    )
+                )
+                continue
+            story.append(
+                self._pdf_table(
+                    [
+                        [
+                            self._cell(title, styles, bold=True),
+                            self._cell("Total", styles, bold=True),
+                            self._cell("Porcentaje", styles, bold=True),
+                        ],
+                        *[
+                            [
+                                self._cell(row.name, styles),
+                                self._cell(str(row.total), styles),
+                                self._cell(f"{row.percentage:.2f}%", styles),
+                            ]
+                            for row in rows
+                        ],
+                    ],
+                    [105 * mm, 25 * mm, 30 * mm],
+                )
+            )
+
+        story.extend(
+            [
+                PageBreak(),
+                Paragraph("Tiempos de tramitación", styles["ReportSection"]),
+            ]
+        )
+        story.append(
+            self._pdf_table(
+                [
+                    [
+                        self._cell("Indicador", styles, bold=True),
+                        self._cell("Promedio", styles, bold=True),
+                        self._cell("Mediana", styles, bold=True),
+                        self._cell("Muestras", styles, bold=True),
+                    ],
+                    *[
+                        [
+                            self._cell(metric.name, styles),
+                            self._cell(self._pdf_days(metric.average_days), styles),
+                            self._cell(self._pdf_days(metric.median_days), styles),
+                            self._cell(str(metric.samples), styles),
+                        ]
+                        for metric in report.time_metrics
+                    ],
+                ],
+                [85 * mm, 27 * mm, 27 * mm, 21 * mm],
+            )
+        )
+
+        story.append(Paragraph("Organizaciones recurrentes", styles["ReportSection"]))
+        if report.recurrent_organizations:
+            story.append(
+                self._pdf_table(
+                    [
+                        [
+                            self._cell("Organización", styles, bold=True),
+                            self._cell("Total", styles, bold=True),
+                            self._cell("Aprobadas", styles, bold=True),
+                            self._cell("Rechazadas", styles, bold=True),
+                            self._cell("Canceladas", styles, bold=True),
+                        ],
+                        *[
+                            [
+                                self._cell(org.display_name, styles),
+                                self._cell(str(org.total), styles),
+                                self._cell(str(org.approved), styles),
+                                self._cell(str(org.rejected), styles),
+                                self._cell(str(org.cancelled), styles),
+                            ]
+                            for org in report.recurrent_organizations
+                        ],
+                    ],
+                    [80 * mm, 20 * mm, 20 * mm, 20 * mm, 20 * mm],
+                )
+            )
+        else:
+            story.append(
+                Paragraph(
+                    "No hay organizaciones recurrentes para los filtros aplicados.",
+                    styles["ReportMuted"],
+                )
+            )
+
+        story.extend(
+            [
+                Spacer(1, 8),
+                Paragraph(
+                    (
+                        "Este informe contiene información agregada y no incluye RUT, "
+                        "correos, matrículas ni documentos individuales."
+                    ),
+                    styles["ReportMuted"],
+                ),
+            ]
+        )
+        document.build(story)
+        return buffer.getvalue()
+
+    def _pdf_table(self, rows: list[list[Paragraph]], widths: list[float]) -> Table:
+        table = Table(rows, colWidths=widths, repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F3F4F6")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#374151")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D1D5DB")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAFA")]),
+                ]
+            )
+        )
+        return table
+
+    def _cell(
+        self,
+        value: str,
+        styles,
+        *,
+        bold: bool = False,
+    ) -> Paragraph:
+        content = escape(value or "Sin dato")
+        if bold:
+            content = f"<b>{content}</b>"
+        return Paragraph(content, styles["ReportCell"])
+
+    def _find_rate(
+        self,
+        report: AdminReportResponse,
+        name: str,
+    ) -> AdminReportRate | None:
+        return next((rate for rate in report.rates if rate.name == name), None)
+
+    def _pdf_percentage(self, rate: AdminReportRate | None) -> str:
+        if rate is None or rate.percentage is None:
+            return "Sin dato"
+        return f"{rate.percentage:.2f}%"
+
+    def _pdf_days(self, value: float | None) -> str:
+        return "Sin dato" if value is None else f"{value:.2f} días"
+
+    def _pdf_datetime(self, value: datetime) -> str:
+        return value.strftime("%d-%m-%Y %H:%M UTC")
 
     def _percentage(self, numerator: int, denominator: int) -> float:
         if denominator <= 0:
