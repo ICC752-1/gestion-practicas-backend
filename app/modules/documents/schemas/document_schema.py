@@ -3,7 +3,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.modules.notifications.models.notification_model import NotificationStatusEnum
 
 from app.modules.documents.models.document_model import (
     DocumentCategoryEnum,
@@ -137,3 +139,20 @@ class DocumentPackageResponse(BaseModel):
     internship: DocumentPackageInternshipResponse
     required_documents: list[DocumentPackageItemResponse]
     optional_documents: list[DocumentPackageItemResponse]
+
+
+class DiraeDocumentPackageEmailRequest(BaseModel):
+    """Payload para enviar el expediente documental DIRAE por correo."""
+
+    dirae_email: EmailStr
+    message: str | None = Field(default=None, max_length=1000)
+
+
+class DiraeDocumentPackageEmailResponse(BaseModel):
+    """Resultado del envio del expediente documental DIRAE por correo."""
+
+    recipient_email: EmailStr
+    notification_id: int
+    notification_status: NotificationStatusEnum
+    package_count: int
+    filenames: list[str]

@@ -9,8 +9,11 @@ y despacho de notificaciones persistentes. Soporta dos modos de operacion:
   la configuracion de correo electronico definida en las variables de entorno.
 """
 
+import base64
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 
 from app.core.config import config
@@ -349,11 +352,50 @@ class NotificationService:
                 f"La notificacion id={notification.id} no tiene destinatario de correo"
             )
 
-        message = MessageSchema(
-            subject=notification.subject,
-            recipients=recipients,
-            body=notification.content,
-            subtype=MessageType.html,
-        )
+        payload = notification.payload or {}
+        attachments_payload = payload.get("attachments") or []
 
-        await self._mailer.send_message(message)
+        if not attachments_payload:
+            message = MessageSchema(
+                subject=notification.subject,
+                recipients=recipients,
+                body=notification.content,
+                subtype=MessageType.html,
+            )
+            await self._mailer.send_message(message)
+            return
+
+        with TemporaryDirectory(prefix="notification_attachments_") as tmp_dir:
+            attachment_paths = self._materialize_payload_attachments(
+                attachments_payload,
+                tmp_dir,
+            )
+            message = MessageSchema(
+                subject=notification.subject,
+                recipients=recipients,
+                body=notification.content,
+                subtype=MessageType.html,
+                attachments=attachment_paths,
+            )
+            await self._mailer.send_message(message)
+
+    @staticmethod
+    def _materialize_payload_attachments(
+        attachments: list[dict],
+        tmp_dir: str,
+    ) -> list[str]:
+        paths: list[str] = []
+        base_dir = Path(tmp_dir)
+        for index, attachment in enumerate(attachments, start=1):
+            filename = str(attachment.get("filename") or f"adjunto_{index}.txt")
+            safe_filename = Path(filename).name or f"adjunto_{index}.txt"
+            path = base_dir / safe_filename
+            if attachment.get("encoding") == "base64":
+                content_base64 = str(attachment.get("content_base64") or "")
+                path.write_bytes(base64.b64decode(content_base64))
+            else:
+                content = str(attachment.get("content") or "")
+                path.write_text(content, encoding="utf-8")
+            paths.append(str(path))
+
+        return paths

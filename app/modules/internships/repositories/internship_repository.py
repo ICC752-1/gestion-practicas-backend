@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,6 +29,7 @@ from app.modules.internships.models.internship_dirae_status_history_model import
     InternshipDiraeStatusHistory,
 )
 from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
     DiraeStatusEnum,
     Internship,
     PracticeTypeEnum,
@@ -252,6 +253,149 @@ class InternshipRepository:
         result = await self.db.execute(query)
 
         return list(result.scalars().all())
+
+    async def list_secretary_dirae_internships(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        search: str | None = None,
+        degree: str | None = None,
+        dirae_status: DiraeStatusEnum | None = None,
+        sort_by: str = "upload_date",
+        sort_dir: str = "desc",
+    ) -> tuple[list[Internship], int, dict[DiraeStatusEnum, int], list[str]]:
+        """Lista paginada de expedientes visibles para Secretaría."""
+
+        base_conditions = [
+            or_(
+                Internship.completion_status == CompletionStatusEnum.finalized,
+                Internship.dirae_status != DiraeStatusEnum.not_started,
+            )
+        ]
+        searchable_conditions = self._build_secretary_dirae_conditions(
+            search=search,
+            degree=degree,
+        )
+        query_conditions = [*base_conditions, *searchable_conditions]
+
+        if dirae_status is not None:
+            query_conditions.append(Internship.dirae_status == dirae_status)
+
+        total_query = (
+            select(func.count(Internship.id))
+            .select_from(Internship)
+            .outerjoin(User, Internship.user_id == User.id)
+            .where(*query_conditions)
+        )
+        total = await self.db.scalar(total_query)
+
+        query = (
+            select(Internship)
+            .outerjoin(User, Internship.user_id == User.id)
+            .where(*query_conditions)
+            .options(
+                selectinload(Internship.student),
+                selectinload(Internship.status),
+            )
+            .order_by(
+                *self._secretary_dirae_order_by(sort_by=sort_by, sort_dir=sort_dir)
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await self.db.execute(query)
+
+        stats_conditions = [*base_conditions, *searchable_conditions]
+        stats_query = (
+            select(Internship.dirae_status, func.count(Internship.id))
+            .select_from(Internship)
+            .outerjoin(User, Internship.user_id == User.id)
+            .where(*stats_conditions)
+            .group_by(Internship.dirae_status)
+        )
+        stats_result = await self.db.execute(stats_query)
+        stats = {
+            self._coerce_dirae_status(status): count
+            for status, count in stats_result.all()
+        }
+
+        degrees_query = (
+            select(User.degree)
+            .select_from(Internship)
+            .outerjoin(User, Internship.user_id == User.id)
+            .where(*base_conditions, User.degree.is_not(None), User.degree != "")
+            .distinct()
+            .order_by(User.degree.asc())
+        )
+        degrees_result = await self.db.execute(degrees_query)
+        degrees = [degree for degree in degrees_result.scalars().all() if degree]
+
+        return list(result.scalars().all()), int(total or 0), stats, degrees
+
+    def _build_secretary_dirae_conditions(
+        self,
+        *,
+        search: str | None,
+        degree: str | None,
+    ) -> list[Any]:
+        """Construye condiciones de búsqueda para la bandeja DIRAE."""
+
+        conditions: list[Any] = []
+        normalized_degree = degree.strip() if degree else ""
+        if normalized_degree and normalized_degree != "all":
+            conditions.append(User.degree == normalized_degree)
+
+        normalized_search = search.strip() if search else ""
+        if normalized_search:
+            pattern = f"%{normalized_search}%"
+            conditions.append(
+                or_(
+                    cast(Internship.id, String).ilike(pattern),
+                    Internship.org_name.ilike(pattern),
+                    Internship.city.ilike(pattern),
+                    cast(Internship.internship_type, String).ilike(pattern),
+                    User.first_name.ilike(pattern),
+                    User.last_name.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.rut.ilike(pattern),
+                    User.enrollment.ilike(pattern),
+                )
+            )
+
+        return conditions
+
+    @staticmethod
+    def _secretary_dirae_order_by(*, sort_by: str, sort_dir: str) -> list[Any]:
+        """Retorna el ordenamiento permitido para la bandeja de Secretaría."""
+
+        direction = "asc" if sort_dir == "asc" else "desc"
+
+        def apply_direction(column: Any) -> Any:
+            return column.asc() if direction == "asc" else column.desc()
+
+        if sort_by == "student_name":
+            return [
+                apply_direction(User.last_name),
+                apply_direction(User.first_name),
+                Internship.id.desc(),
+            ]
+        if sort_by == "degree":
+            return [apply_direction(User.degree), Internship.id.desc()]
+        if sort_by == "organization":
+            return [apply_direction(Internship.org_name), Internship.id.desc()]
+        if sort_by == "internship_type":
+            return [apply_direction(Internship.internship_type), Internship.id.desc()]
+        if sort_by == "dirae_status":
+            return [apply_direction(Internship.dirae_status), Internship.id.desc()]
+
+        return [apply_direction(Internship.upload_date), Internship.id.desc()]
+
+    @staticmethod
+    def _coerce_dirae_status(status: DiraeStatusEnum | str) -> DiraeStatusEnum:
+        if isinstance(status, DiraeStatusEnum):
+            return status
+        return DiraeStatusEnum(status)
 
     async def list_users_by_roles(self, role_names: set[str]) -> list[User]:
         """Lista usuarios activos que poseen alguno de los roles indicados."""

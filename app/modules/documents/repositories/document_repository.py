@@ -245,13 +245,20 @@ class DocumentRepository:
             bindparam("old_value", type_=JSONB),
             bindparam("new_value", type_=JSONB),
         )
+        delivery_channel = payload.get("delivery_channel")
+        description = (
+            "Envío por email de expediente documental DIRAE"
+            if delivery_channel == "email"
+            else "Exportación local de expediente documental DIRAE"
+        )
+
         await self.db.execute(
             query,
             {
                 "action": "INSERT",
                 "entity": "Documento",
                 "timestamp": exported_at,
-                "description": "Exportación local de expediente documental DIRAE",
+                "description": description,
                 "old_value": None,
                 "new_value": new_value,
                 "entity_id": payload["internship_ids"][0],

@@ -16,6 +16,8 @@ from app.modules.documents.repositories.document_repository import (
     DocumentRepository,
 )
 from app.modules.documents.schemas.document_schema import (
+    DiraeDocumentPackageEmailRequest,
+    DiraeDocumentPackageEmailResponse,
     DocumentPackageResponse,
     DocumentResponse,
     DocumentStatusUpdateRequest,
@@ -190,7 +192,7 @@ async def export_dirae_document_packages(
     current_user: Annotated[User, Depends(require_roles(DOCUMENT_ADMIN_ROLES))],
     internship_ids: Annotated[list[int] | None, Query()] = None,
 ) -> Response:
-    """Exporta paquetes documentales DIRAE en formato CSV.
+    """Exporta paquetes documentales DIRAE en formato PDF.
 
     Args:
         db: Sesion asincrona de base de datos.
@@ -198,7 +200,7 @@ async def export_dirae_document_packages(
         internship_ids: Practicas especificas a exportar, si aplica.
 
     Returns:
-        CSV con filas exportables o solo encabezado.
+        PDF con expedientes exportables.
     """
 
     service = _build_service(db)
@@ -209,7 +211,7 @@ async def export_dirae_document_packages(
 
     return Response(
         content=export.content,
-        media_type="text/csv; charset=utf-8",
+        media_type="application/pdf",
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{export.filename}"'
@@ -249,6 +251,35 @@ async def export_dirae_document_packages_detail(
                 f'attachment; filename="{export.detail_filename}"'
             )
         },
+    )
+
+
+@router.post(
+    "/dirae/document-packages/email",
+    response_model=DiraeDocumentPackageEmailResponse,
+)
+async def email_dirae_document_packages(
+    payload: DiraeDocumentPackageEmailRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DOCUMENT_ADMIN_ROLES))],
+    internship_ids: Annotated[list[int] | None, Query()] = None,
+) -> DiraeDocumentPackageEmailResponse:
+    """Envia por correo el PDF del expediente documental DIRAE."""
+
+    service = _build_service(db)
+    result = await service.send_dirae_document_packages_email(
+        actor=current_user,
+        dirae_email=str(payload.dirae_email),
+        internship_ids=internship_ids,
+        message=payload.message,
+    )
+
+    return DiraeDocumentPackageEmailResponse(
+        recipient_email=result.recipient_email,
+        notification_id=result.notification_id,
+        notification_status=result.notification_status,
+        package_count=result.package_count,
+        filenames=result.filenames,
     )
 
 

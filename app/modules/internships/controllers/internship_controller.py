@@ -7,7 +7,7 @@ principal en `InternshipService`.
 """
 import logging
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from app.modules.auth.dependencies.auth_dependency import get_current_user
 from app.modules.auth.dependencies.role_dependency import require_roles
 from app.modules.auth.models.user_model import User
 from app.modules.internships.models.internship_model import (
+    DiraeStatusEnum,
     Internship,
     PracticePeriodEnum,
     PracticeTypeEnum,
@@ -44,6 +45,8 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipResponse,
     InternshipTrackingResponse,
     RegistrationEligibilityResponse,
+    SecretaryDiraeInboxResponse,
+    SecretaryDiraeSortBy,
     StudentInternshipActionAvailabilityResponse,
     StudentInternshipUpdateRequest,
 )
@@ -220,6 +223,33 @@ async def get_dashboard_stats(
     service = _build_service(db)
 
     return await service.get_dashboard_stats()
+
+
+@router.get("/secretary/dirae", response_model=SecretaryDiraeInboxResponse)
+async def list_secretary_dirae_inbox(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    search: str | None = None,
+    degree: str | None = None,
+    dirae_status: DiraeStatusEnum | None = None,
+    sort_by: SecretaryDiraeSortBy = "upload_date",
+    sort_dir: Literal["asc", "desc"] = "desc",
+) -> SecretaryDiraeInboxResponse:
+    """Lista paginada de expedientes DIRAE visibles para Secretaría."""
+
+    service = _build_service(db)
+
+    return await service.list_secretary_dirae_inbox(
+        limit=limit,
+        offset=offset,
+        search=search,
+        degree=degree,
+        dirae_status=dirae_status,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
 
 
 @router.get("/me", response_model=list[InternshipResponse])
@@ -880,6 +910,29 @@ async def reopen_dirae_rectification(
         status_id=internship.status_id,
         dirae_status=internship.dirae_status,
         comment=payload.comment,
+    )
+
+
+@router.post(
+    "/{internship_id}/dirae-ready",
+    response_model=InternshipActionResponse,
+)
+async def mark_dirae_ready(
+    internship_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(DIRAE_ACTION_ROLES))],
+) -> InternshipActionResponse:
+    """Marca el expediente DIRAE como listo para exportacion."""
+
+    service = _build_service(db)
+    internship = await service.mark_dirae_ready(internship_id, current_user)
+    comment = "Expediente revisado y listo para envío a DIRAE."
+
+    return InternshipActionResponse(
+        id=internship.id,
+        status_id=internship.status_id,
+        dirae_status=internship.dirae_status,
+        comment=comment,
     )
 
 
