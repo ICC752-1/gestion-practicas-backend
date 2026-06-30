@@ -186,17 +186,8 @@ class FakeDocumentService:
     async def export_dirae_document_packages(self, actor, internship_ids=None):
         self.export_ids = internship_ids
         return SimpleNamespace(
-            filename="dirae_lote_20260601_120000_abcd1234.csv",
-            content=(
-                "id_lote_exportacion,fecha_exportacion,exportado_por,id_practica,"
-                "estado_practica,estado_ejecucion,estado_dirae,exportable,"
-                "razones_no_exportable,id_estudiante,rut,matricula,nombres,"
-                "apellidos,correo_institucional,carrera,codigo_carrera,"
-                "tipo_practica,periodo_practica,empresa,ciudad,fecha_inicio,"
-                "fecha_termino,fecha_aprobacion,estado_seguro_escolar,"
-                "documentos_requeridos_aprobados,documentos_requeridos_faltantes,"
-                "documentos_observados_pendientes,documentos_opcionales_aprobados\n"
-            ),
+            filename="dirae_lote_20260601_120000_abcd1234.pdf",
+            content=b"%PDF-1.4\n%fake-document\n",
             detail_filename="dirae_lote_20260601_120000_abcd1234_detalle.csv",
             detail_content=(
                 "id_lote_exportacion,id_practica,rut_estudiante,nombres_estudiante,"
@@ -210,7 +201,7 @@ class FakeDocumentService:
                 actor_id=99,
                 internship_ids=[7],
                 approved_document_ids=[55],
-                filename="dirae_lote_20260601_120000_abcd1234.csv",
+                filename="dirae_lote_20260601_120000_abcd1234.pdf",
                 result="generated",
             ),
         )
@@ -331,7 +322,7 @@ async def test_export_dirae_document_packages_rejects_non_document_admin_roles(
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_document_packages_returns_csv(monkeypatch):
+async def test_export_dirae_document_packages_returns_pdf(monkeypatch):
     service = FakeDocumentService()
     monkeypatch.setattr(
         document_controller,
@@ -345,10 +336,10 @@ async def test_export_dirae_document_packages_returns_csv(monkeypatch):
         internship_ids=[7],
     )
 
-    assert response.media_type == "text/csv; charset=utf-8"
+    assert response.media_type == "application/pdf"
     assert service.export_ids == [7]
-    assert b"id_lote_exportacion,fecha_exportacion" in response.body
-    assert response.headers["Content-Disposition"].endswith(".csv\"")
+    assert response.body.startswith(b"%PDF")
+    assert response.headers["Content-Disposition"].endswith(".pdf\"")
 
 
 @pytest.mark.asyncio
