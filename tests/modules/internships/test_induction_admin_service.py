@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.modules.auth.dependencies.role_dependency import require_roles
+from app.modules.documents.models.document_model import Document  # noqa: F401
 from app.modules.internships.models.induction_model import (
     ContentStatusEnum,
     InductionQuestion,
@@ -21,6 +22,7 @@ from app.modules.internships.services.induction_admin_service import (
 from app.modules.internships.controllers.induction_admin_controller import (
     INDUCTION_ADMIN_ROLES,
 )
+
 
 def _user(*roles: str):
     return SimpleNamespace(
@@ -108,6 +110,7 @@ def _payload() -> InductionAdminVersionPayload:
         ],
     )
 
+
 @pytest.mark.parametrize(
     "role",
     ["Encargado de practica", "Director de carrera"],
@@ -165,6 +168,31 @@ def test_payload_rejects_min_score_greater_than_question_count() -> None:
         )
 
 
+def test_payload_rejects_video_url_with_user_facing_message() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        InductionAdminVersionPayload(
+            title="Induccion",
+            min_score=1,
+            videos=[
+                {
+                    "title": "Video",
+                    "video_url": "www.example.com/video",
+                    "order": 1,
+                }
+            ],
+            questions=[
+                {
+                    "question_text": "Pregunta",
+                    "options": {"a": "Si", "b": "No"},
+                    "correct_answer": "a",
+                    "order": 1,
+                }
+            ],
+        )
+
+    assert "La URL del video debe ser completa" in str(exc_info.value)
+
+
 def test_student_induction_question_response_does_not_expose_correct_answer() -> None:
     question = InductionQuestion(
         id=1,
@@ -205,19 +233,56 @@ async def test_create_draft_persists_structured_content() -> None:
     assert version.questions[0].correct_answer == "a"
 
 
-async def test_update_published_version_is_rejected() -> None:
+async def test_update_published_version_is_allowed() -> None:
     repository = FakeRepository()
     repository.version.status = ContentStatusEnum.published
     service = InductionAdminService(repository)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.update_draft(1, _payload())
+    version = await service.update_version(1, _payload())
 
-    assert exc_info.value.status_code == 409
+    assert repository.updated is version
+    assert version.title == "Induccion nueva"
+    assert version.status == ContentStatusEnum.published
+
+
+async def test_update_active_version_preserves_active_state() -> None:
+    repository = FakeRepository()
+    repository.version.status = ContentStatusEnum.published
+    repository.version.is_active = True
+    service = InductionAdminService(repository)
+
+    version = await service.update_version(1, _payload())
+
+    assert repository.updated is version
+    assert version.is_active is True
+
+
+async def test_delete_active_version_is_allowed() -> None:
+    repository = FakeRepository()
+    repository.version.status = ContentStatusEnum.published
+    repository.version.is_active = True
+    service = InductionAdminService(repository)
+
+    await service.delete_version(1)
+
+    assert repository.deleted is repository.version
 
 
 async def test_publish_marks_version_active() -> None:
     repository = FakeRepository()
+    service = InductionAdminService(repository)
+
+    version = await service.publish(1)
+
+    assert repository.published is version
+    assert version.status == ContentStatusEnum.published
+    assert version.is_active is True
+
+
+async def test_publish_reactivates_published_version() -> None:
+    repository = FakeRepository()
+    repository.version.status = ContentStatusEnum.published
+    repository.version.is_active = False
     service = InductionAdminService(repository)
 
     version = await service.publish(1)

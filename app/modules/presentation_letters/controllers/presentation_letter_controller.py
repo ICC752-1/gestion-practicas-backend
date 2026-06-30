@@ -2,8 +2,8 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
@@ -105,6 +105,93 @@ async def update_presentation_letter_template(
     )
 
     return PresentationLetterTemplateResponse.model_validate(template)
+
+
+@router.post("/templates/{practice_type}/preview")
+async def preview_presentation_letter_template(
+    practice_type: str,
+    payload: PresentationLetterTemplateUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """Renderiza la edicion actual con el mismo PDF usado en produccion."""
+
+    service = _build_service(db)
+    pdf_content = await service.preview_template(
+        practice_type=practice_type,
+        payload=payload,
+        actor=current_user,
+    )
+
+    return Response(
+        content=pdf_content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="vista-previa-carta.pdf"',
+        },
+    )
+
+
+@router.post(
+    "/templates/{practice_type}/signature-image",
+    response_model=PresentationLetterTemplateResponse,
+)
+async def upload_presentation_letter_signature_image(
+    practice_type: str,
+    file: Annotated[UploadFile, File()],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationLetterTemplateResponse:
+    """Sube o reemplaza la imagen de firma de una plantilla."""
+
+    service = _build_service(db)
+    content = await file.read()
+    template = await service.update_template_signature_image(
+        practice_type=practice_type,
+        file_name=file.filename or "",
+        content_type=file.content_type,
+        content=content,
+        actor=current_user,
+    )
+
+    return PresentationLetterTemplateResponse.model_validate(template)
+
+
+@router.delete(
+    "/templates/{practice_type}/signature-image",
+    response_model=PresentationLetterTemplateResponse,
+)
+async def delete_presentation_letter_signature_image(
+    practice_type: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> PresentationLetterTemplateResponse:
+    """Elimina la imagen de firma de una plantilla."""
+
+    service = _build_service(db)
+    template = await service.remove_template_signature_image(
+        practice_type=practice_type,
+        actor=current_user,
+    )
+
+    return PresentationLetterTemplateResponse.model_validate(template)
+
+
+@router.get("/templates/{practice_type}/signature-image")
+async def get_presentation_letter_signature_image(
+    practice_type: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> FileResponse:
+    """Entrega la imagen de firma configurada para previsualizacion."""
+
+    service = _build_service(db)
+    signature = await service.prepare_signature_image(
+        practice_type=practice_type,
+        actor=current_user,
+    )
+
+    return FileResponse(path=str(signature.path), media_type=signature.media_type)
 
 
 @router.post(

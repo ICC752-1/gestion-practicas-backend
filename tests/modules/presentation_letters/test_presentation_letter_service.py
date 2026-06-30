@@ -2,6 +2,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from docx import Document as WordDocument
 from fastapi import HTTPException
 
 from app.modules.presentation_letters.schemas.presentation_letter_schema import (
@@ -23,15 +24,18 @@ def _user(user_id: int, *roles: str) -> SimpleNamespace:
         email=f"user{user_id}@ufrontera.cl",
         first_name="Nombre",
         last_name="Apellido",
-        rut=f"rut-{user_id}",
+        rut=f"1234567{user_id % 10}-{user_id % 10}",
         cod_degree=f"INF-{user_id:03d}",
+        admission_year=2020,
         roles=[_role(role_name) for role_name in roles],
         is_active=True,
     )
 
 
 def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
+    is_controlled = practice_type == "Práctica Controlada"
     suffix = "II" if practice_type.endswith("II") else "I"
+    practice_label = "Controlada" if is_controlled else f"de Estudios {suffix}"
     base_intro = (
         "Reciba un cordial saludo de parte de la Dirección de la Carrera de "
         "Ingeniería Civil Informática de la Universidad de La Frontera, una "
@@ -42,11 +46,11 @@ def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
         "Por medio de la presente, nos dirigimos a usted con el propósito de "
         "presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, "
         "quien es estudiante regular de nuestra carrera y quien cumple todos los "
-        f"requisitos para realizar su Práctica de Estudios {suffix} en una "
+        f"requisitos para realizar su Práctica {practice_label} en una "
         "organización de reconocido prestigio como la suya."
     )
     practice_description = (
-        f"La Práctica de Estudios {suffix} permite a los/as estudiantes aplicar "
+        f"La Práctica {practice_label} permite a los/as estudiantes aplicar "
         "los conocimientos adquiridos en el aula en un entorno real, fortaleciendo "
         "sus competencias mientras contribuyen al cumplimiento de los objetivos "
         "de las empresas y organizaciones que los reciben."
@@ -68,14 +72,20 @@ def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
         ],
     }
     return SimpleNamespace(
-        id=1 if suffix == "I" else 2,
+        id=3 if is_controlled else (1 if suffix == "I" else 2),
         practice_type=practice_type,
         title="Carta de Presentación",
-        subtitle=f"Estudiante en Práctica de Estudios {suffix}",
+        subtitle=f"Estudiante en Práctica {practice_label}",
         base_intro=base_intro,
         student_presentation_template=student_presentation,
         practice_description=practice_description,
         minimum_hours=168,
+        minimum_hours_clause=(
+            "Es importante destacar que la duración mínima de la "
+            "{{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez "
+            "completada con éxito el/la estudiante debe ser capaz de evidenciar "
+            "los siguientes aprendizajes:"
+        ),
         learning_outcomes=outcomes[suffix],
         insurance_clause=(
             "Por último, le informamos que durante el periodo de práctica el/la "
@@ -130,6 +140,9 @@ def _template_payload() -> PresentationLetterTemplateUpdateRequest:
         student_presentation_template="Estudiante {{student_identifier}}",
         practice_description="Descripción editable",
         minimum_hours=168,
+        minimum_hours_clause=(
+            "La duración requerida es de {{minimum_hours}} horas cronológicas."
+        ),
         learning_outcomes=["Aprendizaje actualizado"],
         insurance_clause="Seguro escolar",
         closing_text="Cierre",
@@ -144,6 +157,7 @@ class FakePresentationLetterRepository:
         self.templates = {
             "Práctica de Estudio I": _template("Práctica de Estudio I"),
             "Práctica de Estudio II": _template("Práctica de Estudio II"),
+            "Práctica Controlada": _template("Práctica Controlada"),
         }
         self.letters: dict[int, SimpleNamespace] = {}
         self.saved_template = None
@@ -234,6 +248,7 @@ async def test_director_can_list_templates(tmp_path):
     assert {template.practice_type for template in templates} == {
         "Práctica de Estudio I",
         "Práctica de Estudio II",
+        "Práctica Controlada",
     }
 
 
@@ -254,11 +269,54 @@ async def test_director_can_update_template(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_template_reader_can_preview_unsaved_template_as_pdf(
+    tmp_path,
+    monkeypatch,
+):
+    repository = FakePresentationLetterRepository()
+    service = _service(tmp_path, repository)
+    payload = _template_payload()
+    payload.title = "Vista previa sin guardar"
+    captured = {}
+
+    def fake_render_pdf(**kwargs):
+        captured.update(kwargs)
+        return b"%PDF-1.7\npreview"
+
+    monkeypatch.setattr(service, "_render_pdf", fake_render_pdf)
+
+    content = await service.preview_template(
+        practice_type="Práctica de Estudio I",
+        payload=payload,
+        actor=_user(1, "Encargado de practica"),
+    )
+
+    assert content == b"%PDF-1.7\npreview"
+    assert captured["template"].title == "Vista previa sin guardar"
+    assert captured["student"].enrollment == "12345678924"
+    assert repository.saved_template is None
+
+
+@pytest.mark.asyncio
 async def test_student_cannot_update_template(tmp_path):
     service = _service(tmp_path)
 
     with pytest.raises(HTTPException) as exc:
         await service.update_template(
+            practice_type="Práctica de Estudio I",
+            payload=_template_payload(),
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_student_cannot_preview_template(tmp_path):
+    service = _service(tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.preview_template(
             practice_type="Práctica de Estudio I",
             payload=_template_payload(),
             actor=_user(10, "Estudiante"),
@@ -277,7 +335,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     service = _service(tmp_path, repository, notifications)
     _patch_pdf_conversion(
         monkeypatch,
-        b"%PDF-1.7\nconverted-from-docx\nNombre Apellido\nINF-010",
+        b"%PDF-1.7\nconverted-from-docx\nNombre Apellido\n12345670020",
     )
 
     letter = await service.generate_letter(
@@ -297,7 +355,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     assert content.startswith(b"%PDF-1.7")
     assert b"converted-from-docx" in content
     assert b"Nombre Apellido" in content
-    assert b"INF-010" in content
+    assert b"12345670020" in content
 
     document = service._build_letter_document(
         template=repository.templates["Práctica de Estudio I"],
@@ -321,7 +379,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     assert "Estudiante en Práctica de Estudios I" in text
     assert "Dirección de la Carrera de Ingeniería Civil Informática" in normalized_text
     assert "Nombre Apellido" in normalized_text
-    assert "INF-010" in context["student_presentation"]
+    assert "12345670020" in str(context["student_presentation"])
     assert "168 horas cronológicas" in normalized_text
     assert "Ley 16.744" in normalized_text
     assert "DS N°313" in normalized_text
@@ -383,14 +441,61 @@ def test_docx_context_uses_textual_template_fields(tmp_path):
     )
 
     context = service._build_docx_context(document)
+    base_intro_xml = str(context["base_intro"])
+    student_presentation_xml = str(context["student_presentation"])
+    minimum_hours_clause_xml = str(context["minimum_hours_clause"])
 
     assert context["title"] == "CARTA DE PRESENTACIÓN"
     assert context["subtitle"] == "Estudiante en Práctica de Estudios I"
-    assert context["base_intro"].startswith("Reciba un cordial saludo")
-    assert "Nombre Apellido" in context["student_presentation"]
-    assert "INF-010" in context["student_presentation"]
-    assert "168 horas cronológicas" in context["minimum_hours_clause"]
+    assert "Reciba un cordial saludo" in base_intro_xml
+    assert "Nombre Apellido" in student_presentation_xml
+    assert "12345670020" in student_presentation_xml
+    assert student_presentation_xml.count("<w:b/>") == 2
+    assert "168" in minimum_hours_clause_xml
+    assert "horas cronológicas" in minimum_hours_clause_xml
+    assert minimum_hours_clause_xml.count("<w:b/>") == 2
     assert "Claudio Andrés Navarro Cruces" == context["signature_name"]
+
+
+def test_rendered_docx_bolds_dynamic_student_values(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+
+    def assert_docx_format(self, docx_path, output_dir):  # noqa: ANN001
+        document = WordDocument(docx_path)
+        student_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if "Nombre Apellido" in paragraph.text
+        )
+        bold_text = " ".join(
+            run.text
+            for run in student_paragraph.runs
+            if run.bold
+        )
+        regular_text = " ".join(
+            run.text
+            for run in student_paragraph.runs
+            if not run.bold
+        )
+
+        assert "Nombre Apellido" in bold_text
+        assert "12345670020" in bold_text
+        assert "Por medio de la presente" in regular_text
+        return b"%PDF-1.7\nformatted"
+
+    monkeypatch.setattr(
+        PresentationLetterService,
+        "_convert_docx_to_pdf",
+        assert_docx_format,
+    )
+
+    content = service._render_pdf(
+        template=service.repository.templates["Práctica de Estudio I"],
+        student=_user(10, "Estudiante"),
+        generated_at=datetime(2026, 6, 17, 10, 0, 0),
+    )
+
+    assert content == b"%PDF-1.7\nformatted"
 
 
 @pytest.mark.asyncio

@@ -11,11 +11,14 @@ import subprocess
 import tempfile
 from uuid import uuid4
 
-from docxtpl import DocxTemplate, Listing
+from docx import Document as WordDocument
+from docx.shared import Mm
+from docxtpl import DocxTemplate, InlineImage, Listing, RichText
 from fastapi import HTTPException, status
 
 from app.core.config import config
 from app.modules.auth.models.user_model import User
+from app.modules.auth.utils.enrollment import build_student_enrollment
 from app.modules.notifications.models.notification_model import (
     Notification,
     NotificationEventTypeEnum,
@@ -67,6 +70,19 @@ MONTHS_ES = {
 }
 
 LIBREOFFICE_TIMEOUT_SECONDS = 60
+SIGNATURE_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+SIGNATURE_IMAGE_EXTENSIONS = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+}
+RICH_TEXT_CONTEXT_FIELDS = (
+    "base_intro",
+    "student_presentation",
+    "practice_description",
+    "minimum_hours_clause",
+    "insurance_clause",
+    "closing_text",
+)
 
 
 @dataclass(frozen=True)
@@ -75,6 +91,45 @@ class PresentationLetterDownload:
 
     letter: PresentationLetter
     path: Path
+
+
+@dataclass(frozen=True)
+class PresentationLetterSignatureImage:
+    """Datos necesarios para entregar la imagen de firma administrada."""
+
+    path: Path
+    media_type: str
+
+
+@dataclass(frozen=True)
+class PresentationLetterPreviewTemplate:
+    """Plantilla temporal usada para renderizar cambios sin persistirlos."""
+
+    practice_type: str
+    title: str
+    subtitle: str
+    base_intro: str
+    student_presentation_template: str
+    practice_description: str
+    minimum_hours: int
+    minimum_hours_clause: str
+    learning_outcomes: list[str]
+    insurance_clause: str
+    closing_text: str
+    signature_name: str
+    signature_role: str
+    signature_institution: str
+    signature_image_path: str | None
+
+
+@dataclass(frozen=True)
+class PresentationLetterPreviewStudent:
+    """Datos representativos para una previsualizacion administrativa."""
+
+    first_name: str = "Camila"
+    last_name: str = "Rojas Soto"
+    enrollment: str = "12345678924"
+    rut: str = "12345678-9"
 
 
 def _now() -> datetime:
@@ -169,6 +224,7 @@ class PresentationLetterService:
         template.student_presentation_template = payload.student_presentation_template
         template.practice_description = payload.practice_description
         template.minimum_hours = payload.minimum_hours
+        template.minimum_hours_clause = payload.minimum_hours_clause
         template.learning_outcomes = payload.learning_outcomes
         template.insurance_clause = payload.insurance_clause
         template.closing_text = payload.closing_text
@@ -180,6 +236,142 @@ class PresentationLetterService:
         template.updated_at = timestamp
 
         return await self.repository.save_template(template)
+
+    async def preview_template(
+        self,
+        *,
+        practice_type: str,
+        payload: PresentationLetterTemplateUpdateRequest,
+        actor: User,
+    ) -> bytes:
+        """Renderiza la edicion actual como PDF sin guardar la plantilla."""
+
+        self._require_template_reader(actor)
+        stored_template = await self._get_template_or_404(practice_type)
+        preview_template = PresentationLetterPreviewTemplate(
+            practice_type=practice_type,
+            title=payload.title,
+            subtitle=payload.subtitle,
+            base_intro=payload.base_intro,
+            student_presentation_template=payload.student_presentation_template,
+            practice_description=payload.practice_description,
+            minimum_hours=payload.minimum_hours,
+            minimum_hours_clause=payload.minimum_hours_clause,
+            learning_outcomes=payload.learning_outcomes,
+            insurance_clause=payload.insurance_clause,
+            closing_text=payload.closing_text,
+            signature_name=payload.signature_name,
+            signature_role=payload.signature_role,
+            signature_institution=payload.signature_institution,
+            signature_image_path=getattr(
+                stored_template,
+                "signature_image_path",
+                None,
+            ),
+        )
+
+        return self._render_pdf(
+            template=preview_template,
+            student=PresentationLetterPreviewStudent(),
+            generated_at=_now(),
+        )
+
+    async def update_template_signature_image(
+        self,
+        *,
+        practice_type: str,
+        file_name: str,
+        content_type: str | None,
+        content: bytes,
+        actor: User,
+    ) -> PresentationLetterTemplate:
+        """Reemplaza la imagen de firma de una plantilla. Solo Director."""
+
+        self._require_director(actor)
+        template = await self._get_template_or_404(practice_type)
+        media_type, extension = self._validate_signature_image(
+            file_name=file_name,
+            content_type=content_type,
+            content=content,
+        )
+        old_storage_key = template.signature_image_path
+        storage_key = (
+            f"signatures/{_slugify(practice_type)}-{uuid4().hex}.{extension}"
+        )
+        self._write_file(storage_key, content)
+
+        template.signature_image_path = storage_key
+        template.updated_by = actor.id
+        template.updated_at = _now()
+
+        try:
+            saved = await self.repository.save_template(template)
+        except Exception:
+            self._resolve_storage_key(storage_key).unlink(missing_ok=True)
+            raise
+
+        if old_storage_key and old_storage_key != storage_key:
+            self._resolve_storage_key(old_storage_key).unlink(missing_ok=True)
+
+        logger.info(
+            "Presentation letter signature image updated",
+            extra={
+                "actor_id": actor.id,
+                "practice_type": practice_type,
+                "media_type": media_type,
+            },
+        )
+
+        return saved
+
+    async def remove_template_signature_image(
+        self,
+        *,
+        practice_type: str,
+        actor: User,
+    ) -> PresentationLetterTemplate:
+        """Elimina la imagen de firma administrada de una plantilla."""
+
+        self._require_director(actor)
+        template = await self._get_template_or_404(practice_type)
+        old_storage_key = template.signature_image_path
+        template.signature_image_path = None
+        template.updated_by = actor.id
+        template.updated_at = _now()
+        saved = await self.repository.save_template(template)
+
+        if old_storage_key:
+            self._resolve_storage_key(old_storage_key).unlink(missing_ok=True)
+
+        return saved
+
+    async def prepare_signature_image(
+        self,
+        *,
+        practice_type: str,
+        actor: User,
+    ) -> PresentationLetterSignatureImage:
+        """Prepara la imagen de firma para vista administrativa."""
+
+        self._require_template_reader(actor)
+        template = await self._get_template_or_404(practice_type)
+        if not template.signature_image_path:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="La plantilla no tiene una imagen de firma configurada.",
+            )
+
+        path = self._resolve_storage_key(template.signature_image_path)
+        if not path.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No se encontró la imagen de firma configurada.",
+            )
+
+        return PresentationLetterSignatureImage(
+            path=path,
+            media_type=self._media_type_for_signature_path(path),
+        )
 
     async def generate_letter(
         self,
@@ -334,8 +526,8 @@ class PresentationLetterService:
     def _render_pdf(
         self,
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> bytes:
         return self._render_docx_template_to_pdf(
@@ -349,8 +541,8 @@ class PresentationLetterService:
     def _build_letter_document(
         self,
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> dict[str, object]:
         variables = self._build_variables(
@@ -364,36 +556,37 @@ class PresentationLetterService:
         ]
         learning_text = "\n".join(f"• {outcome}" for outcome in rendered_learning_outcomes)
         variables["learning_outcomes"] = learning_text
-        practice_label = self._render_template_text(template.subtitle, variables).replace(
-            "Estudiante en ",
-            "",
-        )
+        paragraph_templates = [
+            template.base_intro,
+            template.student_presentation_template,
+            template.practice_description,
+            template.minimum_hours_clause,
+        ]
 
         return {
             "date": f"Temuco, {generated_at.day} de {MONTHS_ES[generated_at.month]} del {generated_at.year}",
             "title": self._render_template_text(template.title, variables).upper(),
             "subtitle": self._render_template_text(template.subtitle, variables),
             "greeting": "A quien corresponda:",
+            "paragraph_templates": paragraph_templates,
             "paragraphs": [
-                self._render_template_text(template.base_intro, variables),
-                self._render_template_text(
-                    template.student_presentation_template,
-                    variables,
-                ),
-                self._render_template_text(template.practice_description, variables),
-                (
-                    "Es importante destacar que que la duración mínima de la "
-                    f"{practice_label} es de {template.minimum_hours} horas cronológicas, "
-                    "y que una vez completada con éxito el/la estudiante debe ser "
-                    "capaz de evidenciar los siguientes aprendizajes:"
-                ),
+                self._render_template_text(text, variables)
+                for text in paragraph_templates
             ],
             "learning_outcomes": rendered_learning_outcomes,
+            "variables": variables,
+            "insurance_clause_template": template.insurance_clause,
             "insurance_clause": self._render_template_text(
                 template.insurance_clause,
                 variables,
             ),
+            "closing_text_template": template.closing_text,
             "closing_text": self._render_template_text(template.closing_text, variables),
+            "signature_image_path": (
+                self._resolve_storage_key(signature_image_path)
+                if (signature_image_path := getattr(template, "signature_image_path", None))
+                else None
+            ),
             "signature_name": template.signature_name,
             "signature_role": template.signature_role,
             "signature_institution": template.signature_institution,
@@ -402,12 +595,12 @@ class PresentationLetterService:
     @staticmethod
     def _build_variables(
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> dict[str, str]:
         student_name = f"{student.first_name} {student.last_name}".strip()
-        identifier = student.cod_degree or student.rut
+        identifier = build_student_enrollment(student) or student.rut
         return {
             "student_name": student_name,
             "student_identifier": identifier,
@@ -430,13 +623,37 @@ class PresentationLetterService:
         template_path = self._resolve_docx_template_path()
         with tempfile.TemporaryDirectory(prefix="presentation-letter-") as temp_dir:
             output_dir = Path(temp_dir)
+            rich_text_template = output_dir / "plantilla-carta.docx"
             rendered_docx = output_dir / "carta-presentacion.docx"
 
-            docx_template = DocxTemplate(str(template_path))
-            docx_template.render(self._build_docx_context(document))
+            self._prepare_rich_text_template(
+                source=template_path,
+                destination=rich_text_template,
+            )
+            docx_template = DocxTemplate(str(rich_text_template))
+            docx_template.render(self._build_docx_context(document, docx_template))
             docx_template.save(str(rendered_docx))
 
             return self._convert_docx_to_pdf(rendered_docx, output_dir)
+
+    @staticmethod
+    def _prepare_rich_text_template(*, source: Path, destination: Path) -> None:
+        """Convierte marcadores de texto editable en marcadores RichText."""
+
+        document = WordDocument(str(source))
+        placeholders = {
+            f"{{{{ {field} }}}}": f"{{{{r {field} }}}}"
+            for field in RICH_TEXT_CONTEXT_FIELDS
+        }
+
+        for paragraph in document.paragraphs:
+            replacement = placeholders.get(paragraph.text.strip())
+            if replacement is None:
+                continue
+            paragraph.clear()
+            paragraph.add_run(replacement)
+
+        document.save(str(destination))
 
     def _resolve_docx_template_path(self) -> Path:
         template_path = self.docx_template_path.resolve()
@@ -452,10 +669,20 @@ class PresentationLetterService:
         return template_path
 
     @staticmethod
-    def _build_docx_context(document: dict[str, object]) -> dict[str, object]:
-        paragraphs = list(document["paragraphs"])
+    def _build_docx_context(
+        document: dict[str, object],
+        docx_template: DocxTemplate | None = None,
+    ) -> dict[str, object]:
+        paragraph_templates = list(document["paragraph_templates"])
+        variables = dict(document["variables"])
         learning_outcomes_text = "\n".join(
             f"• {outcome}" for outcome in document["learning_outcomes"]
+        )
+        signature_image_path = document.get("signature_image_path")
+        signature_image = (
+            InlineImage(docx_template, str(signature_image_path), width=Mm(42))
+            if signature_image_path and docx_template is not None
+            else ""
         )
 
         return {
@@ -463,17 +690,107 @@ class PresentationLetterService:
             "title": document["title"],
             "subtitle": document["subtitle"],
             "greeting": document["greeting"],
-            "base_intro": paragraphs[0],
-            "student_presentation": paragraphs[1],
-            "practice_description": paragraphs[2],
-            "minimum_hours_clause": paragraphs[3],
+            "base_intro": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[0],
+                variables,
+            ),
+            "student_presentation": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[1],
+                variables,
+            ),
+            "practice_description": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[2],
+                variables,
+            ),
+            "minimum_hours_clause": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[3],
+                variables,
+            ),
             "learning_outcomes_text": Listing(learning_outcomes_text),
-            "insurance_clause": document["insurance_clause"],
-            "closing_text": document["closing_text"],
+            "insurance_clause": PresentationLetterService._render_template_rich_text(
+                str(document["insurance_clause_template"]),
+                variables,
+            ),
+            "closing_text": PresentationLetterService._render_template_rich_text(
+                str(document["closing_text_template"]),
+                variables,
+            ),
+            "signature_image": signature_image,
             "signature_name": document["signature_name"],
             "signature_role": document["signature_role"],
             "signature_institution": document["signature_institution"],
         }
+
+    @staticmethod
+    def _render_template_rich_text(
+        text: str,
+        variables: dict[str, str],
+    ) -> RichText:
+        """Renderiza variables como segmentos en negrita dentro de un párrafo."""
+
+        rich_text = RichText()
+        for part in re.split(r"({{[a-z_]+}})", text):
+            match = re.fullmatch(r"{{([a-z_]+)}}", part)
+            if match and match.group(1) in variables:
+                rich_text.add(variables[match.group(1)], bold=True)
+            elif part:
+                rich_text.add(part)
+        return rich_text
+
+    @staticmethod
+    def _validate_signature_image(
+        *,
+        file_name: str,
+        content_type: str | None,
+        content: bytes,
+    ) -> tuple[str, str]:
+        if not content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La imagen de firma está vacía.",
+            )
+
+        if len(content) > SIGNATURE_IMAGE_MAX_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La imagen de firma no puede superar 2 MB.",
+            )
+
+        detected_media_type: str | None = None
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            detected_media_type = "image/png"
+        elif content.startswith(b"\xff\xd8\xff"):
+            detected_media_type = "image/jpeg"
+
+        if detected_media_type is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Sube una imagen de firma válida en formato PNG o JPG.",
+            )
+
+        normalized_content_type = (content_type or "").split(";")[0].lower()
+        if normalized_content_type and normalized_content_type != detected_media_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El tipo de archivo no coincide con la imagen enviada.",
+            )
+
+        extension = SIGNATURE_IMAGE_EXTENSIONS[detected_media_type]
+        suffix = Path(file_name or "").suffix.lower().lstrip(".")
+        allowed_suffixes = {"png"} if extension == "png" else {"jpg", "jpeg"}
+        if suffix and suffix not in allowed_suffixes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La extensión de la firma debe ser PNG, JPG o JPEG.",
+            )
+
+        return detected_media_type, extension
+
+    @staticmethod
+    def _media_type_for_signature_path(path: Path) -> str:
+        if path.suffix.lower() == ".png":
+            return "image/png"
+        return "image/jpeg"
 
     def _convert_docx_to_pdf(self, docx_path: Path, output_dir: Path) -> bytes:
         libreoffice = self._resolve_libreoffice_binary()

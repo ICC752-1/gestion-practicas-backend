@@ -65,6 +65,38 @@ Para detener los servicios:
 docker compose down
 ```
 
+## Datos Iniciales y Seeds QA
+
+`app/core/database/init.sql` crea el esquema y los catálogos base necesarios para que el sistema funcione, pero no crea usuarios ni escenarios demo. Los datos de prueba se cargan explícitamente con `scripts/seed_demo.py`.
+
+Seeder completo para QA local:
+
+```bash
+docker compose exec -e DEMO_SEED_PASSWORD=demo-password backend uv run python scripts/seed_demo.py
+```
+
+Crear solo datos base o escenarios específicos:
+
+```bash
+docker compose exec -e DEMO_SEED_PASSWORD=demo-password backend uv run python scripts/seed_demo.py --only users --only induction
+docker compose exec -e DEMO_SEED_PASSWORD=demo-password backend uv run python scripts/seed_demo.py --bulk-students 250
+docker compose exec -e DEMO_SEED_PASSWORD=demo-password backend uv run python scripts/seed_demo.py --realista
+```
+
+El modo `--realista` agrega un conjunto amplio de estudiantes activos e inactivos, requisitos académicos variados, prácticas aprobadas de distintos niveles, solicitudes en distintos estados y avances de práctica para pruebas de dashboard, filtros, paginación y seguimiento. El seed normal también incluye una notificación larga para `estudiante.demo@ufromail.cl`, útil para validar la campana de notificaciones.
+
+Limpiar datos creados por el seeder:
+
+```bash
+docker compose exec backend uv run python scripts/seed_demo.py --clean
+```
+
+Reiniciar datos de prueba y dejar solo un Superadmin local activo con contraseña aleatoria impresa en terminal:
+
+```bash
+docker compose exec backend uv run python scripts/seed_demo.py --reset-admin-only
+```
+
 ## Ejecución Local con PostgreSQL en Docker
 
 Esta alternativa permite ejecutar el backend directamente con `uv`, manteniendo PostgreSQL en Docker.

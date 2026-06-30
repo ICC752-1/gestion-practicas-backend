@@ -1223,7 +1223,7 @@ async def test_package_access_rejects_fica_role(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_authorized(tmp_path):
+async def test_export_dirae_pdf_authorized(tmp_path):
     repository = _package_repository()
     repository.internship_by_id.student.admission_year = 2023
     service = _service(tmp_path, repository=repository)
@@ -1232,17 +1232,17 @@ async def test_export_dirae_csv_authorized(tmp_path):
         actor=_admin_user(),
         internship_ids=[7],
     )
-    rows = list(DictReader(StringIO(export.content)))
+    detail_rows = list(DictReader(StringIO(export.detail_content)))
 
     assert export.filename.startswith("dirae_lote_")
-    assert export.filename.endswith(".csv")
+    assert export.filename.endswith(".pdf")
+    assert export.content.startswith(b"%PDF")
     assert export.detail_filename.startswith("dirae_lote_")
     assert export.detail_filename.endswith("_detalle.csv")
-    rows = list(DictReader(StringIO(export.content)))
-    assert rows[0]["id_practica"] == "7"
-    assert rows[0]["rut"] == "12.345.678-9"
-    assert rows[0]["matricula"] == "12345678923"
-    assert rows[0]["documentos_requeridos_aprobados"] != ""
+    assert detail_rows[0]["id_practica"] == "7"
+    assert detail_rows[0]["rut_estudiante"] == "12.345.678-9"
+    assert detail_rows[0]["id_documento"] == "55"
+    assert detail_rows[0]["tipo_documental"] == "Formulario de inscripción"
     assert export.audit_event.name == "dirae_export_generated"
     assert export.audit_event.actor_id == 99
     assert export.audit_event.internship_ids == [7]
@@ -1263,7 +1263,7 @@ async def test_export_dirae_csv_authorized(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_rejects_non_document_admin(tmp_path):
+async def test_export_dirae_pdf_rejects_non_document_admin(tmp_path):
     repository = _package_repository()
     service = _service(tmp_path, repository=repository)
 
@@ -1277,7 +1277,7 @@ async def test_export_dirae_csv_rejects_non_document_admin(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_returns_404_for_unknown_requested_id(tmp_path):
+async def test_export_dirae_pdf_returns_404_for_unknown_requested_id(tmp_path):
     repository = _package_repository()
     service = _service(tmp_path, repository=repository)
 
@@ -1291,7 +1291,7 @@ async def test_export_dirae_csv_returns_404_for_unknown_requested_id(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_returns_409_for_requested_non_exportable(tmp_path):
+async def test_export_dirae_pdf_returns_409_for_requested_non_exportable(tmp_path):
     repository = _package_repository(status_title="Pendiente")
     service = _service(tmp_path, repository=repository)
 
@@ -1311,7 +1311,7 @@ async def test_export_dirae_csv_returns_409_for_requested_non_exportable(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_rejects_sensitive_document_for_secretary(tmp_path):
+async def test_export_dirae_pdf_rejects_sensitive_document_for_secretary(tmp_path):
     repository = _package_repository()
     sensitive_type = _document_type(
         2,
@@ -1347,7 +1347,7 @@ async def test_export_dirae_csv_rejects_sensitive_document_for_secretary(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
+async def test_export_dirae_pdf_without_ids_returns_empty_pdf_and_detail(tmp_path):
     repository = _package_repository(status_title="Pendiente")
     service = _service(tmp_path, repository=repository)
 
@@ -1355,35 +1355,26 @@ async def test_export_dirae_csv_without_ids_can_return_header_only(tmp_path):
         actor=_admin_user(),
     )
 
-    assert export.content.strip().split(",") == [
+    assert export.content.startswith(b"%PDF")
+    assert export.detail_content.strip().split(",") == [
         "id_lote_exportacion",
-        "fecha_exportacion",
-        "exportado_por",
         "id_practica",
-        "estado_practica",
-        "estado_ejecucion",
-        "estado_dirae",
-        "exportable",
-        "razones_no_exportable",
-        "id_estudiante",
-        "rut",
-        "matricula",
-        "nombres",
-        "apellidos",
-        "correo_institucional",
+        "rut_estudiante",
+        "nombres_estudiante",
+        "apellidos_estudiante",
         "carrera",
-        "codigo_carrera",
         "tipo_practica",
-        "periodo_practica",
         "empresa",
-        "ciudad",
-        "fecha_inicio",
-        "fecha_termino",
-        "fecha_aprobacion",
-        "estado_seguro_escolar",
-        "documentos_requeridos_aprobados",
-        "documentos_requeridos_faltantes",
-        "documentos_observados_pendientes",
-        "documentos_opcionales_aprobados",
+        "id_documento",
+        "tipo_documental",
+        "categoria_documental",
+        "nombre_archivo",
+        "extension",
+        "tamano_bytes",
+        "estado_documento",
+        "fecha_carga",
+        "fecha_revision",
+        "revisado_por",
+        "comentario_revision",
     ]
     assert repository.exported_internships == []

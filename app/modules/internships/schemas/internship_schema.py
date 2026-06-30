@@ -22,6 +22,14 @@ from app.modules.internships.models.internship_model import (
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 DashboardInternshipStatus = Literal["submitted", "in_review", "approved", "rejected"]
+SecretaryDiraeSortBy = Literal[
+    "upload_date",
+    "student_name",
+    "degree",
+    "organization",
+    "internship_type",
+    "dirae_status",
+]
 DuplicateInternshipDetailCode = Literal["duplicate_internship_type"]
 
 
@@ -182,6 +190,7 @@ class InternshipDashboardStudentResponse(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    enrollment: str | None = None
     degree: str | None
     cod_degree: str | None = None
 
@@ -213,6 +222,28 @@ class InternshipDashboardStatsResponse(BaseModel):
     in_review: int
     approved: int
     rejected: int
+
+
+class SecretaryDiraeInboxStatsResponse(BaseModel):
+    """Conteos por estado local DIRAE para la bandeja de Secretaría."""
+
+    total: int
+    not_started: int
+    in_review: int
+    observed: int
+    ready: int
+    exported: int
+
+
+class SecretaryDiraeInboxResponse(BaseModel):
+    """Respuesta paginada para la bandeja documental de Secretaría."""
+
+    items: list[InternshipDashboardListItem]
+    total: int
+    limit: int
+    offset: int
+    stats: SecretaryDiraeInboxStatsResponse
+    degrees: list[str]
 
 
 class InternshipResponse(BaseModel):
@@ -600,6 +631,26 @@ class InductionAttemptResponse(BaseModel):
     score: int
     passed: bool
     attempted_at: datetime
+
+
+class InductionAnswerFeedbackResponse(BaseModel):
+    """Feedback de una respuesta perteneciente a un intento aprobado."""
+
+    question_id: int
+    selected_answer: str | None
+    correct_answer: str
+    is_correct: bool
+
+
+class InductionAttemptFeedbackResponse(BaseModel):
+    """Detalle revisable del último intento aprobado para la versión activa."""
+
+    id: int
+    content_version_id: int
+    score: int
+    passed: bool
+    attempted_at: datetime
+    answers: list[InductionAnswerFeedbackResponse]
 
 
 # ──────────────────────────────────────────────

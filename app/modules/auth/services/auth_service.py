@@ -19,6 +19,7 @@ from app.modules.auth.schemas.token_schema import TokenResponse
 from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.services.password_service import PasswordService
 from app.modules.auth.services.token_service import TokenService
+from app.modules.auth.utils.enrollment import build_student_enrollment
 
 
 logger = logging.getLogger(__name__)
@@ -283,7 +284,10 @@ class AuthService:
             "first_name": user.first_name,
             "last_name": user.last_name,
             "roles": self._role_names(user),
+            "enrollment": build_student_enrollment(user),
             "admission_year": getattr(user, "admission_year", None),
+            "phone": getattr(user, "phone", None),
+            "sexo": getattr(user, "sexo", None),
         }
 
     async def activate_account(
@@ -291,7 +295,8 @@ class AuthService:
         *,
         token: str,
         new_password: str,
-        admission_year: int | None = None,
+        phone: str | None = None,
+        sexo: str | None = None,
     ) -> None:
         """Activa una cuenta usando un token de un solo uso y define contraseña."""
 
@@ -301,8 +306,10 @@ class AuthService:
         user.password_hash = self.password_service.hash_password(new_password)
         user.must_change_password = False
         user.is_verified = True
-        if self._has_role(user, "Estudiante"):
-            user.admission_year = admission_year
+        if phone is not None:
+            user.phone = phone
+        if sexo is not None:
+            user.sexo = sexo
 
         await self.activation_token_repository.consume_token_for_user(
             activation_token,

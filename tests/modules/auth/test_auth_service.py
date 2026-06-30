@@ -142,7 +142,10 @@ def _user(is_active: bool = True, must_change_password: bool = False):
         must_change_password=must_change_password,
         is_verified=not must_change_password,
         password_hash="hashed",
+        enrollment="12345678522",
         admission_year=2022,
+        phone=None,
+        sexo="No definido",
         roles=[SimpleNamespace(role=SimpleNamespace(name="Estudiante"))],
     )
 
@@ -305,7 +308,8 @@ async def test_activate_account_sets_password_and_consumes_token() -> None:
     await service.activate_account(
         token="raw-activation-token",
         new_password="new-secure-password",
-        admission_year=2023,
+        phone="+56912345678",
+        sexo="Femenino",
     )
 
     assert activation_token_repository.requested_hash == "hashed-raw-activation-token"
@@ -314,7 +318,9 @@ async def test_activate_account_sets_password_and_consumes_token() -> None:
     assert user.password_hash == "hashed-new-secure-password"
     assert user.must_change_password is False
     assert user.is_verified is True
-    assert user.admission_year == 2023
+    assert user.admission_year == 2022
+    assert user.phone == "+56912345678"
+    assert user.sexo == "Femenino"
 
 
 async def test_get_activation_account_info_returns_student_data() -> None:
@@ -339,7 +345,10 @@ async def test_get_activation_account_info_returns_student_data() -> None:
         "first_name": "Ana",
         "last_name": "Perez",
         "roles": ["Estudiante"],
+        "enrollment": "12345678522",
         "admission_year": 2022,
+        "phone": None,
+        "sexo": "No definido",
     }
 
 

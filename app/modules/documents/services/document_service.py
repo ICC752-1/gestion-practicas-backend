@@ -1,18 +1,34 @@
 """Servicios de negocio para documentos de practica."""
 
+import base64
 from csv import DictWriter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
-from io import StringIO
+from html import escape
+from io import BytesIO, StringIO
 import logging
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import HTTPException, status
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 from app.core.config import config
 from app.modules.auth.models.user_model import User
+from app.modules.auth.utils.enrollment import build_student_enrollment
 from app.modules.documents.models.document_model import (
     Document,
     DocumentCategoryEnum,
@@ -34,6 +50,7 @@ from app.modules.notifications.services.notification_service import (
     NotificationService,
 )
 from app.modules.notifications.utils.notification_event_helpers import (
+    build_dirae_document_package_email_notification,
     build_document_status_changed_notification,
     build_document_uploaded_notification,
 )
@@ -59,6 +76,7 @@ REASON_SENSITIVE_DOCUMENT_RESTRICTED = "sensitive_document_restricted"
 PACKAGE_DOCUMENT_APPROVED = "approved"
 PACKAGE_DOCUMENT_MISSING = "missing"
 DIRAE_EXPORTED_REASON = "dirae_document_package_exported"
+DIRAE_EMAIL_SENT_REASON = "dirae_document_package_emailed"
 DIRAE_CSV_HEADER = [
     "id_lote_exportacion",
     "fecha_exportacion",
@@ -186,17 +204,29 @@ class DiraeExportAuditEvent:
     filename: str
     exported_at: datetime
     result: str
+    delivery_channel: str = "pdf"
 
 
 @dataclass(frozen=True)
 class DiraeDocumentPackageExport:
-    """Contenido generado para exportacion CSV DIRAE."""
+    """Contenido generado para exportacion PDF DIRAE."""
 
     filename: str
-    content: str
+    content: bytes
     detail_filename: str
     detail_content: str
     audit_event: DiraeExportAuditEvent
+
+
+@dataclass(frozen=True)
+class DiraeDocumentPackageEmailResult:
+    """Resultado del envio por correo de paquetes documentales DIRAE."""
+
+    recipient_email: str
+    notification_id: int
+    notification_status: str
+    package_count: int
+    filenames: list[str]
 
 
 class DocumentService:
@@ -455,15 +485,16 @@ class DocumentService:
         self,
         actor: User,
         internship_ids: list[int] | None = None,
+        mark_exported: bool = True,
     ) -> DiraeDocumentPackageExport:
-        """Genera CSV con paquetes documentales exportables a DIRAE.
+        """Genera PDF con paquetes documentales exportables a DIRAE.
 
         Args:
             actor: Usuario documental autorizado.
             internship_ids: Practicas especificas solicitadas.
 
         Returns:
-            CSV y nombre de archivo sugerido.
+            PDF y nombre de archivo sugerido.
         """
 
         self._require_document_admin(actor)
@@ -516,14 +547,14 @@ class DocumentService:
         exported_at = exported_at_local.astimezone(UTC).replace(tzinfo=None)
         lote_id = str(uuid4())
         filename = (
-            f"dirae_lote_{exported_at_local:%Y%m%d_%H%M%S}_{lote_id[:8]}.csv"
+            f"dirae_lote_{exported_at_local:%Y%m%d_%H%M%S}_{lote_id[:8]}.pdf"
         )
         detail_filename = (
             f"dirae_lote_{exported_at_local:%Y%m%d_%H%M%S}_{lote_id[:8]}_detalle.csv"
         )
-        content = self._build_dirae_csv(
+        content = self._build_dirae_pdf(
             packages,
-            exported_at,
+            exported_at_local,
             lote_id=lote_id,
             actor=actor,
         )
@@ -538,17 +569,10 @@ class DocumentService:
             exported_at=exported_at,
         )
 
-        if packages:
-            packages_by_id = {package.internship_id: package for package in packages}
-            await self.repository.mark_internships_as_dirae_exported(
-                [
-                    internship
-                    for internship in internships
-                    if internship.id in packages_by_id
-                ],
-                actor.id,
-                DIRAE_EXPORTED_REASON,
-                self._build_dirae_export_audit_payload(audit_event),
+        if packages and mark_exported:
+            await self._mark_dirae_exported_from_audit(
+                audit_event=audit_event,
+                actor=actor,
             )
 
         return DiraeDocumentPackageExport(
@@ -557,6 +581,96 @@ class DocumentService:
             detail_filename=detail_filename,
             detail_content=detail_content,
             audit_event=audit_event,
+        )
+
+    async def send_dirae_document_packages_email(
+        self,
+        *,
+        actor: User,
+        dirae_email: str,
+        internship_ids: list[int] | None = None,
+        message: str | None = None,
+    ) -> DiraeDocumentPackageEmailResult:
+        """Genera y envia por correo el paquete documental DIRAE."""
+
+        if self.notification_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Notification service unavailable",
+            )
+
+        export = await self.export_dirae_document_packages(
+            actor=actor,
+            internship_ids=internship_ids,
+            mark_exported=False,
+        )
+        package_count = len(export.audit_event.internship_ids)
+        if package_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "No hay expedientes exportables para enviar a DIRAE."
+                    ),
+                },
+            )
+
+        attachments = [
+            {
+                "filename": export.filename,
+                "content_base64": base64.b64encode(export.content).decode("ascii"),
+                "encoding": "base64",
+                "media_type": "application/pdf",
+            },
+        ]
+        notification = build_dirae_document_package_email_notification(
+            recipient_email=dirae_email,
+            actor_email=getattr(actor, "email", None),
+            internship_ids=export.audit_event.internship_ids,
+            filenames=[export.filename],
+            attachments=attachments,
+            message=message,
+        )
+        persisted = await self.notification_service.create_and_dispatch(
+            notification,
+        )
+        persisted_status = getattr(persisted.status, "value", persisted.status)
+        if persisted_status != "failed":
+            email_audit_event = replace(
+                export.audit_event,
+                name="dirae_document_package_emailed",
+                result="email_sent",
+                delivery_channel="email",
+            )
+            await self._mark_dirae_exported_from_audit(
+                audit_event=email_audit_event,
+                actor=actor,
+                reason=DIRAE_EMAIL_SENT_REASON,
+            )
+
+        return DiraeDocumentPackageEmailResult(
+            recipient_email=dirae_email,
+            notification_id=persisted.id,
+            notification_status=persisted.status,
+            package_count=package_count,
+            filenames=[export.filename],
+        )
+
+    async def _mark_dirae_exported_from_audit(
+        self,
+        *,
+        audit_event: DiraeExportAuditEvent,
+        actor: User,
+        reason: str = DIRAE_EXPORTED_REASON,
+    ) -> None:
+        internships = await self.repository.list_internships_for_dirae_export(
+            audit_event.internship_ids,
+        )
+        await self.repository.mark_internships_as_dirae_exported(
+            internships,
+            actor.id,
+            reason,
+            self._build_dirae_export_audit_payload(audit_event),
         )
 
     async def _get_internship_or_404(self, internship_id: int) -> Internship:
@@ -863,6 +977,240 @@ class DocumentService:
             },
         )
 
+    def _build_dirae_pdf(
+        self,
+        packages: list[DocumentPackage],
+        exported_at: datetime,
+        lote_id: str,
+        actor: User,
+    ) -> bytes:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=16 * mm,
+            leftMargin=16 * mm,
+            topMargin=14 * mm,
+            bottomMargin=14 * mm,
+            title="Expediente documental DIRAE",
+        )
+        styles = getSampleStyleSheet()
+        styles.add(
+            ParagraphStyle(
+                name="DiraeTitle",
+                parent=styles["Title"],
+                alignment=TA_CENTER,
+                fontName="Helvetica-Bold",
+                fontSize=18,
+                leading=22,
+                textColor=colors.HexColor("#111827"),
+                spaceAfter=8,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DiraeSubtitle",
+                parent=styles["Normal"],
+                alignment=TA_CENTER,
+                fontSize=9,
+                leading=12,
+                textColor=colors.HexColor("#4B5563"),
+                spaceAfter=14,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DiraeSection",
+                parent=styles["Heading2"],
+                fontName="Helvetica-Bold",
+                fontSize=12,
+                leading=15,
+                textColor=colors.HexColor("#8B1D46"),
+                spaceBefore=10,
+                spaceAfter=6,
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DiraeCell",
+                parent=styles["Normal"],
+                fontSize=8,
+                leading=10,
+                textColor=colors.HexColor("#111827"),
+            )
+        )
+        styles.add(
+            ParagraphStyle(
+                name="DiraeMuted",
+                parent=styles["Normal"],
+                fontSize=8,
+                leading=10,
+                textColor=colors.HexColor("#6B7280"),
+            )
+        )
+
+        story: list[object] = [
+            Paragraph("Expediente documental DIRAE", styles["DiraeTitle"]),
+            Paragraph(
+                (
+                    f"Lote {escape(lote_id)} · Generado el "
+                    f"{escape(self._pdf_date(exported_at))} · "
+                    f"Responsable: {escape(getattr(actor, 'email', None) or 'No disponible')}"
+                ),
+                styles["DiraeSubtitle"],
+            ),
+        ]
+
+        if not packages:
+            story.append(
+                Paragraph(
+                    "No se encontraron expedientes listos para exportación.",
+                    styles["DiraeMuted"],
+                )
+            )
+        for index, package in enumerate(packages):
+            if index > 0:
+                story.append(PageBreak())
+
+            student = package.student
+            internship = package.internship
+            student_name = " ".join(
+                value
+                for value in [student.first_name, student.last_name]
+                if value
+            ) or "Estudiante sin nombre"
+
+            story.append(
+                Paragraph(
+                    f"Expediente #{package.internship_id} - {escape(student_name)}",
+                    styles["DiraeSection"],
+                )
+            )
+            story.append(
+                self._build_pdf_key_value_table(
+                    [
+                        ("Matrícula", student.enrollment),
+                        ("RUT", student.rut),
+                        ("Correo institucional", student.email),
+                        ("Carrera", student.degree),
+                        ("Código carrera", student.cod_degree),
+                    ],
+                    styles,
+                )
+            )
+            story.append(Spacer(1, 6))
+            story.append(
+                self._build_pdf_key_value_table(
+                    [
+                        ("Tipo de práctica", internship.type),
+                        ("Periodo académico", internship.period),
+                        ("Organización", internship.organization),
+                        ("Ciudad", internship.city),
+                        ("Fecha de inicio", self._pdf_date(internship.start_date)),
+                        ("Fecha de término", self._pdf_date(internship.end_date)),
+                        ("Estado de práctica", package.status),
+                        ("Estado ejecución", internship.completion_status),
+                        ("Estado DIRAE", self._string_value(package.dirae_status)),
+                        ("Seguro escolar", internship.insurance_status),
+                        ("Fecha de aprobación", self._pdf_date(internship.approval_date)),
+                    ],
+                    styles,
+                )
+            )
+
+            story.append(Paragraph("Documentos requeridos", styles["DiraeSection"]))
+            story.append(self._build_pdf_document_table(package.required_documents, styles))
+
+            story.append(Paragraph("Documentos opcionales", styles["DiraeSection"]))
+            if package.optional_documents:
+                story.append(self._build_pdf_document_table(package.optional_documents, styles))
+            else:
+                story.append(
+                    Paragraph(
+                        "Sin documentos opcionales aprobados para este expediente.",
+                        styles["DiraeMuted"],
+                    )
+                )
+
+        doc.build(story)
+        return buffer.getvalue()
+
+    def _build_pdf_key_value_table(
+        self,
+        rows: list[tuple[str, object]],
+        styles: dict[str, ParagraphStyle],
+    ) -> Table:
+        data = []
+        for label, value in rows:
+            data.append(
+                [
+                    Paragraph(f"<b>{escape(label)}</b>", styles["DiraeCell"]),
+                    Paragraph(escape(self._pdf_value(value)), styles["DiraeCell"]),
+                ]
+            )
+
+        table = Table(data, colWidths=[44 * mm, 118 * mm], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F9FAFB")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        return table
+
+    def _build_pdf_document_table(
+        self,
+        items: list[DocumentPackageItem],
+        styles: dict[str, ParagraphStyle],
+    ) -> Table:
+        rows = [
+            [
+                Paragraph("<b>Tipo documental</b>", styles["DiraeCell"]),
+                Paragraph("<b>Estado</b>", styles["DiraeCell"]),
+                Paragraph("<b>Archivo</b>", styles["DiraeCell"]),
+                Paragraph("<b>Fecha revisión</b>", styles["DiraeCell"]),
+            ]
+        ]
+        for item in items:
+            document = item.document
+            rows.append(
+                [
+                    Paragraph(escape(self._pdf_value(item.type_name)), styles["DiraeCell"]),
+                    Paragraph(escape(self._pdf_value(item.status)), styles["DiraeCell"]),
+                    Paragraph(
+                        escape(self._pdf_value(getattr(document, "file_name", None))),
+                        styles["DiraeCell"],
+                    ),
+                    Paragraph(
+                        escape(self._pdf_date(getattr(document, "reviewed_at", None))),
+                        styles["DiraeCell"],
+                    ),
+                ]
+            )
+
+        table = Table(rows, colWidths=[54 * mm, 27 * mm, 55 * mm, 26 * mm], hAlign="LEFT")
+        table.setStyle(
+            TableStyle(
+                [
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F3F4F6")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        return table
+
     def _build_dirae_csv(
         self,
         packages: list[DocumentPackage],
@@ -1059,40 +1407,7 @@ class DocumentService:
         return "; ".join(parts)
 
     def _build_student_enrollment(self, student: object | None) -> str | None:
-        if student is None:
-            return None
-
-        rut = getattr(student, "rut", None)
-        admission_year = self._get_student_admission_year(student)
-        if rut is None or admission_year is None:
-            return None
-
-        rut_value = "".join(
-            character
-            for character in str(rut).upper()
-            if character.isdigit() or character == "K"
-        )
-        year_value = "".join(
-            character
-            for character in str(admission_year)
-            if character.isdigit()
-        )
-        if not rut_value or len(year_value) < 2:
-            return None
-
-        return f"{rut_value}{year_value[-2:]}"
-
-    def _get_student_admission_year(self, student: object) -> object | None:
-        for field_name in (
-            "admission_year",
-            "entry_year",
-            "enrollment_year",
-        ):
-            value = getattr(student, field_name, None)
-            if value is not None:
-                return value
-
-        return None
+        return build_student_enrollment(student)
 
     async def _get_internship_approval_date(self, internship_id: int) -> datetime | None:
         if not hasattr(self.repository, "db"):
@@ -1160,6 +1475,7 @@ class DocumentService:
             "filename": audit_event.filename,
             "exported_at": audit_event.exported_at,
             "result": audit_event.result,
+            "delivery_channel": audit_event.delivery_channel,
         }
 
     def _require_owner(self, actor: User, internship: Internship) -> None:
@@ -1400,6 +1716,22 @@ class DocumentService:
 
         return self._string_value(value) or ""
 
+    def _pdf_value(self, value: object) -> str:
+        text = self._string_value(value)
+        return text if text else "No disponible"
+
+    def _pdf_date(self, value: object) -> str:
+        if value is None:
+            return "No disponible"
+
+        if isinstance(value, datetime):
+            return value.strftime("%d-%m-%Y %H:%M")
+
+        if isinstance(value, date):
+            return value.strftime("%d-%m-%Y")
+
+        return self._pdf_value(value)
+
     def _string_value(self, value: object) -> str | None:
         if value is None:
             return None
@@ -1514,7 +1846,11 @@ class DocumentService:
         """Determina y actualiza automáticamente el estado DIRAE de la práctica.
 
         Solo se realiza la transición automática si la práctica está finalizada
-        y el estado actual es not_started, in_review, observed o ready.
+        y el estado actual es not_started, in_review, observed o ready. El
+        estado ready queda como decisión manual de Secretaría y solo se revierte
+        automáticamente si aparecen documentos faltantes, pendientes u observados.
+        El estado exported es terminal y solo debe cambiar por una acción
+        administrativa explícita.
         """
         if not hasattr(self.repository, "db"):
             return
@@ -1532,7 +1868,6 @@ class DocumentService:
             DiraeStatusEnum.in_review,
             DiraeStatusEnum.observed,
             DiraeStatusEnum.ready,
-            DiraeStatusEnum.exported,
         }:
             return
 
@@ -1564,8 +1899,10 @@ class DocumentService:
                 target_status = DiraeStatusEnum.in_review
         elif uploaded_pending:
             target_status = DiraeStatusEnum.in_review
+        elif current_status == DiraeStatusEnum.ready:
+            return
         else:
-            target_status = DiraeStatusEnum.ready
+            target_status = DiraeStatusEnum.in_review
 
         if current_status != target_status:
             internship.dirae_status = target_status

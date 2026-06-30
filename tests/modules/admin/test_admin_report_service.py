@@ -183,3 +183,13 @@ async def test_report_csv_is_aggregate_without_personal_fields() -> None:
     assert "email" not in export.content.lower()
     assert "ACME SpA" in export.content
     assert "Prácticas filtradas" in export.content
+
+
+async def test_report_pdf_generates_executive_document() -> None:
+    service = AdminReportService(FakeReportRepository())
+
+    export = await service.export_pdf(AdminReportFilters(), _user("FICA"))
+
+    assert export.filename.startswith("reporte_institucional_fica_")
+    assert export.filename.endswith(".pdf")
+    assert export.content.startswith(b"%PDF")

@@ -132,6 +132,63 @@ def _format_internship_request_type(internship_type: object | None) -> str:
     return display_by_type.get(normalized, normalized.lower())
 
 
+def build_dirae_document_package_email_notification(
+    *,
+    recipient_email: str,
+    actor_email: str | None,
+    internship_ids: list[int],
+    filenames: list[str],
+    attachments: list[dict[str, str]],
+    message: str | None = None,
+) -> Notification:
+    """Construye una notificacion externa con adjuntos DIRAE."""
+
+    package_count = len(internship_ids)
+    package_label = (
+        f"{package_count} expediente"
+        if package_count == 1
+        else f"{package_count} expedientes"
+    )
+    extra_message = message.strip() if message else None
+    details: list[tuple[str, str | int | None]] = [
+        ("Destinatario DIRAE", recipient_email),
+        ("Enviado por", actor_email),
+        ("Expedientes incluidos", package_label),
+        ("IDs de práctica", ", ".join(str(item) for item in internship_ids)),
+        ("Archivos adjuntos", ", ".join(filenames)),
+        ("Mensaje de Secretaría", extra_message),
+    ]
+
+    return Notification(
+        recipient_user_id=None,
+        recipient_email=recipient_email,
+        event_type=NotificationEventTypeEnum.custom,
+        subject="Expediente documental DIRAE generado desde Gestión de Prácticas",
+        content=_build_email_body(
+            title="Expediente documental para DIRAE",
+            intro=(
+                "Secretaría de Carrera generó y envió el expediente documental "
+                "para revisión DIRAE. El PDF del expediente se adjunta a este correo."
+            ),
+            details=details,
+            action_label="Correo informativo",
+            footer_note=(
+                "Este mensaje fue generado desde el Sistema de Gestión de "
+                "Prácticas FICA. No respondas directamente a este correo automático."
+            ),
+        ),
+        status=NotificationStatusEnum.simulated,
+        payload={
+            "event": "dirae_document_package_email",
+            "recipient_email": recipient_email,
+            "actor_email": actor_email,
+            "internship_ids": internship_ids,
+            "filenames": filenames,
+            "attachments": attachments,
+        },
+    )
+
+
 def build_internship_approved_notification(
     recipient_user_id: int,
     recipient_email: str | None,

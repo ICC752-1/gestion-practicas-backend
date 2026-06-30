@@ -6,8 +6,9 @@ consulta y actualizacion de usuarios.
 
 import logging
 import secrets
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,6 +30,8 @@ from app.modules.auth.repositories.user_repository import UserRepository
 from app.modules.auth.repositories.user_role_repository import UserRoleRepository
 from app.modules.auth.schemas.rol_schema import AssignRoleRequest, UserRoleResponse
 from app.modules.auth.schemas.user_schema import (
+    StudentAcademicProgressResponse,
+    StudentPracticeProgressItem,
     UserAdminResponse,
     UserCreateRequest,
     UserListResponse,
@@ -45,6 +48,15 @@ from app.modules.auth.utils.roles import (
     SUPERADMIN_ROLE,
     USER_ADMIN_ROLES,
 )
+from app.modules.internships.models.internship_model import (
+    CompletionStatusEnum,
+    FinalResultEnum,
+    Internship,
+    PracticeTypeEnum,
+)
+from app.modules.internships.models.student_internship_requirement_model import (
+    StudentInternshipRequirement,
+)
 from app.modules.notifications.repositories.notification_repository import (
     NotificationRepository,
 )
@@ -55,6 +67,23 @@ from app.modules.notifications.utils.notification_event_helpers import (
 
 router = APIRouter(prefix="/users", tags=["Users"])
 logger = logging.getLogger(__name__)
+
+PRACTICE_TYPE_ORDER = (
+    PracticeTypeEnum.practice_1,
+    PracticeTypeEnum.practice_2,
+    PracticeTypeEnum.controlled_practice,
+    PracticeTypeEnum.thesis,
+)
+REQUIREMENT_PENDING_STATUS = "Pendiente"
+REQUIREMENT_APPROVED_STATUS = "Aprobada"
+REQUIREMENT_CURRENT_STATUSES = {"Habilitada", "En revisión"}
+PROGRESS_TERMINAL_REJECTED_STATUSES = {"Anulada", "Rechazada", "Reprobada"}
+COMPLETION_STATUS_LABELS = {
+    CompletionStatusEnum.in_progress.value: "En curso",
+    CompletionStatusEnum.pending_evaluations.value: "Pendiente de evaluaciones",
+    CompletionStatusEnum.pending_presentation.value: "Pendiente de presentación",
+    CompletionStatusEnum.finalized.value: "Finalizada",
+}
 
 
 def _build_service(db: AsyncSession) -> UserService:
@@ -81,11 +110,170 @@ def _role_names(user: User) -> list[str]:
     return [user_role.role.name for user_role in user.roles]
 
 
-def _admin_response(user: User) -> UserAdminResponse:
+def _admin_response(
+    user: User,
+    academic_progress: StudentAcademicProgressResponse | None = None,
+) -> UserAdminResponse:
     return UserAdminResponse(
         **UserResponse.model_validate(user).model_dump(),
         roles=_role_names(user),
+        academic_progress=academic_progress,
     )
+
+
+def _enum_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return getattr(value, "value", value)
+
+
+def _internship_sort_key(internship: Internship) -> tuple[datetime, int]:
+    upload_date = getattr(internship, "upload_date", None)
+    if upload_date is None:
+        upload_date = datetime.min
+    return upload_date, getattr(internship, "id", 0) or 0
+
+
+def _status_title(internship: Internship | None) -> str | None:
+    if internship is None:
+        return None
+    if getattr(internship, "is_cancelled", False):
+        return "Anulada"
+    status = getattr(internship, "status", None)
+    return getattr(status, "title", None)
+
+
+def _display_progress_status(
+    requirement_status: str,
+    internship: Internship | None,
+) -> str:
+    if internship is None:
+        return requirement_status
+
+    if getattr(internship, "is_cancelled", False):
+        return "Anulada"
+
+    completion_status = _enum_value(getattr(internship, "completion_status", None))
+    final_result = _enum_value(getattr(internship, "final_result", None))
+
+    if (
+        completion_status == CompletionStatusEnum.finalized.value
+        and final_result == FinalResultEnum.failed.value
+    ):
+        return "Reprobada"
+
+    if completion_status in COMPLETION_STATUS_LABELS:
+        return COMPLETION_STATUS_LABELS[completion_status]
+
+    return _status_title(internship) or requirement_status
+
+
+def _is_progress_completed(
+    requirement_status: str,
+    internship: Internship | None,
+) -> bool:
+    final_result = _enum_value(getattr(internship, "final_result", None))
+    if final_result == FinalResultEnum.failed.value:
+        return False
+
+    return (
+        requirement_status == REQUIREMENT_APPROVED_STATUS
+        or final_result == FinalResultEnum.passed.value
+    )
+
+
+def _select_current_progress_item(
+    items: list[StudentPracticeProgressItem],
+) -> StudentPracticeProgressItem | None:
+    for item in items:
+        if (
+            item.internship_id is not None
+            and not item.is_completed
+            and item.display_status not in PROGRESS_TERMINAL_REJECTED_STATUSES
+        ):
+            return item
+
+    for item in items:
+        if (
+            item.requirement_status in REQUIREMENT_CURRENT_STATUSES
+            and not item.is_completed
+        ):
+            return item
+
+    for item in items:
+        if not item.is_completed and item.display_status == REQUIREMENT_PENDING_STATUS:
+            return item
+
+    return None
+
+
+def _build_academic_progress_by_user(
+    user_ids: list[int],
+    requirements: list[StudentInternshipRequirement],
+    internships: list[Internship],
+) -> dict[int, StudentAcademicProgressResponse]:
+    requirements_by_user: dict[int, dict[str, str]] = defaultdict(dict)
+    for requirement in requirements:
+        practice_type = _enum_value(getattr(requirement, "type", None))
+        if practice_type:
+            requirements_by_user[requirement.user_id][practice_type] = (
+                requirement.status or REQUIREMENT_PENDING_STATUS
+            )
+
+    latest_internships: dict[tuple[int, str], Internship] = {}
+    for internship in internships:
+        practice_type = _enum_value(getattr(internship, "internship_type", None))
+        if internship.user_id is None or not practice_type:
+            continue
+        key = (internship.user_id, practice_type)
+        previous = latest_internships.get(key)
+        if previous is None or _internship_sort_key(internship) > _internship_sort_key(previous):
+            latest_internships[key] = internship
+
+    progress_by_user: dict[int, StudentAcademicProgressResponse] = {}
+    for user_id in user_ids:
+        items: list[StudentPracticeProgressItem] = []
+
+        for practice_type in PRACTICE_TYPE_ORDER:
+            practice_type_value = practice_type.value
+            requirement_status = requirements_by_user[user_id].get(
+                practice_type_value,
+                REQUIREMENT_PENDING_STATUS,
+            )
+            internship = latest_internships.get((user_id, practice_type_value))
+            display_status = _display_progress_status(requirement_status, internship)
+
+            items.append(
+                StudentPracticeProgressItem(
+                    type=practice_type,
+                    requirement_status=requirement_status,
+                    display_status=display_status,
+                    internship_id=getattr(internship, "id", None),
+                    request_status=_status_title(internship),
+                    completion_status=_enum_value(
+                        getattr(internship, "completion_status", None)
+                    ),
+                    final_result=_enum_value(getattr(internship, "final_result", None)),
+                    is_completed=_is_progress_completed(
+                        requirement_status,
+                        internship,
+                    ),
+                )
+            )
+
+        current_item = _select_current_progress_item(items)
+        if current_item is not None:
+            current_item.is_current = True
+
+        progress_by_user[user_id] = StudentAcademicProgressResponse(
+            completed_count=sum(1 for item in items if item.is_completed),
+            total_count=len(items),
+            current_type=current_item.type if current_item is not None else None,
+            current_status=current_item.display_status if current_item is not None else None,
+            items=items,
+        )
+
+    return progress_by_user
 
 
 def _has_role(user: User, role_name: str) -> bool:
@@ -128,6 +316,20 @@ async def _ensure_unique_user_identity(
             status_code=status.HTTP_409_CONFLICT,
             detail="RUT already exists",
         )
+
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment:
+            logger.warning(
+                "Create user failed: enrollment already exists",
+                extra={"actor_id": actor_id},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
+            )
 
 
 async def _ensure_can_remove_superadmin_access(
@@ -259,6 +461,13 @@ async def create_user(
             )
         roles_to_assign.append(role)
 
+    if any(role.name == STUDENT_ROLE for role in roles_to_assign):
+        if not payload.enrollment:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Enrollment is required for student accounts",
+            )
+
     service = _build_service(db)
     user = await service.create_user(payload)
 
@@ -301,6 +510,18 @@ async def list_student_accounts(
     search: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal[
+        "id",
+        "created_at",
+        "first_name",
+        "last_name",
+        "email",
+        "rut",
+        "enrollment",
+        "admission_year",
+        "is_active",
+    ] = Query(default="created_at"),
+    sort_dir: Literal["asc", "desc"] = Query(default="desc"),
 ) -> UserListResponse:
     """Lista cuentas de estudiantes para gestion academica acotada."""
 
@@ -315,15 +536,31 @@ async def list_student_accounts(
         role_name=STUDENT_ROLE,
         limit=limit,
         offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     total = await service.count_users(
         is_active=is_active,
         search=search,
         role_name=STUDENT_ROLE,
     )
+    user_ids = [user.id for user in users]
+    user_repository = UserRepository(db)
+    progress_by_user = _build_academic_progress_by_user(
+        user_ids=user_ids,
+        requirements=await user_repository.list_student_requirements_for_users(
+            user_ids,
+        ),
+        internships=await user_repository.list_student_internships_for_users(
+            user_ids,
+        ),
+    )
 
     return UserListResponse(
-        items=[_admin_response(user) for user in users],
+        items=[
+            _admin_response(user, academic_progress=progress_by_user.get(user.id))
+            for user in users
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -347,6 +584,12 @@ async def create_student_account(
         extra={"actor_id": current_user.id},
     )
     user_repository = UserRepository(db)
+    if not payload.enrollment:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Enrollment is required for student accounts",
+        )
+
     await _ensure_unique_user_identity(
         payload=payload,
         user_repository=user_repository,
@@ -417,6 +660,15 @@ async def update_student_account(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="RUT already exists",
             )
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment and existing_enrollment.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
+            )
 
     service = _build_service(db)
     user = await service.update_user(user, payload)
@@ -443,6 +695,18 @@ async def list_users(
     role: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    sort_by: Literal[
+        "id",
+        "created_at",
+        "first_name",
+        "last_name",
+        "email",
+        "rut",
+        "enrollment",
+        "admission_year",
+        "is_active",
+    ] = Query(default="created_at"),
+    sort_dir: Literal["asc", "desc"] = Query(default="desc"),
 ) -> UserListResponse:
     """Lista usuarios con filtros opcionales.
 
@@ -463,6 +727,8 @@ async def list_users(
             "actor_id": current_user.id,
             "is_active_filter": is_active,
             "has_email_filter": bool(email),
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
         },
     )
     service = _build_service(db)
@@ -473,6 +739,8 @@ async def list_users(
         role_name=role,
         limit=limit,
         offset=offset,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     total = await service.count_users(
         is_active=is_active,
@@ -586,6 +854,15 @@ async def update_user(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="RUT already exists",
+            )
+    if payload.enrollment:
+        existing_enrollment = await user_repository.get_user_by_enrollment(
+            payload.enrollment
+        )
+        if existing_enrollment and existing_enrollment.id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Enrollment already exists",
             )
 
     if payload.is_active is False and user.is_active:

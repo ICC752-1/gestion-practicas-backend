@@ -1,6 +1,6 @@
 """Repositorio para exportacion de datos personales."""
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,6 +17,9 @@ from app.modules.internships.models.internship_status_history_model import (
 from app.modules.self_evaluations.models.self_evaluation_model import SelfEvaluation
 from app.modules.supervisor_evaluations.models.supervisor_evaluation_model import (
     SupervisorEvaluation,
+)
+from app.modules.presentation_letters.models.presentation_letter_model import (
+    PresentationLetter,
 )
 
 
@@ -77,16 +80,36 @@ class DataPortabilityRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def list_documents(self, user_id: int) -> list[Document]:
+    async def list_documents(
+        self,
+        user_id: int,
+        internship_ids: list[int],
+    ) -> list[Document]:
+        ownership_filters = [Document.user_id == user_id]
+        if internship_ids:
+            ownership_filters.append(Document.internship_id.in_(internship_ids))
+
         query = (
             select(Document)
             .where(
-                Document.user_id == user_id,
+                or_(*ownership_filters),
                 Document.deleted_at.is_(None),
                 Document.status != DocumentStatusEnum.deleted,
             )
             .options(selectinload(Document.document_type))
             .order_by(Document.upload_date.desc(), Document.id.desc())
+        )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def list_presentation_letters(
+        self,
+        user_id: int,
+    ) -> list[PresentationLetter]:
+        query = (
+            select(PresentationLetter)
+            .where(PresentationLetter.student_id == user_id)
+            .order_by(PresentationLetter.created_at.desc())
         )
         result = await self.db.execute(query)
         return list(result.scalars().all())

@@ -8,8 +8,17 @@ from datetime import datetime
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
+from app.modules.internships.models.internship_model import PracticeTypeEnum
+from app.modules.auth.utils.enrollment import parse_student_enrollment
 from app.modules.auth.utils.normalization import normalize_phone, normalize_rut
 
 
@@ -25,8 +34,8 @@ class UserCreateRequest(BaseModel):
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
         last_name: Apellido(s) del usuario.
             Restricciones: longitud mínima 1 y máxima 100 caracteres.
-        rut: Identificador RUT del usuario.
-            Restricciones: longitud máxima 100 caracteres.
+        rut: Identificador RUT del usuario para cuentas no estudiantiles.
+        enrollment: Matrícula institucional para cuentas estudiantiles.
         degree: Carrera o grado academico del usuario (opcional).
         cod_degree: Codigo interno de la carrera (opcional).
         admission_year: Año de ingreso del estudiante (opcional).
@@ -56,10 +65,8 @@ class UserCreateRequest(BaseModel):
         max_length=100,
     )
 
-    rut: str = Field(
-        min_length=1,
-        max_length=100,
-    )
+    rut: str | None = Field(default=None, min_length=1, max_length=100)
+    enrollment: str | None = Field(default=None, min_length=1, max_length=32)
 
     degree: str | None = Field(default=None, max_length=255)
     cod_degree: str | None = Field(default=None, max_length=100)
@@ -74,7 +81,9 @@ class UserCreateRequest(BaseModel):
 
     @field_validator("rut")
     @classmethod
-    def _normalize_rut(cls, value: str) -> str:
+    def _normalize_rut(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         return normalize_rut(value)
 
     @field_validator("phone", "sup_phone")
@@ -83,6 +92,28 @@ class UserCreateRequest(BaseModel):
         if value is None:
             return None
         return normalize_phone(value)
+
+    @model_validator(mode="after")
+    def _derive_student_identity(self) -> "UserCreateRequest":
+        if self.enrollment is not None:
+            parsed = parse_student_enrollment(self.enrollment)
+            if self.rut is not None and self.rut != parsed.rut:
+                raise ValueError("La matrícula no coincide con el RUT informado")
+            if (
+                self.admission_year is not None
+                and self.admission_year != parsed.admission_year
+            ):
+                raise ValueError(
+                    "La matrícula no coincide con el año de ingreso informado"
+                )
+            self.enrollment = parsed.value
+            self.rut = parsed.rut
+            self.admission_year = parsed.admission_year
+
+        if self.rut is None:
+            raise ValueError("Debe informar un RUT o una matrícula")
+
+        return self
 
 
 class UserUpdateRequest(BaseModel):
@@ -121,6 +152,7 @@ class UserUpdateRequest(BaseModel):
     )
 
     rut: str | None = Field(default=None, min_length=1, max_length=100)
+    enrollment: str | None = Field(default=None, min_length=1, max_length=32)
     degree: str | None = Field(default=None, min_length=1, max_length=255)
     cod_degree: str | None = Field(default=None, min_length=1, max_length=100)
     admission_year: int | None = Field(default=None, ge=1900, le=2100)
@@ -147,6 +179,27 @@ class UserUpdateRequest(BaseModel):
             return None
         return normalize_phone(value)
 
+    @model_validator(mode="after")
+    def _derive_updated_student_identity(self) -> "UserUpdateRequest":
+        if self.enrollment is None:
+            return self
+
+        parsed = parse_student_enrollment(self.enrollment)
+        if self.rut is not None and self.rut != parsed.rut:
+            raise ValueError("La matrícula no coincide con el RUT informado")
+        if (
+            self.admission_year is not None
+            and self.admission_year != parsed.admission_year
+        ):
+            raise ValueError(
+                "La matrícula no coincide con el año de ingreso informado"
+            )
+
+        self.enrollment = parsed.value
+        self.rut = parsed.rut
+        self.admission_year = parsed.admission_year
+        return self
+
 
 class UserResponse(BaseModel):
     """Modelo de respuesta con información de un usuario.
@@ -160,6 +213,7 @@ class UserResponse(BaseModel):
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
         rut: Identificador RUT del usuario.
+        enrollment: Matrícula institucional del estudiante.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
         admission_year: Año de ingreso del estudiante.
@@ -182,6 +236,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     rut: str
+    enrollment: str | None = None
     degree: str | None
     cod_degree: str | None
     admission_year: int | None
@@ -197,10 +252,35 @@ class UserResponse(BaseModel):
     created_at: datetime
 
 
+class StudentPracticeProgressItem(BaseModel):
+    """Estado académico de un tipo de práctica para un estudiante."""
+
+    type: PracticeTypeEnum
+    requirement_status: str
+    display_status: str
+    internship_id: int | None = None
+    request_status: str | None = None
+    completion_status: str | None = None
+    final_result: str | None = None
+    is_current: bool = False
+    is_completed: bool = False
+
+
+class StudentAcademicProgressResponse(BaseModel):
+    """Resumen del avance académico de un estudiante en sus prácticas."""
+
+    completed_count: int
+    total_count: int
+    current_type: PracticeTypeEnum | None = None
+    current_status: str | None = None
+    items: list[StudentPracticeProgressItem]
+
+
 class UserAdminResponse(UserResponse):
     """Respuesta administrativa con roles actuales del usuario."""
 
     roles: list[str]
+    academic_progress: StudentAcademicProgressResponse | None = None
 
 
 class UserListResponse(BaseModel):
@@ -224,6 +304,8 @@ class CurrentUserResponse(BaseModel):
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
         roles: Lista de nombres de roles asociados.
+        degree: Carrera o grado academico del usuario.
+        cod_degree: Codigo interno de la carrera.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -233,3 +315,7 @@ class CurrentUserResponse(BaseModel):
     first_name: str
     last_name: str
     roles: list[str]
+    degree: str | None = None
+    cod_degree: str | None = None
+    enrollment: str | None = None
+    admission_year: int | None = None

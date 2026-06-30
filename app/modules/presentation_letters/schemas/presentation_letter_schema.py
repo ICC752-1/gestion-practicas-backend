@@ -9,8 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 PRACTICE_TYPE_VALUES = (
     "Práctica de Estudio I",
     "Práctica de Estudio II",
+    "Práctica Controlada",
 )
-PracticeType = Literal["Práctica de Estudio I", "Práctica de Estudio II"]
+PracticeType = Literal[
+    "Práctica de Estudio I",
+    "Práctica de Estudio II",
+    "Práctica Controlada",
+]
 
 
 class PresentationLetterTemplateUpdateRequest(BaseModel):
@@ -24,6 +29,7 @@ class PresentationLetterTemplateUpdateRequest(BaseModel):
     student_presentation_template: str = Field(min_length=1, max_length=5000)
     practice_description: str = Field(min_length=1, max_length=5000)
     minimum_hours: int = Field(ge=1, le=1000)
+    minimum_hours_clause: str = Field(min_length=1, max_length=5000)
     learning_outcomes: list[str] = Field(min_length=1, max_length=20)
     insurance_clause: str = Field(min_length=1, max_length=5000)
     closing_text: str = Field(min_length=1, max_length=5000)
@@ -38,6 +44,7 @@ class PresentationLetterTemplateUpdateRequest(BaseModel):
         "base_intro",
         "student_presentation_template",
         "practice_description",
+        "minimum_hours_clause",
         "insurance_clause",
         "closing_text",
         "signature_name",
@@ -73,12 +80,14 @@ class PresentationLetterTemplateResponse(BaseModel):
     student_presentation_template: str
     practice_description: str
     minimum_hours: int
+    minimum_hours_clause: str
     learning_outcomes: list[str]
     insurance_clause: str
     closing_text: str
     signature_name: str
     signature_role: str
     signature_institution: str
+    signature_image_uploaded: bool = False
     is_active: bool
     created_by: int | None
     updated_by: int | None

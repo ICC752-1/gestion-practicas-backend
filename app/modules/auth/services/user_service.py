@@ -62,6 +62,7 @@ class UserService:
             first_name=payload.first_name,
             last_name=payload.last_name,
             rut=normalize_rut(payload.rut),
+            enrollment=payload.enrollment,
             degree=payload.degree,
             cod_degree=payload.cod_degree,
             admission_year=payload.admission_year,
@@ -92,6 +93,8 @@ class UserService:
         role_name: str | None = None,
         limit: int | None = None,
         offset: int = 0,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> list[User]:
         """Lista usuarios con filtros opcionales.
 
@@ -110,6 +113,8 @@ class UserService:
             role_name=role_name,
             limit=limit,
             offset=offset,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
         )
 
     async def count_users(
@@ -142,6 +147,9 @@ class UserService:
         """
 
         update_data = payload.model_dump(exclude_unset=True, exclude_none=True)
+        if payload.enrollment is not None:
+            update_data["rut"] = payload.rut
+            update_data["admission_year"] = payload.admission_year
 
         updated_fields = list(update_data.keys())
 

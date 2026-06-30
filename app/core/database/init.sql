@@ -59,6 +59,7 @@ CREATE TABLE Users (
     email VARCHAR(255) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     rut VARCHAR(100) UNIQUE NOT NULL,
+    enrollment VARCHAR(32),
     degree VARCHAR(255),
     cod_degree VARCHAR(100),
     admission_year INTEGER,
@@ -317,12 +318,14 @@ CREATE TABLE presentation_letter_template (
     student_presentation_template TEXT NOT NULL,
     practice_description TEXT NOT NULL,
     minimum_hours INTEGER NOT NULL DEFAULT 168,
+    minimum_hours_clause TEXT NOT NULL,
     learning_outcomes JSONB NOT NULL,
     insurance_clause TEXT NOT NULL,
     closing_text TEXT NOT NULL,
     signature_name VARCHAR(255) NOT NULL,
     signature_role VARCHAR(255) NOT NULL,
     signature_institution VARCHAR(255) NOT NULL,
+    signature_image_path VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_by INTEGER REFERENCES Users(id),
     updated_by INTEGER REFERENCES Users(id),
@@ -363,6 +366,7 @@ INSERT INTO presentation_letter_template (
     student_presentation_template,
     practice_description,
     minimum_hours,
+    minimum_hours_clause,
     learning_outcomes,
     insurance_clause,
     closing_text,
@@ -376,8 +380,9 @@ INSERT INTO presentation_letter_template (
     'Estudiante en Práctica de Estudios I',
     'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
     'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios I en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
-    'La Práctica de Estudios I permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
     168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
     '[
         "Desarrollar la capacidad de interacción con las personas que hacen vida en la organización con la finalidad de comunicarse efectivamente y lograr un desempeño laboral acorde a lo esperado.",
         "Reconocer las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
@@ -397,14 +402,37 @@ INSERT INTO presentation_letter_template (
     'Estudiante en Práctica de Estudios II',
     'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
     'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios II en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
-    'La Práctica de Estudios II permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
     168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
     '[
         "Utilizar un lenguaje técnico y apropiado que le permita comunicarse efectivamente con las personas que hacen vida en la organización con la finalidad de asumir el rol asignado para contribuir con el desempeño del equipo de trabajo.",
         "Comprender las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
         "Aplicar los conocimientos de la especialidad para identificar problemas específicos de la organización y proponer soluciones a los mismos, considerando aspectos económicos, técnicos, de gestión y su impacto social, medioambiental y cultural.",
         "Mantener una conducta responsable en prevención de riesgos y cuidado del entorno en el ámbito de su desempeño práctico en modalidad presencial o virtual, considerando los aspectos normativos y reglamentarios que regulan la materia.",
         "Realizar actividades donde demuestra su formación profesional y una conducta éticamente adecuada durante su permanencia en la organización."
+    ]'::jsonb,
+    'Por último, le informamos que durante el periodo de práctica el/la estudiante se encuentra protegido/a ante eventuales accidentes con el seguro escolar, el cual se encuentra al alero del artículo 3° de la Ley 16.744, según DS N°313 Ministerio del Trabajo y Previsión Social.',
+    'Agradeciendo de antemano su atención y colaboración, quedamos atentos a sus comentarios.',
+    'Claudio Andrés Navarro Cruces',
+    'Director de carrera',
+    'Universidad de La Frontera'
+),
+(
+    'Práctica Controlada',
+    'Carta de Presentación',
+    'Estudiante en Práctica Controlada',
+    'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
+    'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple los requisitos para realizar su Práctica Controlada en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar y consolidar los conocimientos adquiridos durante su formación en un entorno real, desarrollando actividades supervisadas y vinculadas con su especialidad. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
+    '[
+        "Aplicar conocimientos y herramientas de la especialidad en actividades propias de un entorno laboral real.",
+        "Integrarse responsablemente a un equipo de trabajo, comunicándose de manera efectiva con las personas de la organización.",
+        "Desarrollar las actividades asignadas bajo supervisión, respetando los procedimientos y normas de la organización.",
+        "Mantener una conducta responsable en prevención de riesgos, cuidado del entorno y cumplimiento de los compromisos adquiridos.",
+        "Actuar de manera ética y profesional durante su permanencia en la organización."
     ]'::jsonb,
     'Por último, le informamos que durante el periodo de práctica el/la estudiante se encuentra protegido/a ante eventuales accidentes con el seguro escolar, el cual se encuentra al alero del artículo 3° de la Ley 16.744, según DS N°313 Ministerio del Trabajo y Previsión Social.',
     'Agradeciendo de antemano su atención y colaboración, quedamos atentos a sus comentarios.',
@@ -424,6 +452,12 @@ new_value JSONB,
 entity_id INTEGER NOT NULL,
 user_id INTEGER REFERENCES Users(id)
 );
+
+CREATE INDEX IF NOT EXISTS ix_logaction_timestamp ON LogAction(timestamp);
+CREATE INDEX IF NOT EXISTS ix_logaction_entity ON LogAction(entity);
+CREATE INDEX IF NOT EXISTS ix_logaction_action ON LogAction(action);
+CREATE INDEX IF NOT EXISTS ix_logaction_user_id ON LogAction(user_id);
+CREATE INDEX IF NOT EXISTS ix_logaction_entity_entity_id ON LogAction(entity, entity_id);
 
 CREATE TABLE notification (
 id SERIAL PRIMARY KEY,
@@ -598,7 +632,8 @@ AFTER INSERT ON user_roles
 FOR EACH ROW
 EXECUTE FUNCTION fn_create_student_internship_requirements();
 
--- 3. Insercion de datos iniciales minimos para testear autenticacion y autorizacion
+-- 3. Datos base requeridos por el sistema.
+-- Los usuarios, inducciones y escenarios de prueba se crean con scripts/seed_demo.py.
 INSERT INTO Roles (name, description) VALUES ('Estudiante', 'Rol correspondiente a estudiantes en practicas');
 INSERT INTO Roles (name, description) VALUES ('Director de carrera', 'Rol correspondiente al director de la carrera perteneciente a FICA');
 INSERT INTO Roles (name, description) VALUES ('Supervisor de practica', 'Rol correspondiente al supervisor externo de practicas');
@@ -606,66 +641,6 @@ INSERT INTO Roles (name, description) VALUES ('Encargado de practica', 'Rol corr
 INSERT INTO Roles (name, description) VALUES ('Secretaria de Carrera', 'Rol correspondiente a secretaria de carrera');
 INSERT INTO Roles (name, description) VALUES ('FICA', 'Rol institucional de consulta agregada transversal');
 INSERT INTO Roles (name, description) VALUES ('Superadmin', 'Rol tecnico para administracion de usuarios y roles');
-
--- Nota: La contrasena hash corresponde a "my_secure_password".
-INSERT INTO Users (first_name, last_name, email, password_hash, rut, degree, cod_degree, sexo, phone, profession, position, departament, sup_phone, is_active, is_verified, must_change_password)
-VALUES
-    ('Juan', 'Perez', 'juan.perez@correo.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '12.345.678-9', 'Ingenieria Civil Informatica', 'INF-001', 'Masculino', '+56912345678', 'Desarrollador', 'Practicante', 'TI', '+56998765432', TRUE, TRUE, FALSE),
-    ('Claudio', 'Navarro', 'claudio.navarro@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '14.283.070-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Estudiante', 'Demo', 'estudiante.demo@ufromail.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000001-1', 'Ingenieria Civil Informatica', 'ICI', 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Estudiante', 'Otro', 'estudiante.otro@ufromail.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000002-1', 'Ingenieria Civil Informatica', 'ICI', 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Encargado', 'Practicas', 'encargado.practicas@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000003-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Director', 'Carrera', 'director.carrera@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000004-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Secretaria', 'Carrera', 'secretaria.carrera@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000005-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Supervisor', 'Demo', 'supervisor.demo@empresa.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000006-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('FICA', 'Reportes', 'fica.reportes@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000007-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE),
-    ('Superadmin', 'Plataforma', 'superadmin@ufrontera.cl', '$argon2id$v=19$m=65536,t=3,p=4$bJbxhtRSiFdZs070A4Hv5w$Wunb39tfxReEtOvhcihtPHlzovAC+kJw2D/pCHpDDhg', '21000008-1', NULL, NULL, 'No definido', NULL, NULL, NULL, NULL, NULL, TRUE, TRUE, FALSE);
-
-INSERT INTO user_roles(user_id, role_id)
-SELECT users.id, roles.id
-FROM (VALUES
-    ('juan.perez@correo.cl', 'Estudiante'),
-    ('claudio.navarro@ufrontera.cl', 'Director de carrera'),
-    ('estudiante.demo@ufromail.cl', 'Estudiante'),
-    ('estudiante.otro@ufromail.cl', 'Estudiante'),
-    ('encargado.practicas@ufrontera.cl', 'Encargado de practica'),
-    ('director.carrera@ufrontera.cl', 'Director de carrera'),
-    ('secretaria.carrera@ufrontera.cl', 'Secretaria de Carrera'),
-    ('supervisor.demo@empresa.cl', 'Supervisor de practica'),
-    ('fica.reportes@ufrontera.cl', 'FICA'),
-    ('superadmin@ufrontera.cl', 'Superadmin')
-) AS assignments(email, role_name)
-JOIN Users users ON users.email = assignments.email
-JOIN Roles roles ON roles.name = assignments.role_name::"enumRole";
-
--- Contenido minimo de induccion para flujos demo/Insomnia.
--- Permite que el estudiante complete el prerrequisito inexceptuable antes
--- de aprobar una Practica de Estudio I.
-INSERT INTO induction_content_versions (title, description, status, is_active, min_score, requires_retake, published_at)
-VALUES (
-    'Induccion obligatoria demo',
-    'Contenido minimo para validar el flujo de induccion en ambiente local.',
-    'published',
-    TRUE,
-    1,
-    FALSE,
-    CURRENT_TIMESTAMP
-);
-
-INSERT INTO induction_videos (content_version_id, title, video_url, "order")
-SELECT id, 'Video introductorio demo', 'https://example.com/induccion-demo', 1
-FROM induction_content_versions
-WHERE title = 'Induccion obligatoria demo';
-
-INSERT INTO induction_questions (content_version_id, question_text, options, correct_answer, "order")
-SELECT
-    id,
-    'Confirma que revisaste la induccion obligatoria antes de tramitar tu practica.',
-    '{"accept": "Entiendo y acepto", "reject": "No acepto"}'::jsonb,
-    'accept',
-    1
-FROM induction_content_versions
-WHERE title = 'Induccion obligatoria demo';
 
 -- 4. Función del Trigger para automatizar la auditoría
 CREATE OR REPLACE FUNCTION fn_audit_business_logic()
@@ -682,6 +657,9 @@ BEGIN
         WHEN 'presentation' THEN 'Presentación'::"enumEntity"
         WHEN 'self_evaluations' THEN 'Autoevaluación'::"enumEntity"
         WHEN 'data_portability_requests' THEN 'Portabilidad'::"enumEntity"
+        WHEN 'induction_content_versions' THEN 'Configuración'::"enumEntity"
+        WHEN 'induction_videos' THEN 'Configuración'::"enumEntity"
+        WHEN 'induction_questions' THEN 'Configuración'::"enumEntity"
         WHEN 'roles' THEN 'Rol'::"enumEntity"
         WHEN 'currentstate' THEN 'Estado'::"enumEntity"
         ELSE NULL
@@ -724,6 +702,9 @@ CREATE TRIGGER tr_audit_presentation AFTER INSERT OR UPDATE OR DELETE ON Present
 CREATE TRIGGER tr_audit_exceptions AFTER INSERT OR UPDATE OR DELETE ON internship_exceptions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_self_evaluations AFTER INSERT OR UPDATE OR DELETE ON self_evaluations FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 CREATE TRIGGER tr_audit_data_portability_requests AFTER INSERT OR UPDATE OR DELETE ON data_portability_requests FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_content_versions AFTER INSERT OR UPDATE OR DELETE ON induction_content_versions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_videos AFTER INSERT OR UPDATE OR DELETE ON induction_videos FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
+CREATE TRIGGER tr_audit_induction_questions AFTER INSERT OR UPDATE OR DELETE ON induction_questions FOR EACH ROW EXECUTE FUNCTION fn_audit_business_logic();
 
 -- 5. Migraciones idempotentes para refinamiento del sistema de agendamiento.
 -- Re-ejecutables sobre entornos ya desplegados; no afectan instalaciones nuevas
@@ -739,3 +720,47 @@ ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS is_confirmed BOOLEAN NOT NULL 
 ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMP;
 ALTER TABLE Presentation ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;
 ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES Document(id) ON DELETE SET NULL;
+
+-- Migración para firma administrada en cartas de presentación
+ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS signature_image_path VARCHAR(255);
+
+-- Migración para cláusula editable de duración de la práctica
+ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS minimum_hours_clause TEXT;
+UPDATE presentation_letter_template
+SET minimum_hours_clause = (
+    'Es importante destacar que la duración mínima de la '
+    || CASE
+        WHEN practice_type = 'Práctica de Estudio I' THEN 'Práctica de Estudios I'
+        WHEN practice_type = 'Práctica de Estudio II' THEN 'Práctica de Estudios II'
+        ELSE practice_type
+    END
+    || ' es de {{minimum_hours}} horas cronológicas, y que una vez completada '
+    || 'con éxito el/la estudiante '
+    || 'debe ser capaz de evidenciar los siguientes aprendizajes:'
+)
+WHERE minimum_hours_clause IS NULL OR BTRIM(minimum_hours_clause) = '';
+UPDATE presentation_letter_template
+SET minimum_hours_clause = REPLACE(
+    minimum_hours_clause,
+    ' es de ' || minimum_hours || ' horas cronológicas,',
+    ' es de {{minimum_hours}} horas cronológicas,'
+)
+WHERE minimum_hours_clause LIKE
+    'Es importante destacar que la duración mínima de la % es de '
+    || minimum_hours
+    || ' horas cronológicas, y que una vez completada con éxito el/la estudiante %'
+  AND minimum_hours_clause NOT LIKE '%{{minimum_hours}}%';
+ALTER TABLE presentation_letter_template
+    ALTER COLUMN minimum_hours_clause SET NOT NULL;
+
+-- Migración para matrícula institucional persistida
+ALTER TABLE Users ADD COLUMN IF NOT EXISTS enrollment VARCHAR(32);
+UPDATE Users
+SET enrollment = regexp_replace(rut, '[^0-9]', '', 'g')
+    || RIGHT(admission_year::text, 2)
+WHERE enrollment IS NULL
+  AND admission_year >= 2015
+  AND regexp_replace(rut, '[^0-9Kk]', '', 'g') ~ '^[0-9]+$';
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_enrollment
+ON Users(enrollment)
+WHERE enrollment IS NOT NULL;

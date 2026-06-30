@@ -195,53 +195,7 @@ class AdminService:
             )
             return None
 
-        student_info = self._build_student_info(internship.student)
-        status_info = self._build_status_info(internship.status)
-
-        detail = AdminInternshipDetailResponse(
-            id=internship.id,
-            org_name=internship.org_name,
-            sector=internship.sector,
-            address=internship.address,
-            city=internship.city,
-            org_phone=internship.org_phone,
-            web=internship.web,
-            start_date=internship.start_date,
-            end_date=internship.end_date,
-            schedule=internship.schedule,
-            days=internship.days,
-            modality=internship.modality,
-            internship_address=internship.internship_address,
-            act_description=internship.act_description,
-            ben_description=internship.ben_description,
-            amount=internship.amount,
-            upload_date=internship.upload_date,
-            status_id=internship.status_id,
-            user_id=internship.user_id,
-            student=student_info,
-            status=status_info,
-            is_cancelled=internship.is_cancelled,
-            cancelled_at=internship.cancelled_at,
-            cancellation_reason=internship.cancellation_reason,
-            insurance_status=getattr(
-                internship,
-                "insurance_status",
-                SchoolInsuranceStatusEnum.pending,
-            ),
-            insurance_validated_by=getattr(
-                internship,
-                "insurance_validated_by",
-                None,
-            ),
-            insurance_validated_at=getattr(
-                internship,
-                "insurance_validated_at",
-                None,
-            ),
-            insurance_notes=getattr(internship, "insurance_notes", None),
-        )
-
-        return detail
+        return self._build_internship_detail(internship)
 
     async def update_internship_school_insurance(
         self,
@@ -268,43 +222,7 @@ class AdminService:
             notes=payload.notes,
         )
 
-        student_info = self._build_student_info(updated.student)
-        status_info = self._build_status_info(updated.status)
-
-        return AdminInternshipDetailResponse(
-            id=updated.id,
-            org_name=updated.org_name,
-            sector=updated.sector,
-            address=updated.address,
-            city=updated.city,
-            org_phone=updated.org_phone,
-            web=updated.web,
-            start_date=updated.start_date,
-            end_date=updated.end_date,
-            schedule=updated.schedule,
-            days=updated.days,
-            modality=updated.modality,
-            internship_address=updated.internship_address,
-            act_description=updated.act_description,
-            ben_description=updated.ben_description,
-            amount=updated.amount,
-            upload_date=updated.upload_date,
-            status_id=updated.status_id,
-            user_id=updated.user_id,
-            student=student_info,
-            status=status_info,
-            is_cancelled=updated.is_cancelled,
-            cancelled_at=updated.cancelled_at,
-            cancellation_reason=updated.cancellation_reason,
-            insurance_status=getattr(
-                updated,
-                "insurance_status",
-                SchoolInsuranceStatusEnum.pending,
-            ),
-            insurance_validated_by=getattr(updated, "insurance_validated_by", None),
-            insurance_validated_at=getattr(updated, "insurance_validated_at", None),
-            insurance_notes=getattr(updated, "insurance_notes", None),
-        )
+        return self._build_internship_detail(updated)
 
     async def get_student_internship_requirements(
         self,
@@ -560,6 +478,7 @@ class AdminService:
                 end_date=internship.end_date,
                 upload_date=internship.upload_date,
                 user_id=internship.user_id,
+                internship_type=internship.internship_type,
                 student=student_info,
                 status=status_info,
                 is_cancelled=internship.is_cancelled,
@@ -572,6 +491,64 @@ class AdminService:
             internship_items.append(internship_item)
 
         return internship_items
+
+    def _build_internship_detail(
+        self,
+        internship: Internship,
+    ) -> AdminInternshipDetailResponse:
+        """Construye el contrato completo del detalle administrativo."""
+
+        return AdminInternshipDetailResponse(
+            id=internship.id,
+            org_name=internship.org_name,
+            sector=internship.sector,
+            address=internship.address,
+            city=internship.city,
+            org_phone=internship.org_phone,
+            web=internship.web,
+            supervisor_name=internship.supervisor_name,
+            supervisor_profession=internship.supervisor_profession,
+            supervisor_position=internship.supervisor_position,
+            supervisor_department=internship.supervisor_department,
+            supervisor_email=internship.supervisor_email,
+            supervisor_phone=internship.supervisor_phone,
+            start_date=internship.start_date,
+            end_date=internship.end_date,
+            schedule=internship.schedule,
+            days=internship.days,
+            modality=internship.modality,
+            internship_address=internship.internship_address,
+            act_description=internship.act_description,
+            ben_description=internship.ben_description,
+            amount=internship.amount,
+            upload_date=internship.upload_date,
+            status_id=internship.status_id,
+            user_id=internship.user_id,
+            internship_period=internship.internship_period,
+            internship_type=internship.internship_type,
+            has_school_insurance=internship.has_school_insurance,
+            student=self._build_student_info(internship.student),
+            status=self._build_status_info(internship.status),
+            is_cancelled=internship.is_cancelled,
+            cancelled_at=internship.cancelled_at,
+            cancellation_reason=internship.cancellation_reason,
+            insurance_status=getattr(
+                internship,
+                "insurance_status",
+                SchoolInsuranceStatusEnum.pending,
+            ),
+            insurance_validated_by=getattr(
+                internship,
+                "insurance_validated_by",
+                None,
+            ),
+            insurance_validated_at=getattr(
+                internship,
+                "insurance_validated_at",
+                None,
+            ),
+            insurance_notes=getattr(internship, "insurance_notes", None),
+        )
 
     def _build_status_info(
         self,

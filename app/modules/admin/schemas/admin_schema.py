@@ -9,7 +9,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
-from app.modules.internships.models.internship_model import SchoolInsuranceStatusEnum
+from app.modules.internships.models.internship_model import (
+    PracticePeriodEnum,
+    PracticeTypeEnum,
+    SchoolInsuranceStatusEnum,
+)
 
 Modality = Literal["Presencial", "Remoto", "Híbrido"]
 AdminInternshipStatusFilter = Literal[
@@ -123,6 +127,7 @@ class AdminInternshipListItem(BaseModel):
         end_date    : Fecha de termino de la practica.
         upload_date : Fecha de registro de la practica.
         user_id     : Identificador del estudiante propietario.
+        internship_type: Tipo de practica informado en la solicitud.
         student     : Informacion basica del estudiante asociado.
     status      : Estado actual de la practica, si existe.
     is_cancelled: Indica si la practica fue anulada logicamente.
@@ -139,6 +144,7 @@ class AdminInternshipListItem(BaseModel):
     end_date: date
     upload_date: datetime
     user_id: int | None
+    internship_type: PracticeTypeEnum
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
     is_cancelled: bool
@@ -156,6 +162,12 @@ class AdminInternshipDetailResponse(BaseModel):
         city                : Ciudad donde se ubica la organizacion.
         org_phone           : Telefono de contacto de la organizacion, si existe.
         web                 : Sitio web de la organizacion, si existe.
+        supervisor_name     : Nombre del supervisor externo.
+        supervisor_profession: Profesion del supervisor externo.
+        supervisor_position : Cargo del supervisor externo.
+        supervisor_department: Departamento del supervisor externo.
+        supervisor_email    : Correo del supervisor externo.
+        supervisor_phone    : Telefono del supervisor externo.
         start_date          : Fecha de inicio de la practica.
         end_date            : Fecha de termino de la practica.
         schedule            : Horario definido para la practica.
@@ -168,6 +180,9 @@ class AdminInternshipDetailResponse(BaseModel):
         upload_date         : Fecha y hora de registro de la practica.
         status_id           : Identificador del estado actual, si existe.
         user_id             : Identificador del estudiante propietario.
+        internship_period   : Periodo academico informado en la solicitud.
+        internship_type     : Tipo de practica informado en la solicitud.
+        has_school_insurance: Indica si el seguro fue declarado o validado.
         student             : Informacion basica del estudiante asociado.
         status              : Estado actual de la practica, si existe.
         is_cancelled        : Indica si la practica fue anulada logicamente.
@@ -189,6 +204,12 @@ class AdminInternshipDetailResponse(BaseModel):
     city: str
     org_phone: str | None
     web: str | None
+    supervisor_name: str
+    supervisor_profession: str
+    supervisor_position: str
+    supervisor_department: str
+    supervisor_email: EmailStr
+    supervisor_phone: str
     start_date: date
     end_date: date
     schedule: str
@@ -201,6 +222,9 @@ class AdminInternshipDetailResponse(BaseModel):
     upload_date: datetime
     status_id: int | None
     user_id: int | None
+    internship_period: PracticePeriodEnum
+    internship_type: PracticeTypeEnum
+    has_school_insurance: bool
     student: AdminInternshipStudentInfo | None
     status: AdminInternshipStatusInfo | None
     is_cancelled: bool

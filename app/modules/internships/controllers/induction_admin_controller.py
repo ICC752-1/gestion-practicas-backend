@@ -78,38 +78,6 @@ async def get_induction_version(
     return InductionAdminVersionDetailResponse.model_validate(version)
 
 
-@router.patch(
-    "/versions/{version_id}",
-    response_model=InductionAdminVersionDetailResponse,
-)
-async def update_induction_draft(
-    version_id: int,
-    payload: InductionAdminVersionPayload,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
-) -> InductionAdminVersionDetailResponse:
-    """Edita una version mientras sigue en borrador."""
-
-    service = _build_service(db)
-    version = await service.update_draft(version_id, payload)
-
-    return InductionAdminVersionDetailResponse.model_validate(version)
-
-
-@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def discard_induction_draft(
-    version_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
-) -> None:
-    """Descarta una version en borrador."""
-
-    service = _build_service(db)
-    await service.discard_draft(version_id)
-
-    return None
-
-
 @router.post(
     "/versions/{version_id}/publish",
     response_model=InductionAdminVersionDetailResponse,
@@ -119,9 +87,41 @@ async def publish_induction_version(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
 ) -> InductionAdminVersionDetailResponse:
-    """Publica una version y la deja como unica activa."""
+    """Publica o activa una version y la deja como unica activa."""
 
     service = _build_service(db)
     version = await service.publish(version_id)
 
     return InductionAdminVersionDetailResponse.model_validate(version)
+
+
+@router.patch(
+    "/versions/{version_id}",
+    response_model=InductionAdminVersionDetailResponse,
+)
+async def update_induction_version(
+    version_id: int,
+    payload: InductionAdminVersionPayload,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
+) -> InductionAdminVersionDetailResponse:
+    """Edita una version."""
+
+    service = _build_service(db)
+    version = await service.update_version(version_id, payload)
+
+    return InductionAdminVersionDetailResponse.model_validate(version)
+
+
+@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_induction_version(
+    version_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles(INDUCTION_ADMIN_ROLES))],
+) -> None:
+    """Elimina una version."""
+
+    service = _build_service(db)
+    await service.delete_version(version_id)
+
+    return None

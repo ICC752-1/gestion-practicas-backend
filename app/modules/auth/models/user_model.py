@@ -27,6 +27,7 @@ class User(Base):
         first_name: Nombre(s) del usuario.
         last_name: Apellido(s) del usuario.
         rut: Identificador RUT del usuario.
+        enrollment: Matrícula institucional del estudiante.
         degree: Carrera o grado academico del usuario.
         cod_degree: Codigo interno de la carrera.
         admission_year: Ano de ingreso del estudiante.
@@ -53,6 +54,11 @@ class User(Base):
     first_name: Mapped[str] = mapped_column(String(255), nullable=False)
     last_name: Mapped[str] = mapped_column(String(255), nullable=False)
     rut: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    enrollment: Mapped[str | None] = mapped_column(
+        String(32),
+        unique=True,
+        nullable=True,
+    )
 
     degree: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cod_degree: Mapped[str | None] = mapped_column(String(100), nullable=True)

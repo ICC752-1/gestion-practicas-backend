@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.modules.auth.controllers.user_controller import (
+    _build_academic_progress_by_user,
     _ensure_can_remove_superadmin_access,
     _ensure_student_scope,
 )
@@ -112,3 +113,57 @@ async def test_can_remove_superadmin_access_when_another_active_admin_remains() 
         target=_user(2, SUPERADMIN_ROLE),
         user_repository=FakeUserRepository(active_superadmins=2),
     )
+
+
+def test_build_academic_progress_marks_current_practice() -> None:
+    requirements = [
+        SimpleNamespace(
+            user_id=7,
+            type="Práctica de Estudio I",
+            status="Aprobada",
+        ),
+        SimpleNamespace(
+            user_id=7,
+            type="Práctica de Estudio II",
+            status="Habilitada",
+        ),
+    ]
+    internships = [
+        SimpleNamespace(
+            id=11,
+            user_id=7,
+            internship_type="Práctica de Estudio I",
+            status=SimpleNamespace(title="Aprobada"),
+            completion_status="finalized",
+            final_result="passed",
+            is_cancelled=False,
+        ),
+        SimpleNamespace(
+            id=12,
+            user_id=7,
+            internship_type="Práctica de Estudio II",
+            status=SimpleNamespace(title="Aprobada"),
+            completion_status="in_progress",
+            final_result="pending",
+            is_cancelled=False,
+        ),
+    ]
+
+    progress = _build_academic_progress_by_user(
+        user_ids=[7],
+        requirements=requirements,
+        internships=internships,
+    )[7]
+
+    assert progress.completed_count == 1
+    assert progress.total_count == 4
+    assert progress.current_type == "Práctica de Estudio II"
+    assert progress.current_status == "En curso"
+    assert [item.type for item in progress.items] == [
+        "Práctica de Estudio I",
+        "Práctica de Estudio II",
+        "Práctica Controlada",
+        "Tesis",
+    ]
+    assert progress.items[0].is_completed is True
+    assert progress.items[1].is_current is True

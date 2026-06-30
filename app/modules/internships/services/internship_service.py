@@ -32,6 +32,8 @@ from app.modules.internships.repositories.internship_repository import (
 )
 from app.modules.internships.schemas.internship_schema import (
     DashboardInternshipStatus,
+    InductionAnswerFeedbackResponse,
+    InductionAttemptFeedbackResponse,
     InductionAttemptRequest,
     InductionAttemptResponse,
     InductionContentVersionResponse,
@@ -44,7 +46,10 @@ from app.modules.internships.schemas.internship_schema import (
     InternshipLifecycleEventResponse,
     InternshipLifecycleResponse,
     RegistrationEligibilityResponse,
+    SecretaryDiraeInboxResponse,
+    SecretaryDiraeInboxStatsResponse,
     DuplicateInternshipTypeDetail,
+    SecretaryDiraeSortBy,
     StudentInternshipActionAvailabilityResponse,
     StudentInternshipUpdateRequest,
 )
@@ -530,6 +535,51 @@ class InternshipService:
             in_review=counters["in_review"],
             approved=counters["approved"],
             rejected=counters["rejected"],
+        )
+
+    async def list_secretary_dirae_inbox(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        search: str | None = None,
+        degree: str | None = None,
+        dirae_status: DiraeStatusEnum | None = None,
+        sort_by: SecretaryDiraeSortBy = "upload_date",
+        sort_dir: str = "desc",
+    ) -> SecretaryDiraeInboxResponse:
+        """Lista expedientes documentales DIRAE para Secretaría."""
+
+        normalized_sort_dir = "asc" if sort_dir == "asc" else "desc"
+        internships, total, stats, degrees = (
+            await self.internship_repository.list_secretary_dirae_internships(
+                limit=limit,
+                offset=offset,
+                search=search,
+                degree=degree,
+                dirae_status=dirae_status,
+                sort_by=sort_by,
+                sort_dir=normalized_sort_dir,
+            )
+        )
+
+        return SecretaryDiraeInboxResponse(
+            items=[
+                self._build_dashboard_item(internship)
+                for internship in internships
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+            stats=SecretaryDiraeInboxStatsResponse(
+                total=sum(stats.values()),
+                not_started=stats.get(DiraeStatusEnum.not_started, 0),
+                in_review=stats.get(DiraeStatusEnum.in_review, 0),
+                observed=stats.get(DiraeStatusEnum.observed, 0),
+                ready=stats.get(DiraeStatusEnum.ready, 0),
+                exported=stats.get(DiraeStatusEnum.exported, 0),
+            ),
+            degrees=degrees,
         )
 
     def _build_lifecycle_response(
@@ -1417,6 +1467,26 @@ class InternshipService:
             reason=reason,
         )
 
+    async def mark_dirae_ready(
+        self,
+        internship_id: int,
+        actor: User,
+    ) -> Internship:
+        """Marca manualmente un expediente DIRAE como listo para exportar."""
+
+        logger.info(
+            "Marcando expediente DIRAE como listo para práctica ID: %s por actor ID: %s",
+            internship_id,
+            actor.id,
+        )
+        self._require_action(actor, "derive")
+        return await self.update_dirae_status(
+            internship_id=internship_id,
+            actor=actor,
+            new_status=DiraeStatusEnum.ready,
+            reason="Expediente revisado y listo para envío a DIRAE.",
+        )
+
     async def update_dirae_status(
         self,
         internship_id: int,
@@ -1483,6 +1553,10 @@ class InternshipService:
             self._require_dirae_reopen_conditions(internship, current_status)
             return
 
+        if new_status == DiraeStatusEnum.ready:
+            self._require_dirae_ready_conditions(internship, current_status)
+            return
+
         raise HTTPException(
             status_code=409,
             detail=f"Invalid DIRAE status transition to {new_status.value}.",
@@ -1516,6 +1590,22 @@ class InternshipService:
             raise HTTPException(
                 status_code=409,
                 detail="DIRAE rectification can only reopen ready or exported packages.",
+            )
+
+    def _require_dirae_ready_conditions(
+        self,
+        internship: Internship,
+        current_status: DiraeStatusEnum,
+    ) -> None:
+        self._require_dirae_review_start_conditions(internship)
+
+        if current_status not in {
+            DiraeStatusEnum.in_review,
+            DiraeStatusEnum.observed,
+        }:
+            raise HTTPException(
+                status_code=409,
+                detail="DIRAE package can only be marked ready from local review or observed state.",
             )
 
     async def list_internship_dirae_tracking(
@@ -2452,6 +2542,48 @@ class InternshipService:
         )
         created = await self.internship_repository.create_induction_attempt(attempt)
         return InductionAttemptResponse.model_validate(created)
+
+    async def get_latest_passed_induction_feedback(
+        self,
+        user_id: int,
+    ) -> InductionAttemptFeedbackResponse | None:
+        """Obtiene feedback del último intento aprobado para la versión activa."""
+        content = await self.internship_repository.get_active_induction_content()
+        if content is None:
+            return None
+
+        attempt = await self.internship_repository.get_passed_induction_attempt(
+            user_id=user_id,
+            content_version_id=content.id,
+        )
+        if attempt is None:
+            return None
+
+        submitted_answers = {
+            str(question_id): answer
+            for question_id, answer in (attempt.answers or {}).items()
+        }
+        answer_feedback = [
+            InductionAnswerFeedbackResponse(
+                question_id=question.id,
+                selected_answer=submitted_answers.get(str(question.id)),
+                correct_answer=question.correct_answer,
+                is_correct=(
+                    submitted_answers.get(str(question.id))
+                    == question.correct_answer
+                ),
+            )
+            for question in sorted(content.questions, key=lambda item: item.order)
+        ]
+
+        return InductionAttemptFeedbackResponse(
+            id=attempt.id,
+            content_version_id=attempt.content_version_id,
+            score=attempt.score,
+            passed=attempt.passed,
+            attempted_at=attempt.attempted_at,
+            answers=answer_feedback,
+        )
 
     async def _has_passed_induction(
         self,

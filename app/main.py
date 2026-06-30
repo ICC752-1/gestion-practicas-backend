@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import config
 from app.core.logging.logging import setup_logging
+from app.modules.audit.controllers.audit_controller import router as audit_router
 from app.modules.admin.controllers.admin_controller import router as admin_router
 from app.modules.admin.controllers.admin_report_controller import (
     router as admin_report_router,
@@ -68,6 +69,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(roles_router)
+app.include_router(audit_router)
 app.include_router(admin_router)
 app.include_router(admin_report_router)
 app.include_router(notifications_router)

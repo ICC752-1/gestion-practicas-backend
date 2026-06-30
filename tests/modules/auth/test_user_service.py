@@ -8,6 +8,7 @@ class FakeUserRepository:
     def __init__(self) -> None:
         self.created_user = None
         self.updated_user = None
+        self.list_params = None
 
     async def create_user(self, user):
         self.created_user = user
@@ -18,7 +19,8 @@ class FakeUserRepository:
         self.updated_user = user
         return user
 
-    async def list_users(self, is_active=None, email=None):
+    async def list_users(self, **kwargs):
+        self.list_params = kwargs
         return []
 
 
@@ -86,6 +88,26 @@ async def test_create_user_generates_internal_password_when_missing(
     assert user.is_verified is False
 
 
+async def test_create_student_persists_enrollment_and_derived_identity() -> None:
+    repository = FakeUserRepository()
+    service = UserService(
+        user_repository=repository,
+        password_service=FakePasswordService(),
+    )
+    payload = UserCreateRequest(
+        email="student@example.com",
+        first_name="Ana",
+        last_name="Perez",
+        enrollment="12345678523",
+    )
+
+    user = await service.create_user(payload)
+
+    assert user.enrollment == "12345678523"
+    assert user.rut == "12345678-5"
+    assert user.admission_year == 2023
+
+
 async def test_update_user_normalizes_fields() -> None:
     repository = FakeUserRepository()
     service = UserService(
@@ -118,3 +140,18 @@ async def test_update_user_normalizes_fields() -> None:
     assert updated.phone == "+56912345678"
     assert updated.sup_phone == "+56987654321"
     assert updated.first_name == "Carla"
+
+
+async def test_list_users_forwards_sorting_params() -> None:
+    repository = FakeUserRepository()
+    service = UserService(
+        user_repository=repository,
+        password_service=FakePasswordService(),
+    )
+
+    await service.list_users(sort_by="email", sort_dir="asc", limit=10, offset=20)
+
+    assert repository.list_params["sort_by"] == "email"
+    assert repository.list_params["sort_dir"] == "asc"
+    assert repository.list_params["limit"] == 10
+    assert repository.list_params["offset"] == 20
