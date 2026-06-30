@@ -92,6 +92,36 @@ class PresentationLetterSignatureImage:
     media_type: str
 
 
+@dataclass(frozen=True)
+class PresentationLetterPreviewTemplate:
+    """Plantilla temporal usada para renderizar cambios sin persistirlos."""
+
+    practice_type: str
+    title: str
+    subtitle: str
+    base_intro: str
+    student_presentation_template: str
+    practice_description: str
+    minimum_hours: int
+    learning_outcomes: list[str]
+    insurance_clause: str
+    closing_text: str
+    signature_name: str
+    signature_role: str
+    signature_institution: str
+    signature_image_path: str | None
+
+
+@dataclass(frozen=True)
+class PresentationLetterPreviewStudent:
+    """Datos representativos para una previsualizacion administrativa."""
+
+    first_name: str = "Camila"
+    last_name: str = "Rojas Soto"
+    enrollment: str = "12345678924"
+    rut: str = "12345678-9"
+
+
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -195,6 +225,44 @@ class PresentationLetterService:
         template.updated_at = timestamp
 
         return await self.repository.save_template(template)
+
+    async def preview_template(
+        self,
+        *,
+        practice_type: str,
+        payload: PresentationLetterTemplateUpdateRequest,
+        actor: User,
+    ) -> bytes:
+        """Renderiza la edicion actual como PDF sin guardar la plantilla."""
+
+        self._require_template_reader(actor)
+        stored_template = await self._get_template_or_404(practice_type)
+        preview_template = PresentationLetterPreviewTemplate(
+            practice_type=practice_type,
+            title=payload.title,
+            subtitle=payload.subtitle,
+            base_intro=payload.base_intro,
+            student_presentation_template=payload.student_presentation_template,
+            practice_description=payload.practice_description,
+            minimum_hours=payload.minimum_hours,
+            learning_outcomes=payload.learning_outcomes,
+            insurance_clause=payload.insurance_clause,
+            closing_text=payload.closing_text,
+            signature_name=payload.signature_name,
+            signature_role=payload.signature_role,
+            signature_institution=payload.signature_institution,
+            signature_image_path=getattr(
+                stored_template,
+                "signature_image_path",
+                None,
+            ),
+        )
+
+        return self._render_pdf(
+            template=preview_template,
+            student=PresentationLetterPreviewStudent(),
+            generated_at=_now(),
+        )
 
     async def update_template_signature_image(
         self,
@@ -446,8 +514,8 @@ class PresentationLetterService:
     def _render_pdf(
         self,
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> bytes:
         return self._render_docx_template_to_pdf(
@@ -461,8 +529,8 @@ class PresentationLetterService:
     def _build_letter_document(
         self,
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> dict[str, object]:
         variables = self._build_variables(
@@ -519,8 +587,8 @@ class PresentationLetterService:
     @staticmethod
     def _build_variables(
         *,
-        template: PresentationLetterTemplate,
-        student: User,
+        template: PresentationLetterTemplate | PresentationLetterPreviewTemplate,
+        student: User | PresentationLetterPreviewStudent,
         generated_at: datetime,
     ) -> dict[str, str]:
         student_name = f"{student.first_name} {student.last_name}".strip()

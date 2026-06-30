@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import config
@@ -105,6 +105,31 @@ async def update_presentation_letter_template(
     )
 
     return PresentationLetterTemplateResponse.model_validate(template)
+
+
+@router.post("/templates/{practice_type}/preview")
+async def preview_presentation_letter_template(
+    practice_type: str,
+    payload: PresentationLetterTemplateUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    """Renderiza la edicion actual con el mismo PDF usado en produccion."""
+
+    service = _build_service(db)
+    pdf_content = await service.preview_template(
+        practice_type=practice_type,
+        payload=payload,
+        actor=current_user,
+    )
+
+    return Response(
+        content=pdf_content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": 'inline; filename="vista-previa-carta.pdf"',
+        },
+    )
 
 
 @router.post(

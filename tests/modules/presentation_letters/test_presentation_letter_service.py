@@ -259,11 +259,54 @@ async def test_director_can_update_template(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_template_reader_can_preview_unsaved_template_as_pdf(
+    tmp_path,
+    monkeypatch,
+):
+    repository = FakePresentationLetterRepository()
+    service = _service(tmp_path, repository)
+    payload = _template_payload()
+    payload.title = "Vista previa sin guardar"
+    captured = {}
+
+    def fake_render_pdf(**kwargs):
+        captured.update(kwargs)
+        return b"%PDF-1.7\npreview"
+
+    monkeypatch.setattr(service, "_render_pdf", fake_render_pdf)
+
+    content = await service.preview_template(
+        practice_type="Práctica de Estudio I",
+        payload=payload,
+        actor=_user(1, "Encargado de practica"),
+    )
+
+    assert content == b"%PDF-1.7\npreview"
+    assert captured["template"].title == "Vista previa sin guardar"
+    assert captured["student"].enrollment == "12345678924"
+    assert repository.saved_template is None
+
+
+@pytest.mark.asyncio
 async def test_student_cannot_update_template(tmp_path):
     service = _service(tmp_path)
 
     with pytest.raises(HTTPException) as exc:
         await service.update_template(
+            practice_type="Práctica de Estudio I",
+            payload=_template_payload(),
+            actor=_user(10, "Estudiante"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_student_cannot_preview_template(tmp_path):
+    service = _service(tmp_path)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.preview_template(
             practice_type="Práctica de Estudio I",
             payload=_template_payload(),
             actor=_user(10, "Estudiante"),
