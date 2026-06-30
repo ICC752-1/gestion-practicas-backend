@@ -26,6 +26,7 @@ class PresentationLetterTemplate(Base):
     student_presentation_template: Mapped[str] = mapped_column(Text, nullable=False)
     practice_description: Mapped[str] = mapped_column(Text, nullable=False)
     minimum_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=168)
+    minimum_hours_clause: Mapped[str] = mapped_column(Text, nullable=False)
     learning_outcomes: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     insurance_clause: Mapped[str] = mapped_column(Text, nullable=False)
     closing_text: Mapped[str] = mapped_column(Text, nullable=False)

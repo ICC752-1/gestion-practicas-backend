@@ -318,6 +318,7 @@ CREATE TABLE presentation_letter_template (
     student_presentation_template TEXT NOT NULL,
     practice_description TEXT NOT NULL,
     minimum_hours INTEGER NOT NULL DEFAULT 168,
+    minimum_hours_clause TEXT NOT NULL,
     learning_outcomes JSONB NOT NULL,
     insurance_clause TEXT NOT NULL,
     closing_text TEXT NOT NULL,
@@ -365,6 +366,7 @@ INSERT INTO presentation_letter_template (
     student_presentation_template,
     practice_description,
     minimum_hours,
+    minimum_hours_clause,
     learning_outcomes,
     insurance_clause,
     closing_text,
@@ -378,8 +380,9 @@ INSERT INTO presentation_letter_template (
     'Estudiante en Práctica de Estudios I',
     'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
     'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios I en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
-    'La Práctica de Estudios I permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
     168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
     '[
         "Desarrollar la capacidad de interacción con las personas que hacen vida en la organización con la finalidad de comunicarse efectivamente y lograr un desempeño laboral acorde a lo esperado.",
         "Reconocer las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
@@ -399,8 +402,9 @@ INSERT INTO presentation_letter_template (
     'Estudiante en Práctica de Estudios II',
     'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
     'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple todos los requisitos para realizar su Práctica de Estudios II en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
-    'La Práctica de Estudios II permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar los conocimientos adquiridos en el aula en un entorno real, fortaleciendo sus competencias mientras contribuyen al cumplimiento de los objetivos de las empresas y organizaciones que los reciben. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
     168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
     '[
         "Utilizar un lenguaje técnico y apropiado que le permita comunicarse efectivamente con las personas que hacen vida en la organización con la finalidad de asumir el rol asignado para contribuir con el desempeño del equipo de trabajo.",
         "Comprender las estructuras organizacionales y su funcionamiento con la finalidad de ajustarse a los procedimientos de la unidad donde realiza la práctica.",
@@ -420,8 +424,9 @@ INSERT INTO presentation_letter_template (
     'Estudiante en Práctica Controlada',
     'Reciba un cordial saludo de parte de la Dirección de la Carrera de Ingeniería Civil Informática de la Universidad de La Frontera, una institución comprometida con la formación de profesionales capacitados para enfrentar los retos del mundo laboral actual.',
     'Por medio de la presente, nos dirigimos a usted con el propósito de presentar a {{student_name}} Número de Matrícula: {{student_identifier}}, quien es estudiante regular de nuestra carrera y quien cumple los requisitos para realizar su Práctica Controlada en una organización de reconocido prestigio como la suya. Consideramos que la integración de {{student_name}} a su equipo puede representar un valioso aporte para el desarrollo de proyectos y actividades que sean de interés para su organización.',
-    'La Práctica Controlada permite a los/as estudiantes aplicar y consolidar los conocimientos adquiridos durante su formación en un entorno real, desarrollando actividades supervisadas y vinculadas con su especialidad. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
+    'La {{practice_type}} permite a los/as estudiantes aplicar y consolidar los conocimientos adquiridos durante su formación en un entorno real, desarrollando actividades supervisadas y vinculadas con su especialidad. Confiamos en que esta experiencia será enriquecedora tanto para el/la estudiante como para su empresa/organización.',
     168,
+    'Es importante destacar que la duración mínima de la {{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez completada con éxito el/la estudiante debe ser capaz de evidenciar los siguientes aprendizajes:',
     '[
         "Aplicar conocimientos y herramientas de la especialidad en actividades propias de un entorno laboral real.",
         "Integrarse responsablemente a un equipo de trabajo, comunicándose de manera efectiva con las personas de la organización.",
@@ -718,6 +723,35 @@ ALTER TABLE scheduling_request ADD COLUMN IF NOT EXISTS document_id INTEGER REFE
 
 -- Migración para firma administrada en cartas de presentación
 ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS signature_image_path VARCHAR(255);
+
+-- Migración para cláusula editable de duración de la práctica
+ALTER TABLE presentation_letter_template ADD COLUMN IF NOT EXISTS minimum_hours_clause TEXT;
+UPDATE presentation_letter_template
+SET minimum_hours_clause = (
+    'Es importante destacar que la duración mínima de la '
+    || CASE
+        WHEN practice_type = 'Práctica de Estudio I' THEN 'Práctica de Estudios I'
+        WHEN practice_type = 'Práctica de Estudio II' THEN 'Práctica de Estudios II'
+        ELSE practice_type
+    END
+    || ' es de {{minimum_hours}} horas cronológicas, y que una vez completada '
+    || 'con éxito el/la estudiante '
+    || 'debe ser capaz de evidenciar los siguientes aprendizajes:'
+)
+WHERE minimum_hours_clause IS NULL OR BTRIM(minimum_hours_clause) = '';
+UPDATE presentation_letter_template
+SET minimum_hours_clause = REPLACE(
+    minimum_hours_clause,
+    ' es de ' || minimum_hours || ' horas cronológicas,',
+    ' es de {{minimum_hours}} horas cronológicas,'
+)
+WHERE minimum_hours_clause LIKE
+    'Es importante destacar que la duración mínima de la % es de '
+    || minimum_hours
+    || ' horas cronológicas, y que una vez completada con éxito el/la estudiante %'
+  AND minimum_hours_clause NOT LIKE '%{{minimum_hours}}%';
+ALTER TABLE presentation_letter_template
+    ALTER COLUMN minimum_hours_clause SET NOT NULL;
 
 -- Migración para matrícula institucional persistida
 ALTER TABLE Users ADD COLUMN IF NOT EXISTS enrollment VARCHAR(32);

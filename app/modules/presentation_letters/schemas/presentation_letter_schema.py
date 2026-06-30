@@ -29,6 +29,7 @@ class PresentationLetterTemplateUpdateRequest(BaseModel):
     student_presentation_template: str = Field(min_length=1, max_length=5000)
     practice_description: str = Field(min_length=1, max_length=5000)
     minimum_hours: int = Field(ge=1, le=1000)
+    minimum_hours_clause: str = Field(min_length=1, max_length=5000)
     learning_outcomes: list[str] = Field(min_length=1, max_length=20)
     insurance_clause: str = Field(min_length=1, max_length=5000)
     closing_text: str = Field(min_length=1, max_length=5000)
@@ -43,6 +44,7 @@ class PresentationLetterTemplateUpdateRequest(BaseModel):
         "base_intro",
         "student_presentation_template",
         "practice_description",
+        "minimum_hours_clause",
         "insurance_clause",
         "closing_text",
         "signature_name",
@@ -78,6 +80,7 @@ class PresentationLetterTemplateResponse(BaseModel):
     student_presentation_template: str
     practice_description: str
     minimum_hours: int
+    minimum_hours_clause: str
     learning_outcomes: list[str]
     insurance_clause: str
     closing_text: str

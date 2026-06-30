@@ -2,6 +2,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
+from docx import Document as WordDocument
 from fastapi import HTTPException
 
 from app.modules.presentation_letters.schemas.presentation_letter_schema import (
@@ -79,6 +80,12 @@ def _template(practice_type: str = "Práctica de Estudio I") -> SimpleNamespace:
         student_presentation_template=student_presentation,
         practice_description=practice_description,
         minimum_hours=168,
+        minimum_hours_clause=(
+            "Es importante destacar que la duración mínima de la "
+            "{{practice_type}} es de {{minimum_hours}} horas cronológicas, y que una vez "
+            "completada con éxito el/la estudiante debe ser capaz de evidenciar "
+            "los siguientes aprendizajes:"
+        ),
         learning_outcomes=outcomes[suffix],
         insurance_clause=(
             "Por último, le informamos que durante el periodo de práctica el/la "
@@ -133,6 +140,9 @@ def _template_payload() -> PresentationLetterTemplateUpdateRequest:
         student_presentation_template="Estudiante {{student_identifier}}",
         practice_description="Descripción editable",
         minimum_hours=168,
+        minimum_hours_clause=(
+            "La duración requerida es de {{minimum_hours}} horas cronológicas."
+        ),
         learning_outcomes=["Aprendizaje actualizado"],
         insurance_clause="Seguro escolar",
         closing_text="Cierre",
@@ -369,7 +379,7 @@ async def test_student_generates_practice_i_letter_with_real_user_data(
     assert "Estudiante en Práctica de Estudios I" in text
     assert "Dirección de la Carrera de Ingeniería Civil Informática" in normalized_text
     assert "Nombre Apellido" in normalized_text
-    assert "12345670020" in context["student_presentation"]
+    assert "12345670020" in str(context["student_presentation"])
     assert "168 horas cronológicas" in normalized_text
     assert "Ley 16.744" in normalized_text
     assert "DS N°313" in normalized_text
@@ -431,14 +441,61 @@ def test_docx_context_uses_textual_template_fields(tmp_path):
     )
 
     context = service._build_docx_context(document)
+    base_intro_xml = str(context["base_intro"])
+    student_presentation_xml = str(context["student_presentation"])
+    minimum_hours_clause_xml = str(context["minimum_hours_clause"])
 
     assert context["title"] == "CARTA DE PRESENTACIÓN"
     assert context["subtitle"] == "Estudiante en Práctica de Estudios I"
-    assert context["base_intro"].startswith("Reciba un cordial saludo")
-    assert "Nombre Apellido" in context["student_presentation"]
-    assert "12345670020" in context["student_presentation"]
-    assert "168 horas cronológicas" in context["minimum_hours_clause"]
+    assert "Reciba un cordial saludo" in base_intro_xml
+    assert "Nombre Apellido" in student_presentation_xml
+    assert "12345670020" in student_presentation_xml
+    assert student_presentation_xml.count("<w:b/>") == 2
+    assert "168" in minimum_hours_clause_xml
+    assert "horas cronológicas" in minimum_hours_clause_xml
+    assert minimum_hours_clause_xml.count("<w:b/>") == 2
     assert "Claudio Andrés Navarro Cruces" == context["signature_name"]
+
+
+def test_rendered_docx_bolds_dynamic_student_values(tmp_path, monkeypatch):
+    service = _service(tmp_path)
+
+    def assert_docx_format(self, docx_path, output_dir):  # noqa: ANN001
+        document = WordDocument(docx_path)
+        student_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if "Nombre Apellido" in paragraph.text
+        )
+        bold_text = " ".join(
+            run.text
+            for run in student_paragraph.runs
+            if run.bold
+        )
+        regular_text = " ".join(
+            run.text
+            for run in student_paragraph.runs
+            if not run.bold
+        )
+
+        assert "Nombre Apellido" in bold_text
+        assert "12345670020" in bold_text
+        assert "Por medio de la presente" in regular_text
+        return b"%PDF-1.7\nformatted"
+
+    monkeypatch.setattr(
+        PresentationLetterService,
+        "_convert_docx_to_pdf",
+        assert_docx_format,
+    )
+
+    content = service._render_pdf(
+        template=service.repository.templates["Práctica de Estudio I"],
+        student=_user(10, "Estudiante"),
+        generated_at=datetime(2026, 6, 17, 10, 0, 0),
+    )
+
+    assert content == b"%PDF-1.7\nformatted"
 
 
 @pytest.mark.asyncio

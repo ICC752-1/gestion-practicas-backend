@@ -11,8 +11,9 @@ import subprocess
 import tempfile
 from uuid import uuid4
 
+from docx import Document as WordDocument
 from docx.shared import Mm
-from docxtpl import DocxTemplate, InlineImage, Listing
+from docxtpl import DocxTemplate, InlineImage, Listing, RichText
 from fastapi import HTTPException, status
 
 from app.core.config import config
@@ -74,6 +75,14 @@ SIGNATURE_IMAGE_EXTENSIONS = {
     "image/png": "png",
     "image/jpeg": "jpg",
 }
+RICH_TEXT_CONTEXT_FIELDS = (
+    "base_intro",
+    "student_presentation",
+    "practice_description",
+    "minimum_hours_clause",
+    "insurance_clause",
+    "closing_text",
+)
 
 
 @dataclass(frozen=True)
@@ -103,6 +112,7 @@ class PresentationLetterPreviewTemplate:
     student_presentation_template: str
     practice_description: str
     minimum_hours: int
+    minimum_hours_clause: str
     learning_outcomes: list[str]
     insurance_clause: str
     closing_text: str
@@ -214,6 +224,7 @@ class PresentationLetterService:
         template.student_presentation_template = payload.student_presentation_template
         template.practice_description = payload.practice_description
         template.minimum_hours = payload.minimum_hours
+        template.minimum_hours_clause = payload.minimum_hours_clause
         template.learning_outcomes = payload.learning_outcomes
         template.insurance_clause = payload.insurance_clause
         template.closing_text = payload.closing_text
@@ -245,6 +256,7 @@ class PresentationLetterService:
             student_presentation_template=payload.student_presentation_template,
             practice_description=payload.practice_description,
             minimum_hours=payload.minimum_hours,
+            minimum_hours_clause=payload.minimum_hours_clause,
             learning_outcomes=payload.learning_outcomes,
             insurance_clause=payload.insurance_clause,
             closing_text=payload.closing_text,
@@ -544,35 +556,31 @@ class PresentationLetterService:
         ]
         learning_text = "\n".join(f"• {outcome}" for outcome in rendered_learning_outcomes)
         variables["learning_outcomes"] = learning_text
-        practice_label = self._render_template_text(template.subtitle, variables).replace(
-            "Estudiante en ",
-            "",
-        )
+        paragraph_templates = [
+            template.base_intro,
+            template.student_presentation_template,
+            template.practice_description,
+            template.minimum_hours_clause,
+        ]
 
         return {
             "date": f"Temuco, {generated_at.day} de {MONTHS_ES[generated_at.month]} del {generated_at.year}",
             "title": self._render_template_text(template.title, variables).upper(),
             "subtitle": self._render_template_text(template.subtitle, variables),
             "greeting": "A quien corresponda:",
+            "paragraph_templates": paragraph_templates,
             "paragraphs": [
-                self._render_template_text(template.base_intro, variables),
-                self._render_template_text(
-                    template.student_presentation_template,
-                    variables,
-                ),
-                self._render_template_text(template.practice_description, variables),
-                (
-                    "Es importante destacar que la duración mínima de la "
-                    f"{practice_label} es de {template.minimum_hours} horas cronológicas, "
-                    "y que una vez completada con éxito el/la estudiante debe ser "
-                    "capaz de evidenciar los siguientes aprendizajes:"
-                ),
+                self._render_template_text(text, variables)
+                for text in paragraph_templates
             ],
             "learning_outcomes": rendered_learning_outcomes,
+            "variables": variables,
+            "insurance_clause_template": template.insurance_clause,
             "insurance_clause": self._render_template_text(
                 template.insurance_clause,
                 variables,
             ),
+            "closing_text_template": template.closing_text,
             "closing_text": self._render_template_text(template.closing_text, variables),
             "signature_image_path": (
                 self._resolve_storage_key(signature_image_path)
@@ -615,13 +623,37 @@ class PresentationLetterService:
         template_path = self._resolve_docx_template_path()
         with tempfile.TemporaryDirectory(prefix="presentation-letter-") as temp_dir:
             output_dir = Path(temp_dir)
+            rich_text_template = output_dir / "plantilla-carta.docx"
             rendered_docx = output_dir / "carta-presentacion.docx"
 
-            docx_template = DocxTemplate(str(template_path))
+            self._prepare_rich_text_template(
+                source=template_path,
+                destination=rich_text_template,
+            )
+            docx_template = DocxTemplate(str(rich_text_template))
             docx_template.render(self._build_docx_context(document, docx_template))
             docx_template.save(str(rendered_docx))
 
             return self._convert_docx_to_pdf(rendered_docx, output_dir)
+
+    @staticmethod
+    def _prepare_rich_text_template(*, source: Path, destination: Path) -> None:
+        """Convierte marcadores de texto editable en marcadores RichText."""
+
+        document = WordDocument(str(source))
+        placeholders = {
+            f"{{{{ {field} }}}}": f"{{{{r {field} }}}}"
+            for field in RICH_TEXT_CONTEXT_FIELDS
+        }
+
+        for paragraph in document.paragraphs:
+            replacement = placeholders.get(paragraph.text.strip())
+            if replacement is None:
+                continue
+            paragraph.clear()
+            paragraph.add_run(replacement)
+
+        document.save(str(destination))
 
     def _resolve_docx_template_path(self) -> Path:
         template_path = self.docx_template_path.resolve()
@@ -641,7 +673,8 @@ class PresentationLetterService:
         document: dict[str, object],
         docx_template: DocxTemplate | None = None,
     ) -> dict[str, object]:
-        paragraphs = list(document["paragraphs"])
+        paragraph_templates = list(document["paragraph_templates"])
+        variables = dict(document["variables"])
         learning_outcomes_text = "\n".join(
             f"• {outcome}" for outcome in document["learning_outcomes"]
         )
@@ -657,18 +690,52 @@ class PresentationLetterService:
             "title": document["title"],
             "subtitle": document["subtitle"],
             "greeting": document["greeting"],
-            "base_intro": paragraphs[0],
-            "student_presentation": paragraphs[1],
-            "practice_description": paragraphs[2],
-            "minimum_hours_clause": paragraphs[3],
+            "base_intro": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[0],
+                variables,
+            ),
+            "student_presentation": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[1],
+                variables,
+            ),
+            "practice_description": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[2],
+                variables,
+            ),
+            "minimum_hours_clause": PresentationLetterService._render_template_rich_text(
+                paragraph_templates[3],
+                variables,
+            ),
             "learning_outcomes_text": Listing(learning_outcomes_text),
-            "insurance_clause": document["insurance_clause"],
-            "closing_text": document["closing_text"],
+            "insurance_clause": PresentationLetterService._render_template_rich_text(
+                str(document["insurance_clause_template"]),
+                variables,
+            ),
+            "closing_text": PresentationLetterService._render_template_rich_text(
+                str(document["closing_text_template"]),
+                variables,
+            ),
             "signature_image": signature_image,
             "signature_name": document["signature_name"],
             "signature_role": document["signature_role"],
             "signature_institution": document["signature_institution"],
         }
+
+    @staticmethod
+    def _render_template_rich_text(
+        text: str,
+        variables: dict[str, str],
+    ) -> RichText:
+        """Renderiza variables como segmentos en negrita dentro de un párrafo."""
+
+        rich_text = RichText()
+        for part in re.split(r"({{[a-z_]+}})", text):
+            match = re.fullmatch(r"{{([a-z_]+)}}", part)
+            if match and match.group(1) in variables:
+                rich_text.add(variables[match.group(1)], bold=True)
+            elif part:
+                rich_text.add(part)
+        return rich_text
 
     @staticmethod
     def _validate_signature_image(
