@@ -1,0 +1,391 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: Admin API tests
+meta:
+  id: wrk_admin_api_tests
+  created: 1781203000000
+  modified: 1781203000000
+  description: "Coleccion minima para QA manual del modulo admin y reportes."
+collection:
+  - name: Setup
+    meta:
+      id: fld_admin_setup
+      created: 1781203000001
+      modified: 1781203000001
+      sortKey: -1781203000001
+      description: "Logins por rol y estado base para requests administrativos."
+    children:
+      - name: POST Login encargado demo
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_admin_login_manager
+          created: 1781203000002
+          modified: 1781203000002
+          isPrivate: false
+          description: "Guarda practice_manager_access_token para summary, students e internships."
+          sortKey: -1781203000002
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "email": "{{ _.practice_manager_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("practice_manager_access_token", body.access_token);
+              insomnia.environment.set("access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("practice_manager_refresh_token", body.refresh_token);
+              insomnia.environment.set("refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: POST Login director demo
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_admin_login_director
+          created: 1781203000003
+          modified: 1781203000003
+          isPrivate: false
+          description: "Guarda director_access_token para validaciones de seguro escolar."
+          sortKey: -1781203000003
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "email": "{{ _.director_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("director_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("director_refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: POST Login estudiante demo
+        url: "{{ _.base_url }}/auth/login"
+        meta:
+          id: req_admin_login_student
+          created: 1781203000004
+          modified: 1781203000004
+          isPrivate: false
+          description: "Guarda student_access_token para probar denegacion de acceso."
+          sortKey: -1781203000004
+        method: POST
+        body:
+          mimeType: application/json
+          text: |-
+            {
+              "email": "{{ _.student_email }}",
+              "password": "{{ _.test_password }}"
+            }
+        headers:
+          - name: Content-Type
+            value: application/json
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (body.access_token) {
+              insomnia.environment.set("student_access_token", body.access_token);
+            }
+            if (body.refresh_token) {
+              insomnia.environment.set("student_refresh_token", body.refresh_token);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: Happy path
+    meta:
+      id: fld_admin_happy
+      created: 1781203000010
+      modified: 1781203000010
+      sortKey: -1781203000010
+      description: "Lectura administrativa base y reporte agregado."
+    children:
+      - name: GET Admin Summary
+        url: "{{ _.base_url }}/admin/summary"
+        meta:
+          id: req_admin_summary
+          created: 1781203000011
+          modified: 1781203000011
+          isPrivate: false
+          description: "Obtiene el resumen administrativo visible para encargado o director."
+          sortKey: -1781203000011
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.practice_manager_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Admin Students
+        url: "{{ _.base_url }}/admin/students"
+        meta:
+          id: req_admin_students
+          created: 1781203000012
+          modified: 1781203000012
+          isPrivate: false
+          description: "Lista estudiantes visibles en el panel administrativo."
+          sortKey: -1781203000012
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.practice_manager_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (Array.isArray(body) && body.length > 0 && body[0].id) {
+              insomnia.environment.set("student_id", body[0].id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Admin Internships
+        url: "{{ _.base_url }}/admin/internships"
+        meta:
+          id: req_admin_internships
+          created: 1781203000013
+          modified: 1781203000013
+          isPrivate: false
+          description: "Lista practicas visibles en el panel administrativo."
+          sortKey: -1781203000013
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.practice_manager_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        scripts:
+          afterResponse: |-
+            const body = insomnia.response.json();
+
+            if (Array.isArray(body) && body.length > 0 && body[0].id) {
+              insomnia.environment.set("internship_id", body[0].id);
+            }
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Admin Report Dashboard
+        url: "{{ _.base_url }}/admin/reports/dashboard"
+        meta:
+          id: req_admin_report_dashboard
+          created: 1781203000014
+          modified: 1781203000014
+          isPrivate: false
+          description: "Obtiene metricas agregadas para analisis institucional."
+          sortKey: -1781203000014
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.director_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Student Registration Requirements
+        url: "{{ _.base_url }}/admin/students/{{ _.student_id }}/registration-requirements"
+        meta:
+          id: req_admin_registration_requirements
+          created: 1781203000015
+          modified: 1781203000015
+          isPrivate: false
+          description: "Consulta prerrequisitos institucionales del estudiante."
+          sortKey: -1781203000015
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.director_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+  - name: Errores esperados
+    meta:
+      id: fld_admin_errors
+      created: 1781203000020
+      modified: 1781203000020
+      sortKey: -1781203000020
+      description: "Casos minimos de falta de token, rol incorrecto y recurso inexistente."
+    children:
+      - name: GET Admin Summary (sin token)
+        url: "{{ _.base_url }}/admin/summary"
+        meta:
+          id: req_admin_summary_without_token
+          created: 1781203000021
+          modified: 1781203000021
+          isPrivate: false
+          description: "Debe responder 401 cuando falta Authorization."
+          sortKey: -1781203000021
+        method: GET
+        headers:
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Admin Summary (rol incorrecto)
+        url: "{{ _.base_url }}/admin/summary"
+        meta:
+          id: req_admin_summary_wrong_role
+          created: 1781203000022
+          modified: 1781203000022
+          isPrivate: false
+          description: "Debe responder 403 si un estudiante intenta abrir el panel admin."
+          sortKey: -1781203000022
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.student_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+      - name: GET Admin Internship Detail (404)
+        url: "{{ _.base_url }}/admin/internships/999999"
+        meta:
+          id: req_admin_internship_404
+          created: 1781203000023
+          modified: 1781203000023
+          isPrivate: false
+          description: "Debe responder 404 cuando la practica no existe."
+          sortKey: -1781203000023
+        method: GET
+        headers:
+          - name: Authorization
+            value: "Bearer {{ _.practice_manager_access_token }}"
+          - name: User-Agent
+            value: insomnia/12.6.0
+            disabled: false
+        settings:
+          renderRequestBody: true
+          encodeUrl: true
+          followRedirects: global
+          cookies:
+            send: true
+            store: true
+          rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_admin_api_tests
+    created: 1781203000030
+    modified: 1781203000030
+environments:
+  name: Base Environment
+  meta:
+    id: env_admin_api_tests
+    created: 1781203000040
+    modified: 1781203000040
+    isPrivate: false
+  data:
+    base_url: http://127.0.0.1:8000
+    test_password: demo-password
+    practice_manager_email: encargado.practicas@ufrontera.cl
+    director_email: director.carrera@ufrontera.cl
+    student_email: estudiante.demo@ufromail.cl
+    access_token: ""
+    refresh_token: ""
+    practice_manager_access_token: ""
+    practice_manager_refresh_token: ""
+    director_access_token: ""
+    director_refresh_token: ""
+    student_access_token: ""
+    student_refresh_token: ""
+    student_id: ""
+    internship_id: ""
