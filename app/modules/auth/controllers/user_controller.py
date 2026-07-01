@@ -68,21 +68,24 @@ from app.modules.notifications.utils.notification_event_helpers import (
 router = APIRouter(prefix="/users", tags=["Users"])
 logger = logging.getLogger(__name__)
 
-PRACTICE_TYPE_ORDER = (
-    PracticeTypeEnum.practice_1,
-    PracticeTypeEnum.practice_2,
+FINAL_PRACTICE_TYPES = (
     PracticeTypeEnum.controlled_practice,
     PracticeTypeEnum.thesis,
 )
 REQUIREMENT_PENDING_STATUS = "Pendiente"
-REQUIREMENT_APPROVED_STATUS = "Aprobada"
 REQUIREMENT_CURRENT_STATUSES = {"Habilitada", "En revisión"}
 PROGRESS_TERMINAL_REJECTED_STATUSES = {"Anulada", "Rechazada", "Reprobada"}
 COMPLETION_STATUS_LABELS = {
     CompletionStatusEnum.in_progress.value: "En curso",
     CompletionStatusEnum.pending_evaluations.value: "Pendiente de evaluaciones",
     CompletionStatusEnum.pending_presentation.value: "Pendiente de presentación",
-    CompletionStatusEnum.finalized.value: "Finalizada",
+}
+REQUEST_STATUS_LABELS = {
+    "Pendiente": "Solicitud pendiente",
+    "En revisión": "Solicitud en revisión",
+    "En revisión DIRAE": "Solicitud en revisión DIRAE",
+    "Aprobada": "Solicitud aprobada",
+    "Rechazada": "Solicitud rechazada",
 }
 
 
@@ -156,30 +159,120 @@ def _display_progress_status(
     completion_status = _enum_value(getattr(internship, "completion_status", None))
     final_result = _enum_value(getattr(internship, "final_result", None))
 
-    if (
-        completion_status == CompletionStatusEnum.finalized.value
-        and final_result == FinalResultEnum.failed.value
-    ):
-        return "Reprobada"
+    if completion_status == CompletionStatusEnum.finalized.value:
+        if final_result == FinalResultEnum.passed.value:
+            return "Práctica completada"
+        if final_result == FinalResultEnum.failed.value:
+            return "Práctica reprobada"
+        return "Finalizada, resultado pendiente"
 
     if completion_status in COMPLETION_STATUS_LABELS:
         return COMPLETION_STATUS_LABELS[completion_status]
 
-    return _status_title(internship) or requirement_status
-
-
-def _is_progress_completed(
-    requirement_status: str,
-    internship: Internship | None,
-) -> bool:
-    final_result = _enum_value(getattr(internship, "final_result", None))
-    if final_result == FinalResultEnum.failed.value:
-        return False
-
-    return (
-        requirement_status == REQUIREMENT_APPROVED_STATUS
-        or final_result == FinalResultEnum.passed.value
+    request_status = _status_title(internship)
+    return REQUEST_STATUS_LABELS.get(
+        request_status,
+        request_status or requirement_status,
     )
+
+
+def _is_progress_completed(internship: Internship | None) -> bool:
+    completion_status = _enum_value(getattr(internship, "completion_status", None))
+    final_result = _enum_value(getattr(internship, "final_result", None))
+    return (
+        completion_status == CompletionStatusEnum.finalized.value
+        and final_result == FinalResultEnum.passed.value
+    )
+
+
+def _build_progress_item(
+    *,
+    user_id: int,
+    stage: Literal["practice_1", "practice_2", "final_option"],
+    label: str,
+    practice_type: PracticeTypeEnum | None,
+    available_types: list[PracticeTypeEnum],
+    requirements_by_user: dict[int, dict[str, str]],
+    latest_internships: dict[tuple[int, str], Internship],
+) -> StudentPracticeProgressItem:
+    if practice_type is None:
+        return StudentPracticeProgressItem(
+            stage=stage,
+            label=label,
+            type=None,
+            available_types=available_types,
+            requirement_status=REQUIREMENT_PENDING_STATUS,
+            display_status=REQUIREMENT_PENDING_STATUS,
+        )
+
+    practice_type_value = practice_type.value
+    requirement_status = requirements_by_user[user_id].get(
+        practice_type_value,
+        REQUIREMENT_PENDING_STATUS,
+    )
+    internship = latest_internships.get((user_id, practice_type_value))
+
+    return StudentPracticeProgressItem(
+        stage=stage,
+        label=label,
+        type=practice_type,
+        available_types=available_types,
+        requirement_status=requirement_status,
+        display_status=_display_progress_status(requirement_status, internship),
+        internship_id=getattr(internship, "id", None),
+        request_status=_status_title(internship),
+        completion_status=_enum_value(
+            getattr(internship, "completion_status", None)
+        ),
+        final_result=_enum_value(getattr(internship, "final_result", None)),
+        is_completed=_is_progress_completed(internship),
+    )
+
+
+def _select_final_practice_type(
+    *,
+    user_id: int,
+    requirements_by_user: dict[int, dict[str, str]],
+    latest_internships: dict[tuple[int, str], Internship],
+) -> PracticeTypeEnum | None:
+    candidates = []
+    for practice_type in FINAL_PRACTICE_TYPES:
+        requirement_status = requirements_by_user[user_id].get(
+            practice_type.value,
+            REQUIREMENT_PENDING_STATUS,
+        )
+        internship = latest_internships.get((user_id, practice_type.value))
+        candidates.append((practice_type, requirement_status, internship))
+
+    completed = [
+        candidate
+        for candidate in candidates
+        if _is_progress_completed(candidate[2])
+    ]
+    if completed:
+        return max(completed, key=lambda candidate: _internship_sort_key(candidate[2]))[0]
+
+    active = [
+        candidate
+        for candidate in candidates
+        if candidate[2] is not None
+        and _status_title(candidate[2]) not in PROGRESS_TERMINAL_REJECTED_STATUSES
+    ]
+    if active:
+        return max(active, key=lambda candidate: _internship_sort_key(candidate[2]))[0]
+
+    with_history = [candidate for candidate in candidates if candidate[2] is not None]
+    if with_history:
+        return max(
+            with_history,
+            key=lambda candidate: _internship_sort_key(candidate[2]),
+        )[0]
+
+    for practice_type, requirement_status, _ in candidates:
+        if requirement_status != REQUIREMENT_PENDING_STATUS:
+            return practice_type
+
+    return None
 
 
 def _select_current_progress_item(
@@ -232,34 +325,44 @@ def _build_academic_progress_by_user(
 
     progress_by_user: dict[int, StudentAcademicProgressResponse] = {}
     for user_id in user_ids:
-        items: list[StudentPracticeProgressItem] = []
-
-        for practice_type in PRACTICE_TYPE_ORDER:
-            practice_type_value = practice_type.value
-            requirement_status = requirements_by_user[user_id].get(
-                practice_type_value,
-                REQUIREMENT_PENDING_STATUS,
-            )
-            internship = latest_internships.get((user_id, practice_type_value))
-            display_status = _display_progress_status(requirement_status, internship)
-
-            items.append(
-                StudentPracticeProgressItem(
-                    type=practice_type,
-                    requirement_status=requirement_status,
-                    display_status=display_status,
-                    internship_id=getattr(internship, "id", None),
-                    request_status=_status_title(internship),
-                    completion_status=_enum_value(
-                        getattr(internship, "completion_status", None)
-                    ),
-                    final_result=_enum_value(getattr(internship, "final_result", None)),
-                    is_completed=_is_progress_completed(
-                        requirement_status,
-                        internship,
-                    ),
-                )
-            )
+        final_practice_type = _select_final_practice_type(
+            user_id=user_id,
+            requirements_by_user=requirements_by_user,
+            latest_internships=latest_internships,
+        )
+        items = [
+            _build_progress_item(
+                user_id=user_id,
+                stage="practice_1",
+                label=PracticeTypeEnum.practice_1.value,
+                practice_type=PracticeTypeEnum.practice_1,
+                available_types=[PracticeTypeEnum.practice_1],
+                requirements_by_user=requirements_by_user,
+                latest_internships=latest_internships,
+            ),
+            _build_progress_item(
+                user_id=user_id,
+                stage="practice_2",
+                label=PracticeTypeEnum.practice_2.value,
+                practice_type=PracticeTypeEnum.practice_2,
+                available_types=[PracticeTypeEnum.practice_2],
+                requirements_by_user=requirements_by_user,
+                latest_internships=latest_internships,
+            ),
+            _build_progress_item(
+                user_id=user_id,
+                stage="final_option",
+                label=(
+                    final_practice_type.value
+                    if final_practice_type is not None
+                    else "Práctica Controlada o Tesis"
+                ),
+                practice_type=final_practice_type,
+                available_types=list(FINAL_PRACTICE_TYPES),
+                requirements_by_user=requirements_by_user,
+                latest_internships=latest_internships,
+            ),
+        ]
 
         current_item = _select_current_progress_item(items)
         if current_item is not None:
@@ -269,6 +372,7 @@ def _build_academic_progress_by_user(
             completed_count=sum(1 for item in items if item.is_completed),
             total_count=len(items),
             current_type=current_item.type if current_item is not None else None,
+            current_label=current_item.label if current_item is not None else None,
             current_status=current_item.display_status if current_item is not None else None,
             items=items,
         )

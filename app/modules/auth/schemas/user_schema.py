@@ -253,9 +253,12 @@ class UserResponse(BaseModel):
 
 
 class StudentPracticeProgressItem(BaseModel):
-    """Estado académico de un tipo de práctica para un estudiante."""
+    """Estado académico de una etapa del plan de prácticas."""
 
-    type: PracticeTypeEnum
+    stage: Literal["practice_1", "practice_2", "final_option"]
+    label: str
+    type: PracticeTypeEnum | None = None
+    available_types: list[PracticeTypeEnum] = Field(default_factory=list)
     requirement_status: str
     display_status: str
     internship_id: int | None = None
@@ -272,6 +275,7 @@ class StudentAcademicProgressResponse(BaseModel):
     completed_count: int
     total_count: int
     current_type: PracticeTypeEnum | None = None
+    current_label: str | None = None
     current_status: str | None = None
     items: list[StudentPracticeProgressItem]
 

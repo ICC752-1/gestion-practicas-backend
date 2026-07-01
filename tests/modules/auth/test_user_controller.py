@@ -156,14 +156,88 @@ def test_build_academic_progress_marks_current_practice() -> None:
     )[7]
 
     assert progress.completed_count == 1
-    assert progress.total_count == 4
+    assert progress.total_count == 3
     assert progress.current_type == "Práctica de Estudio II"
+    assert progress.current_label == "Práctica de Estudio II"
     assert progress.current_status == "En curso"
     assert [item.type for item in progress.items] == [
         "Práctica de Estudio I",
         "Práctica de Estudio II",
+        None,
+    ]
+    assert progress.items[2].label == "Práctica Controlada o Tesis"
+    assert progress.items[2].available_types == [
         "Práctica Controlada",
         "Tesis",
     ]
     assert progress.items[0].is_completed is True
     assert progress.items[1].is_current is True
+
+
+def test_academic_progress_does_not_complete_an_approved_request() -> None:
+    requirements = [
+        SimpleNamespace(
+            user_id=7,
+            type="Práctica de Estudio I",
+            status="Aprobada",
+        ),
+    ]
+    internships = [
+        SimpleNamespace(
+            id=11,
+            user_id=7,
+            internship_type="Práctica de Estudio I",
+            status=SimpleNamespace(title="Aprobada"),
+            completion_status="not_started",
+            final_result="pending",
+            is_cancelled=False,
+        ),
+    ]
+
+    progress = _build_academic_progress_by_user(
+        user_ids=[7],
+        requirements=requirements,
+        internships=internships,
+    )[7]
+
+    assert progress.completed_count == 0
+    assert progress.current_type == "Práctica de Estudio I"
+    assert progress.current_status == "Solicitud aprobada"
+    assert progress.items[0].is_completed is False
+
+
+def test_academic_progress_counts_one_selected_final_option() -> None:
+    practice_types = [
+        "Práctica de Estudio I",
+        "Práctica de Estudio II",
+        "Tesis",
+    ]
+    requirements = [
+        SimpleNamespace(user_id=7, type=practice_type, status="Aprobada")
+        for practice_type in practice_types
+    ]
+    internships = [
+        SimpleNamespace(
+            id=index,
+            user_id=7,
+            internship_type=practice_type,
+            status=SimpleNamespace(title="Aprobada"),
+            completion_status="finalized",
+            final_result="passed",
+            is_cancelled=False,
+        )
+        for index, practice_type in enumerate(practice_types, start=11)
+    ]
+
+    progress = _build_academic_progress_by_user(
+        user_ids=[7],
+        requirements=requirements,
+        internships=internships,
+    )[7]
+
+    assert progress.completed_count == 3
+    assert progress.total_count == 3
+    assert progress.current_type is None
+    assert progress.items[2].type == "Tesis"
+    assert progress.items[2].label == "Tesis"
+    assert progress.items[2].is_completed is True
