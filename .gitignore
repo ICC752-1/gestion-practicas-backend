@@ -10,3 +10,4 @@ __pycache__/
 /logs
 logs/
 storage/
+/reports/
